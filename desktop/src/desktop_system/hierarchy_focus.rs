@@ -14,20 +14,24 @@ impl OrderedHierarchy<DesktopTarget> {
             return None;
         }
 
-        if let Some(neighbor) = {
-            let focused_path = self.resolve_path(Some(focused));
-            if focused_path.instance() != Some(instance) {
-                return None;
-            }
-            let instance_target = DesktopTarget::Instance(instance);
-            self.entry(&instance_target)
-                .neighbor(DirectionBias::Begin)
-                .cloned()
-        } {
+        if let Some(neighbor) = self.resolve_neighbor_for_stopping_instance(focused, instance) {
             return Some(self.resolve_keyboard_focus_target(&neighbor));
         }
 
         Some(DesktopTarget::Launcher(self.launcher_of_instance(instance)))
+    }
+
+    fn resolve_neighbor_for_stopping_instance(
+        &self,
+        focused: &DesktopTarget,
+        instance: InstanceId,
+    ) -> Option<DesktopTarget> {
+        if self.resolve_path(Some(focused)).instance() != Some(instance) {
+            return None;
+        }
+        self.entry(&DesktopTarget::Instance(instance))
+            .neighbor(DirectionBias::Begin)
+            .cloned()
     }
 
     /// Resolves an instance to its sole view when present, so keyboard focus reaches the view;
@@ -114,19 +118,7 @@ mod tests {
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         let focused = DesktopTarget::Instance(second);
-        let neighbor = {
-            let this = &hierarchy;
-            let focused: &DesktopTarget = &focused;
-            let focused_path = this.resolve_path(Some(focused));
-            if focused_path.instance() != Some(first) {
-                None
-            } else {
-                let instance_target = DesktopTarget::Instance(first);
-                this.entry(&instance_target)
-                    .neighbor(DirectionBias::Begin)
-                    .cloned()
-            }
-        };
+        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
         assert_eq!(neighbor, None);
     }
@@ -138,19 +130,7 @@ mod tests {
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         let focused = DesktopTarget::Instance(first);
-        let neighbor = {
-            let this = &hierarchy;
-            let focused: &DesktopTarget = &focused;
-            let focused_path = this.resolve_path(Some(focused));
-            if focused_path.instance() != Some(first) {
-                None
-            } else {
-                let instance_target = DesktopTarget::Instance(first);
-                this.entry(&instance_target)
-                    .neighbor(DirectionBias::Begin)
-                    .cloned()
-            }
-        };
+        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
         assert_eq!(neighbor, Some(DesktopTarget::Instance(second)));
     }

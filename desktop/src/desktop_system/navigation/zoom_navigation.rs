@@ -42,13 +42,13 @@ impl DesktopSystem {
                     (Some(ZoomLevel::Project) | None, Some(_)) => {
                         self.focus_at_zoom_level(DesktopTarget::Project(project), ZoomLevel::Focus)
                     }
-                    (Some(level), _) => self.commit_zoom_level(level),
+                    (Some(level), _) => self.set_zoom_level(level),
                     // The root project is the outermost frame.
                     (None, None) => Changes::Empty,
                 }
             }
             Zoom::In => match self.zoom_level.zoom_in(instance_target).filter(|_| in_slot) {
-                Some(level) => self.commit_zoom_level(level),
+                Some(level) => self.set_zoom_level(level),
                 None => match project_of_project_target(focused) {
                     Some(entered) => self.plan_enter_project_slot(entered),
                     None => Changes::Empty,
@@ -69,12 +69,13 @@ impl DesktopSystem {
         let Some(content) = self.last_focused_content(project).or_else(|| {
             self.aggregates
                 .configuration
-                .slots_ordered(project)
+                .first_slot(project)
                 .map(|(_, content)| content)
-                .next()
         }) else {
             return Changes::Empty;
         };
+        // Enter at Row so one zoom step reveals the project's contents before narrowing to a
+        // slot or instance. Restore the last focused slot to preserve the user's position.
         self.focus_at_zoom_level(self.slot_focus_target(content.target()), ZoomLevel::Row)
     }
 
@@ -83,15 +84,15 @@ impl DesktopSystem {
         if self.event_router.keyboard_focus() != Some(&target) {
             changes += set_focus(Some(target), KeyboardFocusReason::Zoom);
         }
-        changes += self.commit_zoom_level(level);
+        changes += self.set_zoom_level(level);
         changes
     }
 
-    fn commit_zoom_level(&self, level: ZoomLevel) -> Changes {
+    fn set_zoom_level(&self, level: ZoomLevel) -> Changes {
         if level == self.zoom_level {
             return Changes::Empty;
         }
-        DesktopChange::CommitZoomLevel(level).into()
+        DesktopChange::SetZoomLevel(level).into()
     }
 
     pub fn resolve_camera_for_target(
@@ -127,15 +128,15 @@ impl DesktopSystem {
             .expect("a live project must have camera bounds")
     }
 
-    /// Whether `level` frames `target` itself.
+    /// Whether the camera points at `target` itself at `level`.
     pub fn is_fully_zoomed_in(&self, target: &DesktopTarget, level: ZoomLevel) -> bool {
         level.normalized(is_instance_target(target)) == ZoomLevel::Focus
     }
 
-    /// What the camera frames and the nesting depth of the zoom project (root = 0).
+    /// What the camera points at and the nesting depth of the zoom project (root = 0).
     ///
-    /// `Focus` on a target other than an instance frames its slot and reads as `Slot`; a target
-    /// without a slot frames its project.
+    /// `Focus` on a target other than an instance points at its slot and reads as `Slot`; a target
+    /// without a slot points at its project.
     pub fn focused_zoom_level(&self) -> Option<(ZoomLevel, usize)> {
         self.event_router.keyboard_focus().map(|focused| {
             let project = self.project_of(focused);

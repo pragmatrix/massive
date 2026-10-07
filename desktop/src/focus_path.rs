@@ -35,7 +35,7 @@ impl<T: PartialEq> FocusPath<T> {
     }
 
     /// The innermost target of the path, the one keyboard focus sits on.
-    pub fn last(&self) -> Option<&T> {
+    pub fn focused(&self) -> Option<&T> {
         self.0.last()
     }
 

@@ -575,7 +575,7 @@ impl RuntimeConfiguration {
     }
 
     /// The document-order index of the project, which is what orders the projects
-    /// on screen: `RemoveProject` by name removes the nearest one.
+    /// on screen: Project removal by name removes the nearest one.
     pub fn project_index(&self, project: ProjectId) -> Option<usize> {
         self.projects.get_index_of(&project)
     }
@@ -641,7 +641,7 @@ impl RuntimeConfiguration {
 
     /// The placement index of the launcher within its project, counting the launchers in
     /// placement order: Manhattan distance between those indexes is the matrix distance
-    /// `RemoveLauncher` by name picks the nearest launcher by.
+    /// Launcher removal by name picks the nearest launcher by.
     pub fn launcher_index(&self, launcher: LaunchProfileId) -> Option<usize> {
         let project = self.project_of_launcher(launcher)?;
         project.launchers().position(|l| l.id == launcher)
@@ -670,6 +670,15 @@ impl RuntimeConfiguration {
     ) -> Option<SlotContent> {
         self.project(project)
             .and_then(|project| project.content_at(placement))
+    }
+
+    /// The placement of `content` within `project`'s matrix.
+    pub fn placement_of_content(
+        &self,
+        project: ProjectId,
+        content: impl Into<SlotContent>,
+    ) -> Option<MatrixPlacement> {
+        self.project(project)?.placement_of_content(content)
     }
 
     /// All launchers of the project, kept in matrix-placement order (the
@@ -714,6 +723,11 @@ impl RuntimeConfiguration {
                 .iter()
                 .map(|slot| (slot.placement, slot.content()))
         })
+    }
+
+    /// The first assigned slot of `project` in matrix-placement order.
+    pub fn first_slot(&self, project: ProjectId) -> Option<(MatrixPlacement, SlotContent)> {
+        self.slots_ordered(project).next()
     }
 
     pub fn project(&self, id: ProjectId) -> Option<&Project> {

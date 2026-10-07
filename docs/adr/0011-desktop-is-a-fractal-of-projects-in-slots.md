@@ -210,9 +210,9 @@ to it.
 
 ### Requests and CLI
 
-- `ConfigurationRequest` follows the CLI vocabulary: `AssignLauncher` and
-  `AssignProject` (`name`, `column`, `row`, `under`, and a `SlotShift`
-  defaulting to `Shift`), `RemoveLauncher`, `RemoveProject`, directional
+- `ConfigurationRequest` uses `Assign` (`target: Project|Launcher`, `name`,
+  `column`, `row`, `under`, and a `SlotShift` defaulting to `Shift`) and
+  `Remove` (`target`, optional `name`), directional
   `MoveLauncher` and `PushLauncher` within the current matrix, `SetStartup`,
   plus `Resize`, `Undo` and `Redo`. The dispatcher translates them into slot
   changes.

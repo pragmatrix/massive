@@ -40,11 +40,11 @@ pub enum DesktopChange {
         // None: Completely removes the focus from the application.
         target: Option<DesktopTarget>,
     },
-    /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
+    /// Sets the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
-    CommitNavigationAffinity(Option<u32>),
-    /// Commits the camera's zoom level (ADR 0018).
-    CommitZoomLevel(ZoomLevel),
+    SetNavigationAffinity(Option<u32>),
+    /// Sets the camera's zoom level (ADR 0018).
+    SetZoomLevel(ZoomLevel),
     /// Toggles the Full Screen Mode of the focused launcher (its base instances)
     /// or, when an assistant instance is focused, of that instance (ADR 0014).
     ToggleFullScreenMode(ToggleFullScreenModeTarget),
@@ -80,7 +80,7 @@ pub struct InstancePresentation {
 pub enum Zoom {
     In,
     Out,
-    /// Frames the focused target at `Focus`; a project target is entered down to its focused
+    /// Points the camera at the focused target at `Focus`; a project target is entered down to its focused
     /// leaf first (ADR 0018).
     Enter,
 }
@@ -130,7 +130,7 @@ pub enum ConfigurationChange {
 pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
     let mut changes: Changes = DesktopChange::SetFocus { target }.into();
     if reason.resets_navigation_affinity() {
-        changes <<= DesktopChange::CommitNavigationAffinity(None);
+        changes <<= DesktopChange::SetNavigationAffinity(None);
     }
     changes
 }

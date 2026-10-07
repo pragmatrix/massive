@@ -36,10 +36,9 @@ pub struct Desktop {
 
     renderer: AsyncWindowRenderer,
     system: DesktopSystem,
-    /// The configuration document, persisted when a transaction reports an
-    /// applied configuration change (ADR 0013). Setup replays the changes the
-    /// parsed file carries, so it persists nothing.
-    configuration_document: ConfigurationPersistence,
+    /// Persists configuration changes after a transaction (ADR 0013).
+    /// Setup replays the parsed configuration without persisting it.
+    configuration_persistence: ConfigurationPersistence,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -59,7 +58,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let (configuration_document, configuration) = load_configuration(&env)?;
+        let (configuration_persistence, configuration) = load_configuration(&env)?;
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -171,7 +170,7 @@ impl Desktop {
             window_presentation_state: presentation_state,
             renderer,
             system,
-            configuration_document,
+            configuration_persistence,
             event_manager,
             instance_manager,
             instance_submissions: submissions_rx,
@@ -222,8 +221,7 @@ impl Desktop {
                                 if let ViewEvent::Resized(size_px) = &view_event {
                                     // For some reason this does not match.
                                     // `debug_assert_eq!(self.window.inner_size(), *size_px);`
-                                    // The system dedups against its own committed
-                                    // state; unchanged resize events no-op there.
+                                    // The system ignores resize events that match its current state.
                                     desktop_changes <<= DesktopChange::WindowResized(
                                         WindowState::new(*size_px, self.window.is_fullscreen()),
                                     );
@@ -391,7 +389,7 @@ impl Desktop {
             match effect {
                 DesktopSystemEffect::ToggleWindowFullScreen => self.window.toggle_fullscreen()?,
                 DesktopSystemEffect::PersistConfiguration => self
-                    .configuration_document
+                    .configuration_persistence
                     .persist(self.system.configuration()),
             }
         }

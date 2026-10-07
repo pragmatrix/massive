@@ -96,11 +96,12 @@ pub enum InstanceChange {
     End(Ref<Location>),
 }
 
-/// Request variants follow the CLI command vocabulary; keep them aligned as either surface changes.
+/// Requests sent by the terminal CLI as JSON over its desktop request stream.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ConfigurationRequest {
     AddLauncher,
-    AssignProject {
+    Assign {
+        target: ConfigurationTarget,
         name: String,
         column: u32,
         row: u32,
@@ -108,20 +109,9 @@ pub enum ConfigurationRequest {
         #[serde(default)]
         shift: SlotShift,
     },
-    // `name` is for removing a specific project without selecting it first.
-    RemoveProject {
-        name: Option<String>,
-    },
-    AssignLauncher {
-        name: String,
-        column: u32,
-        row: u32,
-        under: Option<String>,
-        #[serde(default)]
-        shift: SlotShift,
-    },
-    // `name` is for removing a specific launcher without selecting it first.
-    RemoveLauncher {
+    /// `name` selects a specific project or launcher without focusing it first.
+    Remove {
+        target: ConfigurationTarget,
         name: Option<String>,
     },
     MoveLauncher {
@@ -138,6 +128,13 @@ pub enum ConfigurationRequest {
     },
     Undo,
     Redo,
+}
+
+/// The kind of content an assignment or removal request addresses.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum ConfigurationTarget {
+    Project,
+    Launcher,
 }
 
 /// Whether assignment or clearing shifts neighboring slot content.

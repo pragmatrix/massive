@@ -46,7 +46,7 @@ impl DesktopSystem {
                 RouterStep::RequestKeyboardFocus { target, source } => {
                     // Clicking a target frames it fully in (ADR 0018).
                     if source == FocusRequestSource::PointerPress && target.is_some() {
-                        changes <<= DesktopChange::CommitZoomLevel(ZoomLevel::Focus);
+                        changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
                     }
                     changes += set_focus(target, KeyboardFocusReason::InputTransition);
                 }
@@ -211,12 +211,12 @@ impl DesktopSystem {
             let enters_project = key_event.logical_key == Key::Named(NamedKey::Enter)
                 && !key_event.repeat
                 && focused_path
-                    .last()
+                    .focused()
                     .is_some_and(DesktopTarget::enters_on_plain_enter);
             return enters_project.then_some(DesktopCommand::Zoom(Zoom::Enter));
         }
 
-        if let Some(focused_target) = focused_path.last()
+        if let Some(focused_target) = focused_path.focused()
             && !key_event.repeat
             && let Some(shortcut) =
                 self.match_focused_target_shortcut(key_event, event, &focused_path, focused_target)

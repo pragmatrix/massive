@@ -72,6 +72,7 @@ impl<'a> MatrixNavigation<'a> {
     ) -> Option<DesktopTarget> {
         let entries = self.create_project_matrix_entries(project_id);
         select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
+            .map(SlotContent::target)
     }
 
     pub(super) fn navigate_from_child(
@@ -94,14 +95,11 @@ impl<'a> MatrixNavigation<'a> {
         self.navigate_from_slot(launcher_id, direction, preferred_column)
     }
 
-    fn create_project_matrix_entries(
-        self,
-        project_id: ProjectId,
-    ) -> Vec<MatrixEntry<DesktopTarget>> {
+    fn create_project_matrix_entries(self, project_id: ProjectId) -> Vec<MatrixEntry<SlotContent>> {
         self.configuration
             .slots_ordered(project_id)
             .map(|(placement, content)| MatrixEntry {
-                key: content.target(),
+                key: content,
                 placement,
             })
             .collect()
@@ -137,7 +135,7 @@ impl<'a> MatrixNavigation<'a> {
             if let Some(target) =
                 select_cross_project_vertical_entry(&entries, origin_column, direction)
             {
-                return Some(target);
+                return Some(target.target());
             }
         }
 
@@ -156,7 +154,7 @@ fn horizontal_child_neighbor(
     }
 }
 
-fn select_matrix_neighbor<K: Clone>(
+fn select_matrix_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin: MatrixPlacement,
     direction: Direction,
@@ -178,7 +176,7 @@ fn select_matrix_neighbor<K: Clone>(
     None
 }
 
-fn select_row_neighbor<K: Clone>(
+fn select_row_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin: MatrixPlacement,
     direction: HorizontalDirection,
@@ -190,18 +188,18 @@ fn select_row_neighbor<K: Clone>(
                 entry.placement.row == origin.row && entry.placement.column < origin.column
             })
             .max_by_key(|entry| entry.placement.column)
-            .map(|entry| entry.key.clone()),
+            .map(|entry| entry.key),
         HorizontalDirection::Right => entries
             .iter()
             .filter(|entry| {
                 entry.placement.row == origin.row && entry.placement.column > origin.column
             })
             .min_by_key(|entry| entry.placement.column)
-            .map(|entry| entry.key.clone()),
+            .map(|entry| entry.key),
     }
 }
 
-fn select_column_neighbor<K: Clone>(
+fn select_column_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin_row: u32,
     column: u32,
@@ -227,10 +225,10 @@ fn select_column_neighbor<K: Clone>(
             let distance = u32::abs_diff(entry.placement.column, column);
             (distance, entry.placement.column)
         })
-        .map(|entry| entry.key.clone())
+        .map(|entry| entry.key)
 }
 
-fn select_cross_project_vertical_entry<K: Clone>(
+fn select_cross_project_vertical_entry<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin_column: u32,
     direction: VerticalDirection,
@@ -246,7 +244,7 @@ fn select_cross_project_vertical_entry<K: Clone>(
     select_row_boundary_nearest_column(entries, origin_column, direction)
 }
 
-fn select_column_boundary<K: Clone>(
+fn select_column_boundary<K: Copy>(
     entries: &[MatrixEntry<K>],
     column: u32,
     direction: VerticalDirection,
@@ -256,16 +254,16 @@ fn select_column_boundary<K: Clone>(
             .iter()
             .filter(|entry| entry.placement.column == column)
             .max_by_key(|entry| entry.placement.row)
-            .map(|entry| entry.key.clone()),
+            .map(|entry| entry.key),
         VerticalDirection::Down => entries
             .iter()
             .filter(|entry| entry.placement.column == column)
             .min_by_key(|entry| entry.placement.row)
-            .map(|entry| entry.key.clone()),
+            .map(|entry| entry.key),
     }
 }
 
-fn select_row_boundary_nearest_column<K: Clone>(
+fn select_row_boundary_nearest_column<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin_column: u32,
     direction: VerticalDirection,
@@ -282,7 +280,7 @@ fn select_row_boundary_nearest_column<K: Clone>(
             let distance = u32::abs_diff(entry.placement.column, origin_column);
             (distance, entry.placement.column)
         })
-        .map(|entry| entry.key.clone())
+        .map(|entry| entry.key)
 }
 
 #[cfg(test)]

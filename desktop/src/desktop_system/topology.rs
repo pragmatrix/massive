@@ -46,20 +46,8 @@ impl OrderedHierarchy<DesktopTarget> {
         })
     }
 
-    /// The project a target belongs to, walking the ancestor chain to the nearest
-    /// project. A project's own targets and everything nested below it answer with
-    /// that project, so a target hosted by a nested project answers with the nested
-    /// project, not the one enclosing it.
-    ///
-    /// Exception: `Desktop` goes *down*, not up — its only child is the root
-    /// project — and a hit-test miss can produce a `Desktop` target. The log
-    /// records which situations hit this exception, to tell a hierarchy that lost
-    /// its shape apart from the by-design miss case.
-    ///
-    /// Every other target is live or misses: unlike the shallower walk helpers,
-    /// whose `None`s steer the camera walk between Focus Depths, this walk
-    /// must answer with a project, so a target the topology does not hold is
-    /// an invariant violation.
+    /// The nearest enclosing project, including a project target itself.
+    /// `Desktop` resolves to the root; other targets must belong to a live project.
     pub fn project_of_target(&self, target: &DesktopTarget) -> ProjectId {
         match target {
             DesktopTarget::Desktop => {

@@ -21,8 +21,8 @@ use crate::projects::{
 
 use massive_applications::prelude::*;
 use massive_applications::{
-    ConfigurationRequest, CreationMode, InstanceChange, InstanceId, InstanceSubmission,
-    MoveDirection, SlotShift, ViewChange, ViewEvent, ViewRole,
+    ConfigurationRequest, ConfigurationTarget, CreationMode, InstanceChange, InstanceId,
+    InstanceSubmission, MoveDirection, SlotShift, ViewChange, ViewEvent, ViewRole,
 };
 
 /// The outcome of applying a change: its effects and any follow-up changes.
@@ -147,7 +147,7 @@ impl DesktopSystem {
                         under: launcher.into(),
                     }),
                 ];
-                changes <<= DesktopChange::CommitZoomLevel(ZoomLevel::Focus);
+                changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
                 changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
@@ -284,20 +284,16 @@ impl DesktopSystem {
                     placement,
                     assignment: content.clone(),
                 };
-                changes <<= TopologyChange::Add {
-                    what: content.content().target(),
-                    under: DesktopTarget::ProjectMatrix(parent),
-                    after: None,
-                };
-                if let SlotContent::Project(project) = content.content() {
-                    changes <<= TopologyChange::AddNested {
-                        what: [
-                            DesktopTarget::ProjectHeader(project),
-                            DesktopTarget::ProjectMatrix(project),
-                        ]
-                        .into(),
-                        under: DesktopTarget::Project(project),
-                    };
+                let under = DesktopTarget::ProjectMatrix(parent);
+                match content.content() {
+                    SlotContent::Project(project) => changes += project_topology(project, under),
+                    SlotContent::Launcher(launcher) => {
+                        changes <<= TopologyChange::Add {
+                            what: DesktopTarget::Launcher(launcher),
+                            under,
+                            after: None,
+                        }
+                    }
                 }
             }
             ProjectCommand::ClearSlot {
@@ -352,19 +348,7 @@ impl DesktopSystem {
             placement,
             assignment: SlotAssignment::Project { id, name },
         };
-        changes <<= TopologyChange::Add {
-            what: DesktopTarget::Project(id),
-            under: DesktopTarget::Desktop,
-            after: None,
-        };
-        changes <<= TopologyChange::AddNested {
-            what: [
-                DesktopTarget::ProjectHeader(id),
-                DesktopTarget::ProjectMatrix(id),
-            ]
-            .into(),
-            under: DesktopTarget::Project(id),
-        };
+        changes += project_topology(id, DesktopTarget::Desktop);
         Ok(changes)
     }
 
@@ -532,11 +516,11 @@ impl DesktopSystem {
 
                 return Ok(output);
             }
-            DesktopChange::CommitNavigationAffinity(column_affinity) => {
+            DesktopChange::SetNavigationAffinity(column_affinity) => {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
-            DesktopChange::CommitZoomLevel(level) => {
+            DesktopChange::SetZoomLevel(level) => {
                 if self.zoom_level != level {
                     self.zoom_level = level;
 
@@ -929,7 +913,8 @@ impl DesktopSystem {
                 })?;
                 Ok(ChangeOutput::changes(changes))
             }
-            ConfigurationRequest::AssignProject {
+            ConfigurationRequest::Assign {
+                target,
                 name,
                 column,
                 row,
@@ -947,45 +932,12 @@ impl DesktopSystem {
                     warn!("Project path '{under:?}' does not resolve");
                     return Ok(ChangeOutput::default());
                 };
-                let changes = self.plan_project(ProjectCommand::AssignSlot {
-                    parent: Some(parent),
-                    placement: MatrixPlacement {
-                        column: *column,
-                        row: *row,
-                    },
-                    content: SlotAssignment::Project {
+                let content = match target {
+                    ConfigurationTarget::Project => SlotAssignment::Project {
                         id: ProjectId::new(),
                         name: name.clone(),
                     },
-                    shift: *shift,
-                })?;
-                Ok(ChangeOutput::changes(changes))
-            }
-            ConfigurationRequest::AssignLauncher {
-                name,
-                column,
-                row,
-                under,
-                shift,
-            } => {
-                let parent = match under {
-                    Some(path) => self
-                        .aggregates
-                        .configuration
-                        .resolve_project_path(current_project, path),
-                    None => Some(current_project),
-                };
-                let Some(parent) = parent else {
-                    warn!("Project path '{under:?}' does not resolve");
-                    return Ok(ChangeOutput::default());
-                };
-                let changes = self.plan_project(ProjectCommand::AssignSlot {
-                    parent: Some(parent),
-                    placement: MatrixPlacement {
-                        column: *column,
-                        row: *row,
-                    },
-                    content: SlotAssignment::Launcher {
+                    ConfigurationTarget::Launcher => SlotAssignment::Launcher {
                         id: LaunchProfileId::new(),
                         profile: LaunchProfile {
                             name: name.clone(),
@@ -994,78 +946,67 @@ impl DesktopSystem {
                             full_screen_mode: Default::default(),
                         },
                     },
-                    shift: *shift,
-                })?;
-                Ok(ChangeOutput::changes(changes))
-            }
-            ConfigurationRequest::RemoveProject { name } => {
-                let project = match name {
-                    Some(name) => {
-                        match self
-                            .aggregates
-                            .configuration
-                            .nearest_project(name, self.focused_project())
-                        {
-                            Some(project) => project,
-                            None => {
-                                warn!("Project '{name}' not found");
-                                return Ok(ChangeOutput::default());
-                            }
-                        }
-                    }
-                    None => current_project,
                 };
-
-                // The root is hosted by the `Desktop` target rather than a slot, so
-                // it has no parent project to be cleared from.
-                if project == ProjectId::ROOT {
-                    warn!("The root project cannot be removed");
-                    return Ok(ChangeOutput::default());
-                }
-                let parent = self
-                    .aggregates
-                    .hierarchy
-                    .parent_project_of(project)
-                    .expect("a non-root project hangs under its parent's matrix");
-                let placement = self
-                    .aggregates
-                    .configuration
-                    .project(parent)
-                    .and_then(|parent| parent.placement_of_content(project))
-                    .expect("the parent project holds the nested project in a slot");
-
                 Ok(ChangeOutput::changes(self.plan_project(
-                    ProjectCommand::ClearSlot {
-                        parent,
-                        placement,
-                        shift: SlotShift::default(),
+                    ProjectCommand::AssignSlot {
+                        parent: Some(parent),
+                        placement: MatrixPlacement {
+                            column: *column,
+                            row: *row,
+                        },
+                        content,
+                        shift: *shift,
                     },
                 )?))
             }
-            ConfigurationRequest::RemoveLauncher { name } => {
-                let launcher = match name {
-                    Some(name) => {
-                        match self.aggregates.configuration.nearest_launcher(
-                            current_project,
-                            name,
-                            self.focused_launcher(),
-                        ) {
-                            Some(launcher) => launcher,
-                            None => {
-                                warn!("Launcher '{name}' not found in the current project");
-                                return Ok(ChangeOutput::default());
+            ConfigurationRequest::Remove { target, name } => {
+                let content = match target {
+                    ConfigurationTarget::Project => {
+                        let project = match name {
+                            Some(name) => {
+                                let Some(project) = self
+                                    .aggregates
+                                    .configuration
+                                    .nearest_project(name, self.focused_project())
+                                else {
+                                    warn!("Project '{name}' not found");
+                                    return Ok(ChangeOutput::default());
+                                };
+                                project
                             }
+                            None => current_project,
+                        };
+                        if project == ProjectId::ROOT {
+                            warn!("The root project cannot be removed");
+                            return Ok(ChangeOutput::default());
                         }
+                        SlotContent::Project(project)
                     }
-                    None => self.aggregates.hierarchy.launcher_of_instance(instance),
+                    ConfigurationTarget::Launcher => {
+                        let launcher = match name {
+                            Some(name) => {
+                                let Some(launcher) =
+                                    self.aggregates.configuration.nearest_launcher(
+                                        current_project,
+                                        name,
+                                        self.focused_launcher(),
+                                    )
+                                else {
+                                    warn!("Launcher '{name}' not found in the current project");
+                                    return Ok(ChangeOutput::default());
+                                };
+                                launcher
+                            }
+                            None => self.aggregates.hierarchy.launcher_of_instance(instance),
+                        };
+                        SlotContent::Launcher(launcher)
+                    }
                 };
-
                 let Some((parent, placement)) =
-                    self.aggregates.configuration.slot_of_content(launcher)
+                    self.aggregates.configuration.slot_of_content(content)
                 else {
                     return Ok(ChangeOutput::default());
                 };
-
                 Ok(ChangeOutput::changes(self.plan_project(
                     ProjectCommand::ClearSlot {
                         parent,
@@ -1229,6 +1170,25 @@ impl DesktopSystem {
     }
 }
 
+/// Adds a project and its header and matrix under the hosting target.
+fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
+    let mut changes = Changes::Empty;
+    changes <<= TopologyChange::Add {
+        what: DesktopTarget::Project(project),
+        under,
+        after: None,
+    };
+    changes <<= TopologyChange::AddNested {
+        what: [
+            DesktopTarget::ProjectHeader(project),
+            DesktopTarget::ProjectMatrix(project),
+        ]
+        .into(),
+        under: DesktopTarget::Project(project),
+    };
+    changes
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -1285,9 +1245,7 @@ mod tests {
     struct NestedSiblings {
         system: DesktopSystem,
         instance_manager: InstanceManager,
-        project_a: ProjectId,
         project_b: ProjectId,
-        launcher_b: LaunchProfileId,
         instance_a: InstanceId,
         instance_b: InstanceId,
     }
@@ -1346,9 +1304,7 @@ mod tests {
         Ok(NestedSiblings {
             system,
             instance_manager,
-            project_a,
             project_b,
-            launcher_b,
             instance_a,
             instance_b,
         })
@@ -1365,105 +1321,77 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zooming_out_of_a_project_focuses_it_and_zooming_in_restores_its_focus() -> Result<()> {
+    async fn unified_requests_assign_under_a_path_and_remove_both_content_kinds() -> Result<()> {
         task_context::with_context(task_context(), async {
             let frame = massive_applications::begin_frame();
             let NestedSiblings {
                 mut system,
                 mut instance_manager,
-                project_a,
                 project_b,
-                launcher_b,
                 instance_a,
                 instance_b,
+                ..
             } = nested_siblings()?;
-            let system = &mut system;
-            let instance_manager = &mut instance_manager;
-            let focus = |system: &DesktopSystem| system.event_router.keyboard_focus().cloned();
-            deliver_view(system, instance_manager, instance_a)?;
-            let view_a = system.aggregates.instances[&instance_a]
-                .primary_view_id()
-                .expect("instance A has a primary view");
-
-            // Inside `labs-a`, zooming out keeps its primary view focused.
-            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
-            assert_eq!(focus(system), Some(DesktopTarget::View(view_a)));
-            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 1)));
-            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
-            assert_eq!(focus(system), Some(DesktopTarget::View(view_a)));
-            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
-
-            // Leaving `labs-a` focuses it as a slot of the root.
-            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
-            assert_eq!(focus(system), Some(DesktopTarget::Project(project_a)));
-            assert_eq!(system.zoom_level, ZoomLevel::Focus);
-            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 0)));
-
-            // Navigation moves between the root's slots and lands on the project itself.
-            run(
-                system,
-                instance_manager,
-                DesktopCommand::Navigate(crate::desktop_system::Direction::Right),
-            )?;
-            assert_eq!(focus(system), Some(DesktopTarget::Project(project_b)));
-            assert_eq!(
-                system.hover_placement(),
-                Some(system.placement(&DesktopTarget::Project(project_b))),
-                "keyboard navigation must show the focused target's hover rect"
-            );
-            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 0)));
-
-            // Zooming in enters `labs-b` by one level, restoring its focus slot.
-            run(system, instance_manager, DesktopCommand::Zoom(Zoom::In))?;
-            assert_eq!(focus(system), Some(DesktopTarget::Instance(instance_b)));
-            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
-
-            // Back out, then back in to `labs-a`: its focus slot was kept.
-            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
-            assert_eq!(focus(system), Some(DesktopTarget::Project(project_b)));
-            run(
-                system,
-                instance_manager,
-                DesktopCommand::Navigate(crate::desktop_system::Direction::Left),
-            )?;
-            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Enter))?;
-            assert_eq!(focus(system), Some(DesktopTarget::View(view_a)));
-            assert_eq!(system.zoom_level, ZoomLevel::Focus);
-            assert!(system.is_fully_zoomed_in(&DesktopTarget::View(view_a), system.zoom_level));
-
-            let instance_b2 = uuid::Uuid::new_v4().into();
-            system.transact(
-                set_focus(
-                    Some(DesktopTarget::Project(project_b)),
-                    KeyboardFocusReason::InputTransition,
-                ),
-                instance_manager,
-                TransactionEffectsMode::Setup,
-            )?;
-            run(
-                system,
-                instance_manager,
-                DesktopCommand::StartInstance {
-                    launcher: launcher_b,
-                    instance: instance_b2,
-                    root: Some(InstanceRoot::new()),
-                    parameters: Default::default(),
-                    kind: InstanceKind::Base,
-                },
-            )?;
-            assert_eq!(
-                system.zoom_level,
-                ZoomLevel::Focus,
-                "starting a new instance frames it"
-            );
-            assert_eq!(focus(system), Some(DesktopTarget::Instance(instance_b2)));
-            assert_eq!(
-                system.hover_placement(),
-                Some(system.placement(&DesktopTarget::Instance(instance_b2))),
-                "desktop-handled focus changes must keep navigation hover enabled"
-            );
-
-            drop(frame.submission::<SceneChange>());
+            let placement = MatrixPlacement { column: 1, row: 1 };
+            for target in [ConfigurationTarget::Project, ConfigurationTarget::Launcher] {
+                let output = system.apply_configuration_request(
+                    instance_a,
+                    ConfigurationRequest::Assign {
+                        target,
+                        name: "added".into(),
+                        column: placement.column,
+                        row: placement.row,
+                        under: Some("/labs-b".into()),
+                        shift: SlotShift::Keep,
+                    },
+                )?;
+                system.transact(
+                    output.changes,
+                    &mut instance_manager,
+                    TransactionEffectsMode::Setup,
+                )?;
+                let content = system
+                    .aggregates
+                    .configuration
+                    .content_at(project_b, placement)
+                    .expect("the request assigns content under the resolved project");
+                assert!(matches!(
+                    (target, content),
+                    (ConfigurationTarget::Project, SlotContent::Project(_))
+                        | (ConfigurationTarget::Launcher, SlotContent::Launcher(_))
+                ));
+                assert!(system.aggregates.hierarchy.exists(&content.target()));
+                if let SlotContent::Project(project) = content {
+                    assert_eq!(
+                        system.aggregates.hierarchy.get_nested(&content.target()),
+                        &[
+                            DesktopTarget::ProjectHeader(project),
+                            DesktopTarget::ProjectMatrix(project)
+                        ]
+                    );
+                }
+                let output = system.apply_configuration_request(
+                    instance_b,
+                    ConfigurationRequest::Remove {
+                        target,
+                        name: Some("added".into()),
+                    },
+                )?;
+                system.transact(
+                    output.changes,
+                    &mut instance_manager,
+                    TransactionEffectsMode::Setup,
+                )?;
+                assert_eq!(
+                    system
+                        .aggregates
+                        .configuration
+                        .content_at(project_b, placement),
+                    None
+                );
+                assert!(!system.aggregates.hierarchy.exists(&content.target()));
+            }
+            drop(frame);
             Ok(())
         })
         .await

@@ -69,16 +69,12 @@ impl DesktopLayoutAlgorithm<'_> {
         self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
     }
 
-    /// The mode of a launcher, resolved through the topology's parent links and
-    /// the hosting matrix.
+    /// The configured mode of a launcher.
     fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
-        let project = self
-            .aggregates
-            .hierarchy
-            .project_of_target(&DesktopTarget::Launcher(launcher_id));
-        self.aggregates.configuration[project]
+        self.aggregates
+            .configuration
             .launcher(launcher_id)
-            .expect("the hosting matrix holds the launcher")
+            .expect("the configuration holds the launcher")
             .mode
     }
 }
@@ -254,8 +250,7 @@ impl DesktopLayoutAlgorithm<'_> {
                     placement: self
                         .aggregates
                         .configuration
-                        .project(project_id)
-                        .and_then(|project| project.placement_of_content(content))
+                        .placement_of_content(project_id, content)
                         .expect("slot content has a matrix placement"),
                 }
             })
@@ -409,29 +404,6 @@ struct MatrixSlot {
     placement: MatrixPlacement,
 }
 
-/// The column and row tracks of a matrix: each track the largest slot in it.
-fn matrix_tracks(slots: &[MatrixSlot]) -> (Vec<u32>, Vec<u32>) {
-    let mut columns = Vec::new();
-    let mut rows = Vec::new();
-
-    for slot in slots {
-        let column = slot.placement.column as usize;
-        let row = slot.placement.row as usize;
-
-        if columns.len() <= column {
-            columns.resize(column + 1, 0);
-        }
-        if rows.len() <= row {
-            rows.resize(row + 1, 0);
-        }
-
-        columns[column] = max(columns[column], slot.size[0]);
-        rows[row] = max(rows[row], slot.size[1]);
-    }
-
-    (columns, rows)
-}
-
 /// The size the tracks span, column and row spacing included.
 fn matrix_size(slots: &[MatrixSlot]) -> Size<2> {
     let (columns, rows) = matrix_tracks(slots);
@@ -448,6 +420,25 @@ pub fn presentation_scale(preferred_width: u32, scene_width: u32) -> f64 {
         return 1.0;
     }
     preferred_width as f64 / scene_width as f64
+}
+
+/// The column and row tracks of a matrix: each track the largest slot in it.
+fn matrix_tracks(slots: &[MatrixSlot]) -> (Vec<u32>, Vec<u32>) {
+    let (column_count, row_count) = slots.iter().fold((0, 0), |(columns, rows), slot| {
+        (
+            max(columns, slot.placement.column as usize + 1),
+            max(rows, slot.placement.row as usize + 1),
+        )
+    });
+    let mut columns = vec![0; column_count];
+    let mut rows = vec![0; row_count];
+    for slot in slots {
+        let column = slot.placement.column as usize;
+        let row = slot.placement.row as usize;
+        columns[column] = max(columns[column], slot.size[0]);
+        rows[row] = max(rows[row], slot.size[1]);
+    }
+    (columns, rows)
 }
 
 fn tracks_span(tracks: &[u32], spacing: u32) -> u32 {
