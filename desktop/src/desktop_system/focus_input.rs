@@ -265,13 +265,13 @@ impl DesktopSystem {
             return Some(DesktopCommand::Zoom(Zoom::Enter));
         }
 
+        let shift = event.device_states().is_shift();
+
         // Cmd + t
 
         if supports_instance_start_key(&key_event.logical_key, focused_target) {
             // `Shift` makes the new instance an assistant: it spawns without the launcher's
             // configured parameters and carries its own temporary Full Screen Mode (ADR 0014).
-            let shift = event.device_states().is_shift();
-
             if let Some(instance) = focused_path.instance() {
                 let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance);
                 // Assistants open plain; base instances inherit the focused instance's parameters.
@@ -297,18 +297,18 @@ impl DesktopSystem {
                     },
                 });
             }
+        }
 
-            // Cmd + w
+        // Cmd + w
 
-            if !shift
-                && let Some(instance) = focused_path.instance()
-                && let Key::Character(c) = &key_event.logical_key
-                && c.as_str() == "w"
-            {
-                // Architecture: Shouldn't this just end the current view, and let the
-                // instance decide then?
-                return Some(DesktopCommand::StopInstance(instance));
-            }
+        if !shift
+            && let Some(instance) = focused_path.instance()
+            && let Key::Character(c) = &key_event.logical_key
+            && c.as_str() == "w"
+        {
+            // Architecture: Shouldn't this just end the current view, and let the
+            // instance decide then?
+            return Some(DesktopCommand::StopInstance(instance));
         }
 
         None
