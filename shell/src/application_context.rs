@@ -95,15 +95,15 @@ impl ApplicationContext {
                 ApplicationMessage::View(view_id, view_event) => {
                     application_events.push(ApplicationEvent::View(view_id, view_event));
                 }
-                ApplicationMessage::ApplyAnimations(presentation_id) => {
+                ApplicationMessage::ApplyAnimations(tick) => {
                     // The shell applies animations while awaiting events, before the application
                     // opens its next frame.
                     let completion_events =
                         task_context::with_animation_and_movement(|animation, movement| {
-                            animation.upgrade_to_apply_animations_cycle();
+                            animation.upgrade_to_apply_animations_cycle(tick.vblank_time);
                             movement.apply_animations(animation.animation_time())
                         });
-                    application_events.push(ApplicationEvent::ApplyAnimations(presentation_id));
+                    application_events.push(ApplicationEvent::ApplyAnimations(tick));
                     application_events.extend(
                         completion_events
                             .into_iter()

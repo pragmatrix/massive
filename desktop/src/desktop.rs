@@ -252,14 +252,14 @@ impl Desktop {
                                 // This is completely weird here. We need a better solution for resize_redraw().
                                 self.renderer.resize_redraw(&view_event)?;
                             }
-                            ApplicationEvent::ApplyAnimations(presentation_id) => {
-                                frame.upgrade_to_apply_animations_cycle();
+                            ApplicationEvent::ApplyAnimations(tick) => {
+                                frame.upgrade_to_apply_animations_cycle(tick.vblank_time);
                                 let animating_instances =
                                     self.system.animating_instances().collect::<Vec<_>>();
                                 for instance in animating_instances {
                                     _ = self.instance_manager.send_event(
                                         instance,
-                                        ApplicationMessage::ApplyAnimations(presentation_id),
+                                        ApplicationMessage::ApplyAnimations(tick),
                                     );
                                 }
                             }

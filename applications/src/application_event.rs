@@ -4,12 +4,12 @@ use winit::event::DeviceId;
 
 use massive_util::CoalescingKey;
 
-use crate::{InstanceId, PresentationId, ViewEvent, ViewId};
+use crate::{InstanceId, PresentationId, PresentationTick, ViewEvent, ViewId};
 
 #[derive(Debug, Clone)]
 pub enum ApplicationEvent<T> {
     View(ViewId, ViewEvent),
-    ApplyAnimations(PresentationId),
+    ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
     Custom(T),
@@ -18,7 +18,7 @@ pub enum ApplicationEvent<T> {
 #[derive(Debug, Clone)]
 pub enum ApplicationMessage {
     View(ViewId, ViewEvent),
-    ApplyAnimations(PresentationId),
+    ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
 }
@@ -27,9 +27,7 @@ impl<T> From<ApplicationMessage> for ApplicationEvent<T> {
     fn from(value: ApplicationMessage) -> Self {
         match value {
             ApplicationMessage::View(view_id, event) => Self::View(view_id, event),
-            ApplicationMessage::ApplyAnimations(presentation_id) => {
-                Self::ApplyAnimations(presentation_id)
-            }
+            ApplicationMessage::ApplyAnimations(tick) => Self::ApplyAnimations(tick),
             ApplicationMessage::FullscreenRequested => Self::FullscreenRequested,
             ApplicationMessage::Shutdown(instance_id) => Self::Shutdown(instance_id),
         }
@@ -57,8 +55,10 @@ impl CoalescingKey for ApplicationMessage {
                 }
                 _ => None,
             },
-            ApplicationMessage::ApplyAnimations(presentation_id) => Some(
-                ApplicationEventCoalescingKey::ApplyAnimations(*presentation_id),
+            // Coalescing keeps the last tick, so a consumer that fell behind applies the newest
+            // vblank time.
+            ApplicationMessage::ApplyAnimations(tick) => Some(
+                ApplicationEventCoalescingKey::ApplyAnimations(tick.presentation_id),
             ),
             ApplicationMessage::Shutdown(_) => None,
         }

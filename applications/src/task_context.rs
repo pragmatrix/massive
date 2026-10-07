@@ -150,6 +150,8 @@ pub fn with_changes<R>(f: impl FnOnce(&AnyCollector) -> R) -> R {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use massive_animation::CycleEnd;
     use massive_renderer::{FontManager, ShapingEngineKind};
     use massive_scene::{AnyCollector, SceneChange};
@@ -185,7 +187,7 @@ mod tests {
 
             let frame = crate::begin_frame();
             with_frame_animation(|animation| {
-                animation.upgrade_to_apply_animations_cycle();
+                animation.upgrade_to_apply_animations_cycle(Instant::now());
                 assert!(animation.is_apply_animations_cycle());
             });
 
@@ -248,7 +250,7 @@ mod tests {
         with_context(contexts(), async {
             let outer_frame = crate::begin_frame();
             with_frame_animation(|animation| {
-                animation.upgrade_to_apply_animations_cycle();
+                animation.upgrade_to_apply_animations_cycle(Instant::now());
             });
             with_context(contexts(), async {
                 let inner_frame = crate::begin_frame();
@@ -272,7 +274,7 @@ mod tests {
             let first = tokio::spawn(with_context(contexts(), async {
                 let frame = crate::begin_frame();
                 let upgraded = with_frame_animation(|animation| {
-                    animation.upgrade_to_apply_animations_cycle();
+                    animation.upgrade_to_apply_animations_cycle(Instant::now());
                     animation.is_apply_animations_cycle()
                 });
                 frame.submission::<SceneChange>();

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use derive_more::From;
 use uuid::Uuid;
 
@@ -48,4 +50,15 @@ impl PresentationId {
     pub fn new() -> Self {
         Uuid::new_v4().into()
     }
+}
+
+/// A presentation clock tick: the presentation that became ready for the next frame, and the time
+/// the shell observed the vblank that released it.
+///
+/// Animation cycles that apply animations start at `vblank_time`, so animated values do not depend
+/// on how long the tick took to reach the application.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PresentationTick {
+    pub presentation_id: PresentationId,
+    pub vblank_time: Instant,
 }

@@ -12,8 +12,9 @@
 //!   The strategy for deciding about the current timestamp is as follows:
 //!   - The current timestamp is not set initially.
 //!   - The current timestamp is lazily set on first used.
-//!   -   In a smooth pacing situation, it may be set earlier directly at the time the current frame
-//!       was presented.
+//!   -   In a smooth pacing situation, it is set directly to the time the vblank was observed that
+//!       triggered the cycle (`upgrade_to_apply_animations_cycle`), independent of when the event
+//!       was processed.
 //!   - The current timestamp is reset at the time the changes are pushed to the renderer.
 //!
 //! # ADR Log
@@ -54,6 +55,9 @@ pub struct AnimationCoordinator {
 
     /// The time when all animations ended or will end.
     ending_time: Instant,
+
+    /// The start time of the most recent cycle. Animation time never runs backwards past it.
+    last_start_time: Instant,
 }
 
 impl Default for AnimationCoordinator {
@@ -68,6 +72,7 @@ impl AnimationCoordinator {
             animating: false,
             cycle: None,
             ending_time: Instant::now(),
+            last_start_time: Instant::now(),
         }
     }
 
@@ -78,9 +83,18 @@ impl AnimationCoordinator {
     /// Only in an `ApplyAnimations` triggered cycle can we stop animations. This is so that at
     /// least one `ApplyAnimations` is running at a time > the ending time of all animations to
     /// guarantee that all the computed values represent their final values.
-    pub fn upgrade_to_apply_animations_cycle(&mut self) {
+    ///
+    /// The cycle's animation time becomes `vblank_time`, the time the vblank that triggered this
+    /// cycle was observed, so that it does not depend on when the event was processed. If the cycle
+    /// was already started (and so may have allocated animations), its start is moved to
+    /// `vblank_time`. The time never runs backwards: it is clamped to the start of the previous
+    /// cycle.
+    pub fn upgrade_to_apply_animations_cycle(&mut self, vblank_time: Instant) {
         self.begin_cycle();
-        self.cycle_mut().mode = CycleMode::ApplyAnimations;
+        let start_time = self.monotonic_start_time(vblank_time);
+        let cycle = self.cycle_mut();
+        cycle.start_time = start_time;
+        cycle.mode = CycleMode::ApplyAnimations;
     }
 
     /// `true` if the current cycle is an apply-animations cycle.
@@ -92,8 +106,10 @@ impl AnimationCoordinator {
 
     /// Start the current event processing cycle, if it has not started yet.
     pub fn begin_cycle(&mut self) {
-        self.cycle
-            .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()));
+        if self.cycle.is_none() {
+            let start_time = self.monotonic_start_time(Instant::now());
+            self.cycle = Some(AnimationCycle::implicit(start_time));
+        }
     }
 
     /// Ends an update cycle and reports how it ended. This resets the current time.
@@ -121,6 +137,14 @@ impl AnimationCoordinator {
         let current = self.cycle().start_time;
         self.notify_ending_time(current + duration);
         current
+    }
+
+    /// Clamp a requested cycle start time to the start of the previous cycle, so that animation
+    /// time never runs backwards, and record it as the most recent start.
+    fn monotonic_start_time(&mut self, requested: Instant) -> Instant {
+        let start_time = max(requested, self.last_start_time);
+        self.last_start_time = start_time;
+        start_time
     }
 
     fn cycle(&self) -> &AnimationCycle {
@@ -167,4 +191,50 @@ enum CycleMode {
     #[default]
     Implicit,
     ApplyAnimations,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_animations_cycle_starts_at_the_vblank_time() {
+        let mut coordinator = AnimationCoordinator::new();
+        let vblank_time = Instant::now() + Duration::from_millis(5);
+        coordinator.upgrade_to_apply_animations_cycle(vblank_time);
+        assert_eq!(coordinator.animation_time(), vblank_time);
+        assert!(coordinator.is_apply_animations_cycle());
+    }
+
+    #[test]
+    fn upgrading_a_started_cycle_moves_its_start() {
+        let mut coordinator = AnimationCoordinator::new();
+        coordinator.begin_cycle();
+        let vblank_time = Instant::now() + Duration::from_millis(5);
+        coordinator.upgrade_to_apply_animations_cycle(vblank_time);
+        assert_eq!(coordinator.animation_time(), vblank_time);
+    }
+
+    #[test]
+    fn animation_time_never_runs_backwards() {
+        let mut coordinator = AnimationCoordinator::new();
+        let later = Instant::now() + Duration::from_millis(20);
+        coordinator.upgrade_to_apply_animations_cycle(later);
+        coordinator.end_cycle();
+
+        // A vblank time older than the previous cycle's start is clamped.
+        coordinator.upgrade_to_apply_animations_cycle(later - Duration::from_millis(10));
+        assert_eq!(coordinator.animation_time(), later);
+    }
+
+    #[test]
+    fn implicit_cycle_does_not_start_before_the_previous_cycle() {
+        let mut coordinator = AnimationCoordinator::new();
+        let later = Instant::now() + Duration::from_millis(50);
+        coordinator.upgrade_to_apply_animations_cycle(later);
+        coordinator.end_cycle();
+
+        coordinator.begin_cycle();
+        assert!(coordinator.animation_time() >= later);
+    }
 }

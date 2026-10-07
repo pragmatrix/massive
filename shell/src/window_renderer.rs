@@ -1,7 +1,6 @@
 use std::mem;
 use std::sync::Arc;
 use std::sync::mpsc::{self, TryRecvError};
-#[cfg(feature = "metrics")]
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
@@ -11,7 +10,7 @@ use tokio::sync::mpsc::WeakUnboundedSender;
 use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
-use massive_applications::ApplicationMessage;
+use massive_applications::{ApplicationMessage, PresentationTick};
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer, ViewProjections};
 use massive_scene::SceneChangeSet;
@@ -175,6 +174,11 @@ impl WindowRenderer {
             return Ok(FrameOutcome::NoSurface);
         };
 
+        // Detail: The vblank time is taken right after the surface texture was acquired (which
+        // blocks until the vblank in VSync mode), so animation time does not depend on how long the
+        // application needs to receive the tick.
+        let vblank_time = Instant::now();
+
         // Detail: Presentation timestamps are only sent when the presentation is currently in
         // animation mode (smooth pacing).
         //
@@ -186,9 +190,10 @@ impl WindowRenderer {
                 .upgrade()
                 .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for application events anymore, application vanished)"))?;
 
-            sender.send(ApplicationMessage::ApplyAnimations(
-                self.window.presentation_id(),
-            ))?;
+            sender.send(ApplicationMessage::ApplyAnimations(PresentationTick {
+                presentation_id: self.window.presentation_id(),
+                vblank_time,
+            }))?;
         }
 
         let submission = submission.lock().take();

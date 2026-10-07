@@ -8,6 +8,7 @@
 use std::fmt;
 use std::marker::PhantomData;
 use std::panic::Location;
+use std::time::Instant;
 
 use anyhow::Result;
 use log::error;
@@ -90,9 +91,9 @@ pub fn begin_frame() -> Frame {
 }
 
 impl Frame {
-    pub fn upgrade_to_apply_animations_cycle(&mut self) {
+    pub fn upgrade_to_apply_animations_cycle(&mut self, vblank_time: Instant) {
         task_context::with_frame_animation(|animation| {
-            animation.upgrade_to_apply_animations_cycle()
+            animation.upgrade_to_apply_animations_cycle(vblank_time)
         });
     }
 
