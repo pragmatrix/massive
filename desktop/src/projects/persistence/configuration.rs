@@ -71,7 +71,10 @@ impl ConfigurationPersistence {
             }
         };
         match write_atomic(&self.path, &text) {
-            Ok(()) => self.changed = false,
+            Ok(()) => {
+                self.changed = false;
+                log::info!("Configuration persisted to {}", self.path.display());
+            }
             Err(error) => log::warn!(
                 "Failed to persist configuration to {}: {error:#}",
                 self.path.display()
