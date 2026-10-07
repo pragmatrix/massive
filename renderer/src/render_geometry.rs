@@ -109,7 +109,7 @@ impl RenderGeometry {
             RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix();
 
         let view_matrix = camera.ndc_camera_move();
-        let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
+        let perspective_matrix = camera.perspective_matrix(world_clip_range(camera), surface_size);
 
         perspective_matrix * view_matrix * model_to_camera_to_ndc_matrix
     }
@@ -189,5 +189,71 @@ impl Default for Versioned<ViewProjections> {
             },
             0,
         )
+    }
+}
+
+/// The clip range for the world projection, scaled with the camera distance.
+///
+/// Deeply nested content is presented at a tiny scale, so the camera that frames it sits very close
+/// to the focal plane. A fixed range would clip the scene there, and would lose depth precision
+/// further out. Scaling both planes by the distance relative to the pixel-perfect distance keeps the
+/// range identical at pixel-perfect zoom (where the decal depth bias is tuned) and the near/far
+/// ratio constant everywhere else.
+fn world_clip_range(camera: &PixelCamera) -> (f64, f64) {
+    let (near, far) = CAMERA_CLIP_RANGE;
+    let scale = camera.distance / PixelCamera::pixel_perfect_distance(camera.fovy);
+    (near * scale, far * scale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use massive_geometry::{Transform, Vector4};
+
+    /// Whether the model origin (a point on the focal plane) survives depth clipping.
+    fn origin_is_inside_depth_range(distance: f64) -> bool {
+        let camera = PixelCamera::look_at(Transform::IDENTITY, distance, PixelCamera::DEFAULT_FOVY);
+        let geometry = RenderGeometry::new(SizePx::new(1000, 700), camera);
+        let clip = geometry.view_projection() * Vector4::new(0.0, 0.0, 0.0, 1.0);
+        (0.0..=clip.w).contains(&clip.z)
+    }
+
+    /// A deeply nested project is presented at a tiny scale, so the camera that frames it sits
+    /// very close to the focal plane. The focal plane must stay inside the clip range.
+    #[test]
+    fn focal_plane_is_not_clipped_at_small_camera_distances() {
+        for distance in [500.0, 2.4, 0.5, 0.1, 0.05, 0.01, 0.001] {
+            assert!(
+                origin_is_inside_depth_range(distance),
+                "focal plane clipped at camera distance {distance}"
+            );
+        }
+    }
+
+    #[test]
+    fn clip_range_is_unchanged_at_the_pixel_perfect_distance() {
+        let fovy = PixelCamera::DEFAULT_FOVY;
+        let camera = PixelCamera::look_at(
+            Transform::IDENTITY,
+            PixelCamera::pixel_perfect_distance(fovy),
+            fovy,
+        );
+        let (near, far) = world_clip_range(&camera);
+        assert!((near - CAMERA_CLIP_RANGE.0).abs() < 1e-12);
+        assert!((far - CAMERA_CLIP_RANGE.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn clip_range_ratio_is_constant_across_distances() {
+        let ratio = |distance: f64| {
+            let camera =
+                PixelCamera::look_at(Transform::IDENTITY, distance, PixelCamera::DEFAULT_FOVY);
+            let (near, far) = world_clip_range(&camera);
+            far / near
+        };
+        let reference = ratio(2.4);
+        for distance in [0.001, 0.05, 10.0, 500.0] {
+            assert!((ratio(distance) / reference - 1.0).abs() < 1e-9);
+        }
     }
 }
