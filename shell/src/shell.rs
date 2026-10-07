@@ -20,6 +20,7 @@ use massive_renderer::{FontManager, FontPolicy};
 use massive_scene::{AnyCollector, SceneChange};
 
 use crate::ApplicationContext;
+use crate::platform;
 use crate::shell_window::ShellWindowShared;
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
@@ -74,6 +75,9 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
         Err(_) => {
             // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
             let runtime = tokio::runtime::Builder::new_multi_thread()
+                .on_thread_start(|| {
+                    platform::set_current_thread_user_interactive("tokio worker");
+                })
                 .enable_all()
                 .build()?;
             let _guard = runtime.enter();

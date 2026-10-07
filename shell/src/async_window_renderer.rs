@@ -12,6 +12,7 @@ use massive_applications::{ApplicationMessage, ViewEvent};
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
+use crate::platform;
 use crate::window_renderer::{RenderThreadSubmission, RendererMessage, WindowRenderer};
 
 #[derive(Debug)]
@@ -45,6 +46,7 @@ impl AsyncWindowRenderer {
         let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
+            platform::set_current_thread_user_interactive("render thread");
             match window_renderer.render_thread(
                 msg_receiver,
                 renderer_submission,

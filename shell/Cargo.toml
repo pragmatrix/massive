@@ -4,6 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 
 [features]
+# Raises the render thread and the tokio workers (which run the desktop) to the user-interactive
+# quality-of-service class. Effective on macOS only.
+interactive-thread-priority = ["dep:libc"]
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus", "massive-scene/metrics"]
 
 [dependencies]
@@ -36,6 +39,7 @@ sys-locale = { version = "0.3.2" }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true, optional = true }
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", features = ["NSString", "NSThread"] }

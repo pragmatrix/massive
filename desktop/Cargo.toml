@@ -10,6 +10,10 @@ workspace = true
 name = "hello"
 path = "examples/desktop.rs"
 
+[features]
+# Forwards to the shell, which owns the render thread and the runtime the desktop runs on.
+interactive-thread-priority = ["massive-shell/interactive-thread-priority"]
+
 [dependencies]
 massive-animation.workspace = true
 massive-applications.workspace = true

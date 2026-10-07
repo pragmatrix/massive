@@ -79,6 +79,7 @@ itertools = "0.14.0"
 # Version kept aligned with the root workspace, which uses kdl for the terminal settings.
 kdl = "6.7.1"
 tempfile = "3"
+libc = "0.2"
 log = "0.4.28"
 panic-message = "0.3.0"
 parking_lot = "0.12.5"
