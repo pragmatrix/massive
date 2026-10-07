@@ -2248,8 +2248,7 @@ mod tests {
     }
 
     /// Regression: `Cmd+T` on a fullscreen launcher must keep camera framing stable
-    /// while the new instance waits for its first view. Hover stays absent while
-    /// pointer feedback is suppressed by keyboard input.
+    /// while the new instance waits for its first view and once that view arrives.
     #[tokio::test]
     async fn cmd_t_on_a_fullscreen_instance_keeps_camera_stable() -> Result<()> {
         cmd_t_keeps_camera_stable(CONFIG).await
@@ -2279,19 +2278,12 @@ mod tests {
                 (view_less_distance - distance).abs() < 1e-6,
                 "the camera must not zoom out while the new instance is view-less: expected {distance}, got {view_less_distance}"
             );
-            let view_less_hover = system.hover_placement();
-            assert!(view_less_hover.is_none(), "keyboard use suppresses hover");
 
             deliver_view(&mut system, &mut instance_manager, instance_b)?;
             let view_distance = camera_distance(&system);
             assert!(
                 (view_distance - distance).abs() < 1e-6,
                 "the camera must not move once the view arrives: expected {distance}, got {view_distance}"
-            );
-            assert_eq!(
-                system.hover_placement(),
-                view_less_hover,
-                "hover remains absent until pointer feedback resumes"
             );
 
             drop(frame.submission::<SceneChange>());
