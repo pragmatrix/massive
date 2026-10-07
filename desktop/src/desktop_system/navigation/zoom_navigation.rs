@@ -1,10 +1,10 @@
-use std::iter;
-
 use massive_applications::InstanceId;
 use massive_geometry::{BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, Vector3};
 use massive_scene::prelude::*;
 
-use crate::desktop_system::{DesktopSystem, DesktopTarget, ZoomDepth, ZoomLevel};
+use crate::desktop_system::change::{Changes, DesktopChange, Zoom, set_focus};
+use crate::desktop_system::{DesktopSystem, DesktopTarget, KeyboardFocusReason, ZoomLevel};
+use crate::focus_path::PathResolver;
 use crate::projects::{LauncherMode, MatrixPlacement, ProjectId, SlotContent};
 
 #[derive(Debug, Clone)]
@@ -21,158 +21,161 @@ impl OverviewBounds {
     }
 }
 
-/// One entry of a zoom chain: a zoom level within a project.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ZoomStep {
-    project: ProjectId,
-    level: ZoomLevel,
-}
-
 impl DesktopSystem {
-    pub fn resolve_camera_for_target_at_depth(
-        &self,
-        target: &DesktopTarget,
-        depth: ZoomDepth,
-    ) -> PixelCamera {
-        let step = self.zoom_step_at_depth(target, depth);
-        self.camera_for_zoom_step(target, step)
+    /// Plans a zoom command (ADR 0018): steps the zoom level, and moves focus where the step
+    /// crosses a project boundary.
+    pub(crate) fn plan_zoom(&self, zoom: Zoom) -> Changes {
+        let Some(focused) = self.event_router.keyboard_focus() else {
+            return Changes::Empty;
+        };
+        let instance_target = is_instance_target(focused);
+        let project = self.project_of(focused);
+        // A target without a slot — the root project — has only one frame.
+        let in_slot = self.slot_in_project(project, focused).is_some();
+
+        match zoom {
+            Zoom::Out if !in_slot => Changes::Empty,
+            Zoom::Out => {
+                let parent = self.aggregates.hierarchy.parent_project_of(project);
+                match (self.zoom_level.zoom_out(instance_target), parent) {
+                    // Leaving a nested project focuses it as a slot of its parent.
+                    (Some(ZoomLevel::Project) | None, Some(_)) => {
+                        self.focus_at_zoom_level(DesktopTarget::Project(project), ZoomLevel::Focus)
+                    }
+                    (Some(level), _) => self.commit_zoom_level(level),
+                    // The root project is the outermost frame.
+                    (None, None) => Changes::Empty,
+                }
+            }
+            Zoom::In => match self.zoom_level.zoom_in(instance_target).filter(|_| in_slot) {
+                Some(level) => self.commit_zoom_level(level),
+                None => match project_of_project_target(focused) {
+                    Some(entered) => self.plan_enter_project_slot(entered),
+                    None => Changes::Empty,
+                },
+            },
+            Zoom::Enter => {
+                let target = match project_of_project_target(focused) {
+                    Some(entered) => self.focus_target_for_project(entered),
+                    None => focused.clone(),
+                };
+                self.focus_at_zoom_level(target, ZoomLevel::Focus)
+            }
+        }
     }
 
-    fn camera_for_zoom_step(&self, target: &DesktopTarget, step: ZoomStep) -> PixelCamera {
-        match step.level {
-            ZoomLevel::Instance => self
+    /// Zooms into `project` by one level: focuses its focus slot, else its first slot, at `Row`.
+    fn plan_enter_project_slot(&self, project: ProjectId) -> Changes {
+        let Some(content) = self.last_focused_content(project).or_else(|| {
+            self.aggregates
+                .configuration
+                .slots_ordered(project)
+                .map(|(_, content)| content)
+                .next()
+        }) else {
+            return Changes::Empty;
+        };
+        self.focus_at_zoom_level(self.slot_focus_target(content.target()), ZoomLevel::Row)
+    }
+
+    fn focus_at_zoom_level(&self, target: DesktopTarget, level: ZoomLevel) -> Changes {
+        let mut changes = Changes::Empty;
+        if self.event_router.keyboard_focus() != Some(&target) {
+            changes += set_focus(Some(target), KeyboardFocusReason::Zoom);
+        }
+        changes += self.commit_zoom_level(level);
+        changes
+    }
+
+    fn commit_zoom_level(&self, level: ZoomLevel) -> Changes {
+        if level == self.zoom_level {
+            return Changes::Empty;
+        }
+        DesktopChange::CommitZoomLevel(level).into()
+    }
+
+    pub fn resolve_camera_for_target(
+        &self,
+        target: &DesktopTarget,
+        level: ZoomLevel,
+    ) -> PixelCamera {
+        let project = self.project_of(target);
+        let Some((content, placement)) = self.slot_in_project(project, target) else {
+            return self.project_camera(project);
+        };
+
+        match level.normalized(is_instance_target(target)) {
+            ZoomLevel::Focus if is_instance_target(target) => self
                 .camera_for_target(target)
-                .expect("an instance-level focus target must have a camera"),
-            ZoomLevel::Slot => {
-                let (content, _) = self
-                    .focus_slot_in_project(step.project, target)
-                    .expect("a slot zoom step must lie on the focused target's path");
-                self.camera_for_slot(content)
-                    .expect("a configured project slot must have a camera")
-            }
+                .expect("an instance focus target must have a camera"),
+            ZoomLevel::Focus | ZoomLevel::Slot => self
+                .camera_for_slot(content)
+                .expect("a configured project slot must have a camera"),
             ZoomLevel::Row => {
-                let (_, placement) = self
-                    .focus_slot_in_project(step.project, target)
-                    .expect("a row zoom step must lie on the focused target's path");
                 let rect = self
-                    .matrix_row_rect_for_project(step.project, placement.row)
+                    .matrix_row_rect_for_project(project, placement.row)
                     .expect("a row containing the focused target must have bounds");
                 self.camera_for_rect(rect)
                     .expect("a row containing the focused target must have a camera")
             }
-            ZoomLevel::Project => self
-                .camera_for_rect(self.project_rect(step.project))
-                .expect("a live project must have camera bounds"),
+            ZoomLevel::Project => self.project_camera(project),
         }
     }
 
-    /// Whether `depth` frames `target` at its innermost zoom level.
-    pub fn is_fully_zoomed_in(&self, target: &DesktopTarget, depth: ZoomDepth) -> bool {
-        let chain_len = self.zoom_chain(target).len();
-        depth.zoom_index_in(chain_len) + 1 == chain_len
+    fn project_camera(&self, project: ProjectId) -> PixelCamera {
+        self.camera_for_rect(self.project_rect(project))
+            .expect("a live project must have camera bounds")
     }
 
-    /// The framed level and the nesting depth of the framed project (root = 0).
+    /// Whether `level` frames `target` itself.
+    pub fn is_fully_zoomed_in(&self, target: &DesktopTarget, level: ZoomLevel) -> bool {
+        level.normalized(is_instance_target(target)) == ZoomLevel::Focus
+    }
+
+    /// What the camera frames and the nesting depth of the zoom project (root = 0).
+    ///
+    /// `Focus` on a target other than an instance frames its slot and reads as `Slot`; a target
+    /// without a slot frames its project.
     pub fn focused_zoom_level(&self) -> Option<(ZoomLevel, usize)> {
         self.event_router.keyboard_focus().map(|focused| {
-            let step = self.zoom_step_at_depth(focused, self.zoom_depth);
-            (step.level, self.project_nesting_depth(step.project))
+            let project = self.project_of(focused);
+            let level = match self.zoom_level.normalized(is_instance_target(focused)) {
+                _ if self.slot_in_project(project, focused).is_none() => ZoomLevel::Project,
+                ZoomLevel::Focus if !is_instance_target(focused) => ZoomLevel::Slot,
+                level => level,
+            };
+            (
+                level,
+                self.aggregates.hierarchy.project_nesting_depth(project),
+            )
         })
     }
 
-    pub fn navigation_target_at_zoom_depth(
-        &self,
-        target: &DesktopTarget,
-        depth: ZoomDepth,
-    ) -> DesktopTarget {
-        let step = self.zoom_step_at_depth(target, depth);
-        if step.level == ZoomLevel::Instance {
-            return target.clone();
-        }
-
-        self.focus_slot_in_project(step.project, target)
-            .map(|(content, _)| content.target())
-            .or_else(|| {
-                self.last_focused_content(step.project)
-                    .map(SlotContent::target)
-            })
-            .unwrap_or_else(|| target.clone())
-    }
-
-    fn zoom_step_at_depth(&self, target: &DesktopTarget, depth: ZoomDepth) -> ZoomStep {
-        let chain = self.zoom_chain(target);
-        chain[depth.zoom_index_in(chain.len())]
-    }
-
-    /// `target`'s zoom chain, ordered from the root project inward (ADR 0017). A nested project's own
-    /// `Project` level is omitted: its hosting slot frames the same presented rect.
-    pub(crate) fn zoom_chain(&self, target: &DesktopTarget) -> Vec<ZoomStep> {
-        let innermost = self.innermost_zoom_step(target);
-        let mut chain: Vec<_> = iter::once(innermost)
-            .chain(self.outer_zoom_steps(innermost))
-            .filter(|step| {
-                step.level != ZoomLevel::Project
-                    || self
-                        .aggregates
-                        .hierarchy
-                        .parent_project_of(step.project)
-                        .is_none()
-            })
-            .collect();
-        chain.reverse();
-        chain
-    }
-
-    fn project_nesting_depth(&self, project: ProjectId) -> usize {
-        iter::successors(Some(project), |project| {
-            self.aggregates.hierarchy.parent_project_of(*project)
-        })
-        .count()
-            - 1
-    }
-
-    fn innermost_zoom_step(&self, target: &DesktopTarget) -> ZoomStep {
-        ZoomStep {
-            project: self.aggregates.hierarchy.project_of_target(target),
-            level: innermost_zoom_level(target),
+    /// The project whose matrix holds `target`'s slot. A project target is a slot of its parent;
+    /// the root project, which no matrix hosts, is its own zoom project.
+    fn project_of(&self, target: &DesktopTarget) -> ProjectId {
+        match project_of_project_target(target) {
+            Some(project) => self
+                .aggregates
+                .hierarchy
+                .parent_project_of(project)
+                .unwrap_or(project),
+            None => self.aggregates.hierarchy.project_of_target(target),
         }
     }
 
-    fn next_outer_zoom_step(&self, step: ZoomStep) -> Option<ZoomStep> {
-        let level = match step.level {
-            ZoomLevel::Instance => ZoomLevel::Slot,
-            ZoomLevel::Slot => ZoomLevel::Row,
-            ZoomLevel::Row => ZoomLevel::Project,
-            ZoomLevel::Project => {
-                let project = self.aggregates.hierarchy.parent_project_of(step.project)?;
-                return Some(ZoomStep {
-                    project,
-                    level: ZoomLevel::Slot,
-                });
-            }
-        };
-
-        Some(ZoomStep { level, ..step })
-    }
-
-    fn outer_zoom_steps(&self, step: ZoomStep) -> impl Iterator<Item = ZoomStep> + '_ {
-        iter::successors(self.next_outer_zoom_step(step), |step| {
-            self.next_outer_zoom_step(*step)
-        })
-    }
-
-    fn focus_slot_in_project(
+    fn slot_in_project(
         &self,
         project: ProjectId,
         target: &DesktopTarget,
     ) -> Option<(SlotContent, MatrixPlacement)> {
+        let target_path = self.aggregates.hierarchy.resolve_path(Some(target));
         self.aggregates
             .configuration
             .slots_ordered(project)
             .find_map(|(placement, content)| {
-                self.aggregates
-                    .hierarchy
-                    .path_contains_target(Some(target), &content.target())
+                target_path
+                    .contains(&content.target())
                     .then_some((content, placement))
             })
     }
@@ -281,8 +284,8 @@ impl DesktopSystem {
         bounds.expect("Internal error: a launcher with visors must yield bounds")
     }
 
-    /// The bounds of the matrix row the launcher sits in, every assigned slot of
-    /// that row included — a project-assigned slot widens it like a launcher does.
+    /// The bounds of the matrix row, every assigned slot of that row included — a project-assigned
+    /// slot widens it like a launcher does.
     fn matrix_row_rect_for_project(&self, project_id: ProjectId, row: u32) -> Option<Rect> {
         let mut rect: Option<Rect> = None;
 
@@ -379,13 +382,17 @@ impl DesktopSystem {
     }
 }
 
-fn innermost_zoom_level(target: &DesktopTarget) -> ZoomLevel {
+fn is_instance_target(target: &DesktopTarget) -> bool {
+    matches!(target, DesktopTarget::Instance(_) | DesktopTarget::View(_))
+}
+
+/// The project a project-level target stands for; `Desktop` stands for the root project.
+fn project_of_project_target(target: &DesktopTarget) -> Option<ProjectId> {
     match target {
-        DesktopTarget::Launcher(_) => ZoomLevel::Slot,
-        DesktopTarget::Instance(_) | DesktopTarget::View(_) => ZoomLevel::Instance,
-        DesktopTarget::Desktop
-        | DesktopTarget::Project(_)
-        | DesktopTarget::ProjectHeader(_)
-        | DesktopTarget::ProjectMatrix(_) => ZoomLevel::Project,
+        DesktopTarget::Project(project)
+        | DesktopTarget::ProjectHeader(project)
+        | DesktopTarget::ProjectMatrix(project) => Some(*project),
+        DesktopTarget::Desktop => Some(ProjectId::ROOT),
+        DesktopTarget::Launcher(_) | DesktopTarget::Instance(_) | DesktopTarget::View(_) => None,
     }
 }

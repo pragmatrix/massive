@@ -46,21 +46,6 @@ impl OrderedHierarchy<DesktopTarget> {
         })
     }
 
-    /// The project a launcher belongs to, walking up to the matrix that hosts it.
-    /// A launcher is only ever hosted by a matrix, so callers that derive their id
-    /// from the live model can rely on the walk — a launcher the topology does not
-    /// hold is an invariant violation.
-    pub fn project_of_launcher(&self, launcher_id: LaunchProfileId) -> ProjectId {
-        self.parent_chain(&DesktopTarget::Launcher(launcher_id))
-            .find_map(|target| match target {
-                DesktopTarget::ProjectMatrix(project_id) => Some(*project_id),
-                _ => None,
-            })
-            .unwrap_or_else(|| {
-                panic!("launcher {launcher_id:?} must be nested under a project matrix")
-            })
-    }
-
     /// The project a target belongs to, walking the ancestor chain to the nearest
     /// project. A project's own targets and everything nested below it answer with
     /// that project, so a target hosted by a nested project answers with the nested
@@ -98,6 +83,14 @@ impl OrderedHierarchy<DesktopTarget> {
                 DesktopTarget::ProjectMatrix(parent) => Some(*parent),
                 _ => None,
             })
+    }
+
+    /// How many projects enclose `project`, root = 0: every enclosing project hosts the path in
+    /// its matrix, and the root hangs under `Desktop`.
+    pub fn project_nesting_depth(&self, project: ProjectId) -> usize {
+        self.parent_chain(&DesktopTarget::Project(project))
+            .filter(|target| matches!(target, DesktopTarget::ProjectMatrix(_)))
+            .count()
     }
 
     /// The instances of a launcher, in the launcher's child order.
@@ -239,7 +232,6 @@ mod tests {
             topology.project_of_target(&DesktopTarget::Launcher(launcher)),
             nested
         );
-        assert_eq!(topology.project_of_launcher(launcher), nested);
         assert_eq!(topology.parent_project_of(nested), Some(root));
         assert_eq!(topology.parent_project_of(root), None);
         assert_eq!(

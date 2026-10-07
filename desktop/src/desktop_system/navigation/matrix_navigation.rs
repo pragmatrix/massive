@@ -31,13 +31,13 @@ impl<'a> MatrixNavigation<'a> {
         }
     }
 
-    pub(super) fn navigate_from_launcher(
+    pub(super) fn navigate_from_slot(
         self,
-        launcher_id: LaunchProfileId,
+        content: impl Into<SlotContent>,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
-        let (project_id, origin_placement) = self.launcher_matrix_position(launcher_id)?;
+        let (project_id, origin_placement) = self.configuration.slot_of_content(content)?;
         self.navigate_from_matrix_slot(project_id, origin_placement, direction, preferred_column)
     }
 
@@ -51,9 +51,8 @@ impl<'a> MatrixNavigation<'a> {
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
-        let entries = self.create_project_matrix_entries(project_id);
-        select_matrix_neighbor(&entries, origin_placement, direction, preferred_column).or_else(
-            || {
+        self.navigate_within_matrix(project_id, origin_placement, direction, preferred_column)
+            .or_else(|| {
                 direction.vertical().and_then(|vertical| {
                     self.cross_project_vertical_neighbor(
                         project_id,
@@ -61,13 +60,22 @@ impl<'a> MatrixNavigation<'a> {
                         vertical,
                     )
                 })
-            },
-        )
+            })
+    }
+
+    pub(super) fn navigate_within_matrix(
+        self,
+        project_id: ProjectId,
+        origin_placement: MatrixPlacement,
+        direction: Direction,
+        preferred_column: Option<u32>,
+    ) -> Option<DesktopTarget> {
+        let entries = self.create_project_matrix_entries(project_id);
+        select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
     }
 
     pub(super) fn navigate_from_child(
         self,
-        configuration: &RuntimeConfiguration,
         launcher_id: LaunchProfileId,
         index: usize,
         direction: Direction,
@@ -75,24 +83,15 @@ impl<'a> MatrixNavigation<'a> {
     ) -> Option<DesktopTarget> {
         // Existence is answered from the configuration aggregate; presenters are not
         // consulted along this path.
-        let _ = configuration.launcher(launcher_id)?;
+        let _ = self.configuration.launcher(launcher_id)?;
         let instances: Vec<_> = self.hierarchy.launcher_instances(launcher_id).collect();
         if let Some(horizontal) = direction.horizontal() {
             return horizontal_child_neighbor(&instances, index, horizontal)
                 .map(DesktopTarget::Instance)
-                .or_else(|| self.navigate_from_launcher(launcher_id, direction, preferred_column));
+                .or_else(|| self.navigate_from_slot(launcher_id, direction, preferred_column));
         }
 
-        self.navigate_from_launcher(launcher_id, direction, preferred_column)
-    }
-
-    fn launcher_matrix_position(
-        self,
-        launcher_id: LaunchProfileId,
-    ) -> Option<(ProjectId, MatrixPlacement)> {
-        let placement = self.configuration.placement_of(launcher_id)?;
-        let project_id = self.hierarchy.project_of_launcher(launcher_id);
-        Some((project_id, placement))
+        self.navigate_from_slot(launcher_id, direction, preferred_column)
     }
 
     fn create_project_matrix_entries(

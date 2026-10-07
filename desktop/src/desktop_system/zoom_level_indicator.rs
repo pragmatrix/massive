@@ -28,7 +28,8 @@ const ZOOM_LEVEL_LABELS: [(ZoomLevel, &str); 4] = [
     (ZoomLevel::Project, "Project"),
     (ZoomLevel::Row, "Row"),
     (ZoomLevel::Slot, "Slot"),
-    (ZoomLevel::Instance, "Instance"),
+    // `Focus` reaches the indicator only on an instance; other targets read as `Slot`.
+    (ZoomLevel::Focus, "Instance"),
 ];
 
 #[derive(Debug)]
@@ -65,7 +66,7 @@ impl ZoomLevelIndicatorPresenter {
         }
     }
 
-    /// Shows the framed level and the nesting depth of the framed project (ADR 0017).
+    /// Shows the framed level and the nesting depth of the zoom project (ADR 0018).
     pub fn show(&mut self, zoom_level: ZoomLevel, project_depth: usize) {
         let badge = ZoomLevelBadge::new(
             &format!("{} {project_depth}", zoom_level_label(zoom_level)),

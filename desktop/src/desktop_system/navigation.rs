@@ -88,7 +88,6 @@ pub struct NavigationPlan {
 
 #[derive(Debug, Clone, Copy)]
 enum NavigationOrigin {
-    Launcher(LaunchProfileId),
     MatrixSlot {
         project: ProjectId,
         placement: MatrixPlacement,
@@ -102,9 +101,9 @@ enum NavigationOrigin {
 impl DesktopSystem {
     /// Plans a navigation command into changes without mutating state.
     ///
-    /// Resolves the navigation candidate from the active matrix in the keyboard-focus path,
-    /// then commits focus and column affinity. Camera framing follows the new focus at the same
-    /// zoom depth (ADR 0017).
+    /// Navigation depends only on the keyboard-focused target, never on the zoom level; it
+    /// commits focus and column affinity, and the camera frames the new focus at the same zoom
+    /// level (ADR 0018).
     pub(super) fn plan_navigate(&self, direction: Direction) -> Result<Changes> {
         // If nothing is focused (i.e. the whole window does not have the focused), we probably
         // don't want to do anything and this is perhaps even an error.
@@ -113,29 +112,35 @@ impl DesktopSystem {
             return Ok(Changes::Empty);
         };
 
-        let navigation_target = self.navigation_target_at_zoom_depth(focused, self.zoom_depth);
-        if let Some(mut plan) = plan_navigation_candidate(
+        let Some(plan) = plan_navigation_candidate(
             &self.aggregates.hierarchy,
             &self.aggregates.launchers,
             &self.aggregates.configuration,
             &self.navigation_control,
-            &navigation_target,
+            focused,
             direction,
-        ) {
-            if let DesktopTarget::Project(project) = plan.candidate {
-                plan.candidate = self.focus_target_for_project(project);
-            }
-            // Architecture: Totally confusing that set_focus may also change the navigation affinity.
-            let mut changes =
-                set_focus(Some(plan.candidate.clone()), KeyboardFocusReason::Navigate);
-            changes <<= DesktopChange::CommitNavigationAffinity(plan.column_affinity);
-            return Ok(changes);
-        }
+        ) else {
+            return Ok(Changes::Empty);
+        };
 
-        Ok(Changes::Empty)
+        // Architecture: Totally confusing that set_focus may also change the navigation affinity.
+        let mut changes = set_focus(Some(plan.candidate), KeyboardFocusReason::Navigate);
+        changes <<= DesktopChange::CommitNavigationAffinity(plan.column_affinity);
+        Ok(changes)
     }
 
-    fn focus_target_for_project(&self, project: ProjectId) -> DesktopTarget {
+    /// Lands focus on a slot's content without a direction: a launcher focuses its instance
+    /// anchor, else its first instance, else itself; a project is focused as a slot (ADR 0018).
+    pub(super) fn slot_focus_target(&self, target: DesktopTarget) -> DesktopTarget {
+        match target {
+            DesktopTarget::Launcher(launcher) => self.focus_target_for_launcher(launcher),
+            target => target,
+        }
+    }
+
+    /// The leaf a project is entered down to: its focus slots followed through nested projects,
+    /// else its first launcher depth first, else the project itself.
+    pub(super) fn focus_target_for_project(&self, project: ProjectId) -> DesktopTarget {
         if let Some(content) = self.last_focused_content(project) {
             return self.focus_target_for_slot(content);
         }
@@ -164,18 +169,20 @@ impl DesktopSystem {
     }
 
     fn focus_target_for_launcher(&self, launcher: LaunchProfileId) -> DesktopTarget {
-        self.aggregates
+        let hierarchy = &self.aggregates.hierarchy;
+        let target = self
+            .aggregates
             .launchers
             .get(&launcher)
             .and_then(|presenter| presenter.focus_anchor_instance)
             .filter(|instance| {
-                self.aggregates
-                    .hierarchy
-                    .parent(&DesktopTarget::Instance(*instance))
+                hierarchy.parent(&DesktopTarget::Instance(*instance))
                     == Some(&DesktopTarget::Launcher(launcher))
             })
+            .or_else(|| hierarchy.launcher_instances(launcher).next())
             .map(DesktopTarget::Instance)
-            .unwrap_or(DesktopTarget::Launcher(launcher))
+            .unwrap_or(DesktopTarget::Launcher(launcher));
+        hierarchy.resolve_keyboard_focus_target(&target)
     }
 
     fn first_launcher_depth_first(&self, project: ProjectId) -> Option<LaunchProfileId> {
@@ -192,100 +199,28 @@ impl DesktopSystem {
         None
     }
 
-    pub(super) fn launcher_removal_focus(
-        &self,
-        launcher: LaunchProfileId,
-        focused: &DesktopTarget,
-    ) -> DesktopTarget {
-        let matrix_navigation =
-            MatrixNavigation::new(&self.aggregates.hierarchy, &self.aggregates.configuration);
-        let replacement = [Direction::Right, Direction::Down]
-            .into_iter()
-            .find_map(|direction| {
-                matrix_navigation.navigate_from_launcher(launcher, direction, None)
-            })
-            .unwrap_or_else(|| {
-                DesktopTarget::ProjectMatrix(
-                    self.aggregates.hierarchy.project_of_launcher(launcher),
-                )
-            });
-
-        self.restore_launcher_removal_focus_target(replacement, focused)
-    }
-
-    // Robustness: This parallels `resolve_navigation_focus_target`: both turn a launcher into a
-    // concrete focus target. Keep their instance/view selection policies aligned; they may need
-    // to be combined once directional navigation also preserves the original focus depth.
-    fn restore_launcher_removal_focus_target(
-        &self,
-        replacement: DesktopTarget,
-        focused: &DesktopTarget,
-    ) -> DesktopTarget {
-        let DesktopTarget::Launcher(replacement_launcher) = replacement else {
-            return replacement;
-        };
-
-        let (DesktopTarget::Instance(_) | DesktopTarget::View(_)) = focused else {
-            return DesktopTarget::Launcher(replacement_launcher);
-        };
-
-        let Some(instance) = self
-            .aggregates
-            .launchers
-            .get(&replacement_launcher)
-            .and_then(|launcher| launcher.focus_anchor_instance)
-            .filter(|instance| {
-                self.aggregates
-                    .hierarchy
-                    .parent(&DesktopTarget::Instance(*instance))
-                    == Some(&DesktopTarget::Launcher(replacement_launcher))
-            })
-        else {
-            return DesktopTarget::Launcher(replacement_launcher);
-        };
-
-        let instance = DesktopTarget::Instance(instance);
-        match focused {
-            DesktopTarget::Instance(_) => instance,
-            DesktopTarget::View(_) => self
-                .aggregates
-                .hierarchy
-                .resolve_neighbor_focus_target(&instance),
-            // The `let ... else` above limits this branch to instance or view focus.
-            _ => unreachable!(),
-        }
-    }
-
-    /// The focus replacement when a nested `project` leaves its parent's matrix: the
-    /// next sibling, else the previous, else the parent project. Only nested
-    /// projects are cleared, so a parent always exists.
-    pub(super) fn project_removal_focus(&self, project: ProjectId) -> DesktopTarget {
-        let parent = self
-            .aggregates
-            .hierarchy
-            .parent_project_of(project)
-            .expect("a removed project is nested in its parent's matrix");
-
-        let siblings: Vec<DesktopTarget> = self
+    /// The focus replacement when slot `content` is removed: the first available
+    /// right, left, down, or up neighbor in its matrix, else its hosting project.
+    pub(super) fn slot_removal_focus(&self, content: SlotContent) -> DesktopTarget {
+        let (parent, placement) = self
             .aggregates
             .configuration
-            .slots_ordered(parent)
-            .map(|(_, content)| content.target())
-            .collect();
-        let project_target = DesktopTarget::Project(project);
-        let project_index = siblings
-            .iter()
-            .position(|target| target == &project_target)
-            .expect("the removed project is assigned to a sibling slot");
-        siblings
-            .get(project_index + 1)
-            .or_else(|| {
-                project_index
-                    .checked_sub(1)
-                    .and_then(|index| siblings.get(index))
-            })
-            .cloned()
-            .unwrap_or(DesktopTarget::Project(parent))
+            .slot_of_content(content)
+            .expect("removed content is assigned to a project slot");
+        let matrix_navigation =
+            MatrixNavigation::new(&self.aggregates.hierarchy, &self.aggregates.configuration);
+        [
+            Direction::Right,
+            Direction::Left,
+            Direction::Down,
+            Direction::Up,
+        ]
+        .into_iter()
+        .find_map(|direction| {
+            matrix_navigation.navigate_within_matrix(parent, placement, direction, None)
+        })
+        .map(|replacement| self.slot_focus_target(replacement))
+        .unwrap_or(DesktopTarget::Project(parent))
     }
 
     pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
@@ -372,13 +307,7 @@ fn plan_navigation_candidate(
     let origin_placement = navigation_origin_placement(configuration, origin);
     let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
     let matrix_navigation = MatrixNavigation::new(hierarchy, configuration);
-    let target = navigate_from_origin(
-        matrix_navigation,
-        configuration,
-        origin,
-        direction,
-        column_affinity,
-    )?;
+    let target = navigate_from_origin(matrix_navigation, origin, direction, column_affinity)?;
     let candidate =
         resolve_navigation_focus_target(hierarchy, launchers, configuration, target, direction);
     Some(NavigationPlan {
@@ -393,12 +322,12 @@ fn resolve_navigation_origin(
     from: &DesktopTarget,
 ) -> Option<NavigationOrigin> {
     match from {
-        DesktopTarget::Launcher(launcher_id) => Some(NavigationOrigin::Launcher(*launcher_id)),
+        DesktopTarget::Launcher(launcher_id) => {
+            let (project, placement) = configuration.slot_of_content(*launcher_id)?;
+            Some(NavigationOrigin::MatrixSlot { project, placement })
+        }
         DesktopTarget::Project(project) | DesktopTarget::ProjectHeader(project) => {
-            let parent = hierarchy.parent_project_of(*project)?;
-            let placement = configuration
-                .project(parent)?
-                .placement_of_content(SlotContent::Project(*project))?;
+            let (parent, placement) = configuration.slot_of_content(*project)?;
             Some(NavigationOrigin::MatrixSlot {
                 project: parent,
                 placement,
@@ -424,35 +353,25 @@ fn navigation_origin_placement(
     origin: NavigationOrigin,
 ) -> Option<MatrixPlacement> {
     match origin {
-        NavigationOrigin::Launcher(launcher_id)
-        | NavigationOrigin::Child {
-            launcher: launcher_id,
-            ..
-        } => configuration.placement_of(launcher_id),
         NavigationOrigin::MatrixSlot { placement, .. } => Some(placement),
+        NavigationOrigin::Child { launcher, .. } => configuration
+            .slot_of_content(launcher)
+            .map(|(_, placement)| placement),
     }
 }
 
 fn navigate_from_origin(
     matrix_navigation: MatrixNavigation<'_>,
-    configuration: &RuntimeConfiguration,
     origin: NavigationOrigin,
     direction: Direction,
     preferred_column: Option<u32>,
 ) -> Option<DesktopTarget> {
     match origin {
-        NavigationOrigin::Launcher(launcher) => {
-            matrix_navigation.navigate_from_launcher(launcher, direction, preferred_column)
-        }
         NavigationOrigin::MatrixSlot { project, placement } => matrix_navigation
             .navigate_from_matrix_slot(project, placement, direction, preferred_column),
-        NavigationOrigin::Child { launcher, index } => matrix_navigation.navigate_from_child(
-            configuration,
-            launcher,
-            index,
-            direction,
-            preferred_column,
-        ),
+        NavigationOrigin::Child { launcher, index } => {
+            matrix_navigation.navigate_from_child(launcher, index, direction, preferred_column)
+        }
     }
 }
 
@@ -460,10 +379,9 @@ fn navigate_from_origin(
 ///
 /// Matrix navigation may return a `Launcher` shell. This step converts launcher
 /// targets into concrete child instances when appropriate, then delegates to the
-/// hierarchy to resolve the final focus target (for example, a nested view).
-// Robustness: This parallels `restore_launcher_removal_focus_target`, which also resolves a
-// launcher to an instance or view. They may need to be combined when directional navigation and
-// launcher removal use the same focus-depth policy.
+/// hierarchy to resolve the final focus target (for example, a nested view). A project
+/// target stays the project (ADR 0018). This is the directional variant of
+/// `DesktopSystem::slot_focus_target`: a band launcher picks its edge instance by direction.
 fn resolve_navigation_focus_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
@@ -478,7 +396,7 @@ fn resolve_navigation_focus_target(
         _ => target,
     };
 
-    topology.resolve_neighbor_focus_target(&target)
+    topology.resolve_keyboard_focus_target(&target)
 }
 
 /// Chooses a concrete focus target for a launcher.

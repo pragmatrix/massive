@@ -213,9 +213,9 @@ impl LauncherPresenter {
             ViewEvent::KeyboardInput { event: key_event, .. }
                 if key_event.state == ElementState::Pressed
                     && !key_event.repeat
-                    && event.device_states().is_command()
                     && (key_event.logical_key == Key::Named(NamedKey::Enter)
-                        || matches!(&key_event.logical_key, Key::Character(key)
+                        || event.device_states().is_command()
+                            && matches!(&key_event.logical_key, Key::Character(key)
                             if key.as_str().eq_ignore_ascii_case("t")))
         );
         let start_instance = start_shortcut

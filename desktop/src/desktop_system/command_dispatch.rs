@@ -2,7 +2,6 @@ use anyhow::{Context, Result, bail};
 use log::{debug, warn};
 use serde_json::json;
 
-use super::change::Zoom;
 use super::change::set_focus;
 use super::change::{
     Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
@@ -10,7 +9,7 @@ use super::change::{
 };
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason,
-    ProjectCommand, ZoomDepth,
+    ProjectCommand, ZoomLevel,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -83,7 +82,7 @@ impl DesktopSystem {
     /// Plan the execution of a command.
     pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
-            DesktopCommand::Project(project_command) => return self.plan_project(project_command),
+            DesktopCommand::Project(project_command) => self.plan_project(project_command),
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -148,13 +147,13 @@ impl DesktopSystem {
                         under: launcher.into(),
                     }),
                 ];
-                changes <<= DesktopChange::CommitZoomDepth(ZoomDepth::Innermost);
+                changes <<= DesktopChange::CommitZoomLevel(ZoomLevel::Focus);
                 changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
                 );
 
-                return Ok(changes);
+                Ok(changes)
             }
             DesktopCommand::StopInstance(instance) => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
@@ -179,38 +178,23 @@ impl DesktopSystem {
                     DesktopChange::ShutdownInstance(instance),
                 ];
 
-                return Ok(changes);
+                Ok(changes)
             }
-            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
-            // Zoom steps move along the keyboard-focused target's frame chain (ADR 0017).
-            DesktopCommand::Zoom(zoom) => {
-                if let Some(focused) = self.event_router.keyboard_focus() {
-                    let chain_len = self.zoom_chain(focused).len();
-                    let depth = match zoom {
-                        Zoom::In => self.zoom_depth.zoom_in(chain_len),
-                        Zoom::Out => self.zoom_depth.zoom_out(chain_len),
-                        Zoom::Reset => ZoomDepth::Innermost,
-                    };
-                    if depth != self.zoom_depth {
-                        return Ok(DesktopChange::CommitZoomDepth(depth).into());
-                    }
-                }
-            }
+            DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
+            DesktopCommand::Zoom(zoom) => Ok(self.plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 if self.window_state.is_fullscreen
                     && self.focused_path().instance().is_some()
                     && self
                         .event_router
                         .keyboard_focus()
-                        .is_some_and(|focused| self.is_fully_zoomed_in(focused, self.zoom_depth))
+                        .is_some_and(|focused| self.is_fully_zoomed_in(focused, self.zoom_level))
                 {
                     return self.plan_toggle_full_screen_mode();
                 }
-                return Ok(DesktopChange::ToggleWindowFullScreen.into());
+                Ok(DesktopChange::ToggleWindowFullScreen.into())
             }
         }
-
-        Ok([].into())
     }
 
     /// Plans `ToggleFullScreenMode` (ADR 0014): a base instance resolves to its
@@ -460,10 +444,7 @@ impl DesktopSystem {
         {
             return Changes::Empty;
         }
-        let replacement = match content {
-            SlotContent::Launcher(launcher) => self.launcher_removal_focus(launcher, focused),
-            SlotContent::Project(project) => self.project_removal_focus(project),
-        };
+        let replacement = self.slot_removal_focus(content);
         set_focus(Some(replacement), KeyboardFocusReason::InputTransition)
     }
 
@@ -555,9 +536,9 @@ impl DesktopSystem {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
-            DesktopChange::CommitZoomDepth(depth) => {
-                if self.zoom_depth != depth {
-                    self.zoom_depth = depth;
+            DesktopChange::CommitZoomLevel(level) => {
+                if self.zoom_level != level {
+                    self.zoom_level = level;
 
                     let mut output = ChangeOutput::default();
                     if let Some(focused) = self.event_router.keyboard_focus() {
@@ -923,7 +904,7 @@ impl DesktopSystem {
             ConfigurationRequest::AddLauncher => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let Some((parent, current_placement)) =
-                    self.aggregates.configuration.slot_of_launcher(launcher)
+                    self.aggregates.configuration.slot_of_content(launcher)
                 else {
                     warn!("The focused launcher has no matrix placement");
                     return Ok(ChangeOutput::default());
@@ -1050,7 +1031,7 @@ impl DesktopSystem {
                     .aggregates
                     .configuration
                     .project(parent)
-                    .and_then(|parent| parent.placement_of_content(SlotContent::Project(project)))
+                    .and_then(|parent| parent.placement_of_content(project))
                     .expect("the parent project holds the nested project in a slot");
 
                 Ok(ChangeOutput::changes(self.plan_project(
@@ -1080,7 +1061,7 @@ impl DesktopSystem {
                 };
 
                 let Some((parent, placement)) =
-                    self.aggregates.configuration.slot_of_launcher(launcher)
+                    self.aggregates.configuration.slot_of_content(launcher)
                 else {
                     return Ok(ChangeOutput::default());
                 };
@@ -1096,7 +1077,7 @@ impl DesktopSystem {
             ConfigurationRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let Some((parent, current_placement)) =
-                    self.aggregates.configuration.slot_of_launcher(launcher)
+                    self.aggregates.configuration.slot_of_content(launcher)
                 else {
                     warn!("The focused launcher has no matrix placement");
                     return Ok(ChangeOutput::default());
@@ -1150,7 +1131,7 @@ impl DesktopSystem {
             ConfigurationRequest::PushLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let Some((parent, current_placement)) =
-                    self.aggregates.configuration.slot_of_launcher(launcher)
+                    self.aggregates.configuration.slot_of_content(launcher)
                 else {
                     warn!("The focused launcher has no matrix placement");
                     return Ok(ChangeOutput::default());
@@ -1260,8 +1241,9 @@ mod tests {
 
     use super::*;
     use crate::desktop_environment::DesktopEnvironment;
+    use crate::desktop_system::TransactionEffectsMode;
     use crate::desktop_system::change::DesktopSystemEffect;
-    use crate::desktop_system::{TransactionEffectsMode, ZoomLevel};
+    use crate::desktop_system::change::Zoom;
     use crate::instance_manager::InstanceManager;
     use crate::instance_presenter::InstanceKind;
     use crate::projects::persistence::parse_configuration;
@@ -1299,147 +1281,263 @@ mod tests {
         ]
     }"#;
 
+    /// The nested siblings booted, with one instance started per sibling and `labs-a`'s focused.
+    struct NestedSiblings {
+        system: DesktopSystem,
+        instance_manager: InstanceManager,
+        project_a: ProjectId,
+        project_b: ProjectId,
+        launcher_b: LaunchProfileId,
+        instance_a: InstanceId,
+        instance_b: InstanceId,
+    }
+
+    fn nested_siblings() -> Result<NestedSiblings> {
+        let (mut system, receiver) = system_from(NESTED_SIBLINGS_CONFIG);
+        let mut instance_manager = instance_manager(&receiver);
+        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+            let changes = system.plan(DesktopCommand::Project(command))?;
+            system.transact(
+                changes,
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+            )?;
+        }
+
+        let launcher_a = system
+            .aggregates
+            .configuration
+            .boot_launcher()
+            .expect("the test configuration has a startup launcher");
+        let project_a = system
+            .aggregates
+            .hierarchy
+            .project_of_target(&DesktopTarget::Launcher(launcher_a));
+        let project_b = system
+            .aggregates
+            .configuration
+            .slots_ordered(ProjectId::ROOT)
+            .find_map(|(_, content)| match content {
+                SlotContent::Project(project) if project != project_a => Some(project),
+                _ => None,
+            })
+            .expect("the root has a sibling project");
+        let launcher_b = system
+            .aggregates
+            .configuration
+            .slots_ordered(project_b)
+            .find_map(|(_, content)| match content {
+                SlotContent::Launcher(launcher) => Some(launcher),
+                SlotContent::Project(_) => None,
+            })
+            .expect("the sibling project has a launcher");
+
+        let instance_a = start_instance(&mut system, &mut instance_manager, launcher_a, 0)?;
+        let instance_b = start_instance(&mut system, &mut instance_manager, launcher_b, 0)?;
+        system.transact(
+            set_focus(
+                Some(DesktopTarget::Instance(instance_a)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+
+        Ok(NestedSiblings {
+            system,
+            instance_manager,
+            project_a,
+            project_b,
+            launcher_b,
+            instance_a,
+            instance_b,
+        })
+    }
+
+    fn run(
+        system: &mut DesktopSystem,
+        instance_manager: &mut InstanceManager,
+        command: DesktopCommand,
+    ) -> Result<()> {
+        let changes = system.plan(command)?;
+        system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
+        Ok(())
+    }
+
     #[tokio::test]
-    async fn zoomed_navigation_uses_project_focus_trail_and_follows_the_sibling() -> Result<()> {
+    async fn zooming_out_of_a_project_focuses_it_and_zooming_in_restores_its_focus() -> Result<()> {
         task_context::with_context(task_context(), async {
             let frame = massive_applications::begin_frame();
-            let (mut system, receiver) = system_from(NESTED_SIBLINGS_CONFIG);
-            let mut instance_manager = instance_manager(&receiver);
-            for command in crate::projects::to_commands(&system.aggregates.configuration) {
-                let changes = system.plan(DesktopCommand::Project(command))?;
-                system.transact(
-                    changes,
-                    &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                )?;
-            }
+            let NestedSiblings {
+                mut system,
+                mut instance_manager,
+                project_a,
+                project_b,
+                launcher_b,
+                instance_a,
+                instance_b,
+            } = nested_siblings()?;
+            let system = &mut system;
+            let instance_manager = &mut instance_manager;
+            let focus = |system: &DesktopSystem| system.event_router.keyboard_focus().cloned();
+            deliver_view(system, instance_manager, instance_a)?;
+            let view_a = system.aggregates.instances[&instance_a]
+                .primary_view_id()
+                .expect("instance A has a primary view");
 
-            let launcher_a = system
-                .aggregates
-                .configuration
-                .boot_launcher()
-                .expect("the test configuration has a startup launcher");
-            let project_a = system.aggregates.hierarchy.project_of_launcher(launcher_a);
-            let project_b = system
-                .aggregates
-                .configuration
-                .slots_ordered(ProjectId::ROOT)
-                .find_map(|(_, content)| match content {
-                    SlotContent::Project(project) if project != project_a => Some(project),
-                    _ => None,
-                })
-                .expect("the root has a sibling project");
-            let launcher_b = system
-                .aggregates
-                .configuration
-                .slots_ordered(project_b)
-                .find_map(|(_, content)| match content {
-                    SlotContent::Launcher(launcher) => Some(launcher),
-                    SlotContent::Project(_) => None,
-                })
-                .expect("the sibling project has a launcher");
+            // Inside `labs-a`, zooming out keeps its primary view focused.
+            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
+            assert_eq!(focus(system), Some(DesktopTarget::View(view_a)));
+            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 1)));
+            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
+            assert_eq!(focus(system), Some(DesktopTarget::View(view_a)));
+            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
 
-            let instance_a = start_instance(&mut system, &mut instance_manager, launcher_a, 0)?;
-            let instance_b = start_instance(&mut system, &mut instance_manager, launcher_b, 0)?;
-            system.transact(
-                set_focus(
-                    Some(DesktopTarget::Instance(instance_a)),
-                    KeyboardFocusReason::InputTransition,
-                ),
-                &mut instance_manager,
-                TransactionEffectsMode::Setup,
-            )?;
-
-            // Root project, root row, root slot (merged with `labs-a`'s project frame), `labs-a`
-            // row, `labs-a` slot, instance.
-            assert_eq!(
-                system
-                    .zoom_chain(&DesktopTarget::Instance(instance_a))
-                    .len(),
-                6
-            );
-
-            for _ in 0..3 {
-                let changes = system.plan(DesktopCommand::Zoom(Zoom::Out))?;
-                system.transact(
-                    changes,
-                    &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                )?;
-            }
-            assert_eq!(system.zoom_depth, ZoomDepth::Depth(2));
+            // Leaving `labs-a` focuses it as a slot of the root.
+            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
+            assert_eq!(focus(system), Some(DesktopTarget::Project(project_a)));
+            assert_eq!(system.zoom_level, ZoomLevel::Focus);
             assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 0)));
-            assert_eq!(
-                system.event_router.keyboard_focus(),
-                Some(&DesktopTarget::Instance(instance_a))
-            );
 
-            let changes = system.plan(DesktopCommand::Navigate(
-                crate::desktop_system::Direction::Right,
-            ))?;
-            system.transact(
-                changes,
-                &mut instance_manager,
-                TransactionEffectsMode::Setup,
+            // Navigation moves between the root's slots and lands on the project itself.
+            run(
+                system,
+                instance_manager,
+                DesktopCommand::Navigate(crate::desktop_system::Direction::Right),
             )?;
-
-            assert_eq!(
-                system.event_router.keyboard_focus(),
-                Some(&DesktopTarget::Instance(instance_b))
-            );
+            assert_eq!(focus(system), Some(DesktopTarget::Project(project_b)));
             assert_eq!(
                 system.hover_placement(),
-                Some(system.placement(&DesktopTarget::Instance(instance_b))),
+                Some(system.placement(&DesktopTarget::Project(project_b))),
                 "keyboard navigation must show the focused target's hover rect"
             );
-            assert_eq!(system.zoom_depth, ZoomDepth::Depth(2));
-            assert_eq!(
-                system.focused_zoom_level(),
-                Some((ZoomLevel::Slot, 0)),
-                "navigation keeps framing the root slot level"
-            );
+            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 0)));
 
-            for zoom in [Zoom::In, Zoom::Out] {
-                let changes = system.plan(DesktopCommand::Zoom(zoom))?;
-                system.transact(
-                    changes,
-                    &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                )?;
-                assert_eq!(
-                    system.hover_placement(),
-                    Some(system.placement(&DesktopTarget::Instance(instance_b))),
-                    "desktop zoom commands must preserve navigation hover"
-                );
-            }
+            // Zooming in enters `labs-b` by one level, restoring its focus slot.
+            run(system, instance_manager, DesktopCommand::Zoom(Zoom::In))?;
+            assert_eq!(focus(system), Some(DesktopTarget::Instance(instance_b)));
+            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
+
+            // Back out, then back in to `labs-a`: its focus slot was kept.
+            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Out))?;
+            assert_eq!(focus(system), Some(DesktopTarget::Project(project_b)));
+            run(
+                system,
+                instance_manager,
+                DesktopCommand::Navigate(crate::desktop_system::Direction::Left),
+            )?;
+            run(system, instance_manager, DesktopCommand::Zoom(Zoom::Enter))?;
+            assert_eq!(focus(system), Some(DesktopTarget::View(view_a)));
+            assert_eq!(system.zoom_level, ZoomLevel::Focus);
+            assert!(system.is_fully_zoomed_in(&DesktopTarget::View(view_a), system.zoom_level));
 
             let instance_b2 = uuid::Uuid::new_v4().into();
-            let changes = system.plan(DesktopCommand::StartInstance {
-                launcher: launcher_b,
-                instance: instance_b2,
-                root: Some(InstanceRoot::new()),
-                parameters: Default::default(),
-                kind: InstanceKind::Base,
-            })?;
             system.transact(
-                changes,
-                &mut instance_manager,
+                set_focus(
+                    Some(DesktopTarget::Project(project_b)),
+                    KeyboardFocusReason::InputTransition,
+                ),
+                instance_manager,
                 TransactionEffectsMode::Setup,
             )?;
+            run(
+                system,
+                instance_manager,
+                DesktopCommand::StartInstance {
+                    launcher: launcher_b,
+                    instance: instance_b2,
+                    root: Some(InstanceRoot::new()),
+                    parameters: Default::default(),
+                    kind: InstanceKind::Base,
+                },
+            )?;
             assert_eq!(
-                system.zoom_depth,
-                ZoomDepth::Innermost,
-                "starting a new instance resets zoom to its focused target"
+                system.zoom_level,
+                ZoomLevel::Focus,
+                "starting a new instance frames it"
             );
-            assert_eq!(
-                system.event_router.keyboard_focus(),
-                Some(&DesktopTarget::Instance(instance_b2))
-            );
+            assert_eq!(focus(system), Some(DesktopTarget::Instance(instance_b2)));
             assert_eq!(
                 system.hover_placement(),
                 Some(system.placement(&DesktopTarget::Instance(instance_b2))),
                 "desktop-handled focus changes must keep navigation hover enabled"
             );
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn navigation_ignores_the_zoom_level() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let NestedSiblings {
+                mut system,
+                mut instance_manager,
+                instance_a,
+                ..
+            } = nested_siblings()?;
+
+            for _ in 0..2 {
+                run(
+                    &mut system,
+                    &mut instance_manager,
+                    DesktopCommand::Zoom(Zoom::Out),
+                )?;
+            }
+            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
+
+            // `labs-a` holds a single slot, so there is nothing to its right inside it.
+            let changes = system.plan(DesktopCommand::Navigate(
+                crate::desktop_system::Direction::Right,
+            ))?;
+            assert!(changes.is_empty());
+            assert_eq!(
+                system.event_router.keyboard_focus(),
+                Some(&DesktopTarget::Instance(instance_a))
+            );
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let (mut system, receiver) = system();
+            let mut instance_manager = instance_manager(&receiver);
+            for command in crate::projects::to_commands(&system.aggregates.configuration) {
+                run(
+                    &mut system,
+                    &mut instance_manager,
+                    DesktopCommand::Project(command),
+                )?;
+            }
+            let launcher = system
+                .aggregates
+                .configuration
+                .boot_launcher()
+                .expect("the test configuration has a startup launcher");
+            let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+
+            for expected in [ZoomLevel::Slot, ZoomLevel::Row, ZoomLevel::Project] {
+                run(
+                    &mut system,
+                    &mut instance_manager,
+                    DesktopCommand::Zoom(Zoom::Out),
+                )?;
+                assert_eq!(system.focused_zoom_level(), Some((expected, 0)));
+                assert_eq!(
+                    system.event_router.keyboard_focus(),
+                    Some(&DesktopTarget::Instance(instance))
+                );
+            }
+            assert!(system.plan(DesktopCommand::Zoom(Zoom::Out))?.is_empty());
 
             drop(frame.submission::<SceneChange>());
             Ok(())
@@ -1542,9 +1640,9 @@ mod tests {
                         .expect("the initial submission created a primary view")
                 ))
             );
-            assert_eq!(system.zoom_depth, ZoomDepth::Innermost);
+            assert_eq!(system.zoom_level, ZoomLevel::Focus);
             let focused = system.event_router.keyboard_focus().unwrap();
-            let expected = system.resolve_camera_for_target_at_depth(focused, system.zoom_depth);
+            let expected = system.resolve_camera_for_target(focused, system.zoom_level);
             assert_eq!(
                 *system.camera(),
                 expected,
@@ -1857,7 +1955,7 @@ mod tests {
             let frame = massive_applications::begin_frame();
             let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
             let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
-            assert_eq!(system.zoom_depth, ZoomDepth::Innermost);
+            assert_eq!(system.zoom_level, ZoomLevel::Focus);
             assert_eq!(system.focused_path().instance(), Some(instance));
 
             let changes = system.plan(DesktopCommand::ToggleFullScreen)?;
@@ -1923,7 +2021,7 @@ mod tests {
                     Option::<TransactionEffectsMode>::None,
                 )?;
                 assert_eq!(system.event_router.keyboard_focus(), focused.as_ref());
-                assert_eq!(system.zoom_depth, ZoomDepth::Innermost);
+                assert_eq!(system.zoom_level, ZoomLevel::Focus);
                 let desired = system
                     .resolve_desired_camera()
                     .expect("the instance is focused");

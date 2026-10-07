@@ -4,7 +4,7 @@ use massive_util::CollectingVec;
 
 use super::KeyboardFocusReason;
 use crate::DesktopTarget;
-use crate::desktop_system::ZoomDepth;
+use crate::desktop_system::ZoomLevel;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
 use crate::targeted_event::EventTransitions;
@@ -43,8 +43,8 @@ pub enum DesktopChange {
     /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
     CommitNavigationAffinity(Option<u32>),
-    /// Commits the camera's zoom depth (ADR 0017).
-    CommitZoomDepth(ZoomDepth),
+    /// Commits the camera's zoom level (ADR 0018).
+    CommitZoomLevel(ZoomLevel),
     /// Toggles the Full Screen Mode of the focused launcher (its base instances)
     /// or, when an assistant instance is focused, of that instance (ADR 0014).
     ToggleFullScreenMode(ToggleFullScreenModeTarget),
@@ -80,7 +80,9 @@ pub struct InstancePresentation {
 pub enum Zoom {
     In,
     Out,
-    Reset,
+    /// Frames the focused target at `Focus`; a project target is entered down to its focused
+    /// leaf first (ADR 0018).
+    Enter,
 }
 
 /// What `ToggleFullScreenMode` resolves to when planned. An assistant instance

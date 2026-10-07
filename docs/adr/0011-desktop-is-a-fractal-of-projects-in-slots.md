@@ -55,7 +55,9 @@ Focus Depths read `Project, Row, Slot, Instance`.
 
 *Update:* the Focus Depth sequence is superseded by
 [ADR 0017](0017-zoom-depth-is-counted-from-the-root.md) — zoom is a depth
-counted from the root along the focused target's zoom chain.
+counted from the root along the focused target's zoom chain, in turn superseded by
+[ADR 0018](0018-zoom-is-a-level-relative-to-the-focused-target.md) — zoom is a
+level relative to the focused target.
 
 ## Nested projects render scaled, at full layout size
 

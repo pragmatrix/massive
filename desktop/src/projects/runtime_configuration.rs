@@ -160,7 +160,7 @@ impl RuntimeConfiguration {
 
         for project in self.projects.values_mut() {
             project.slots.retain(
-                |slot| !matches!(slot.ids(), SlotContent::Project(child) if doomed.contains(&child)),
+                |slot| !matches!(slot.content(), SlotContent::Project(child) if doomed.contains(&child)),
             );
         }
 
@@ -310,18 +310,6 @@ impl RuntimeConfiguration {
             return false;
         }
         true
-    }
-
-    /// The slot holding `launcher`, the inverse of [`Self::launcher_at`].
-    pub fn slot_of_launcher(
-        &self,
-        launcher: LaunchProfileId,
-    ) -> Option<(ProjectId, MatrixPlacement)> {
-        self.projects.values().find_map(|project| {
-            project
-                .slot_of_launcher(launcher)
-                .map(|placement| (project.id, placement))
-        })
     }
 
     // --- Query API ---
@@ -659,10 +647,17 @@ impl RuntimeConfiguration {
         project.launchers().position(|l| l.id == launcher)
     }
 
-    /// The launcher's placement: where its hosting slot sits.
-    pub fn placement_of(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
-        self.slot_of_launcher(launcher)
-            .map(|(_, placement)| placement)
+    /// The project and placement of the slot holding `content`.
+    pub fn slot_of_content(
+        &self,
+        content: impl Into<SlotContent>,
+    ) -> Option<(ProjectId, MatrixPlacement)> {
+        let content = content.into();
+        self.projects.values().find_map(|project| {
+            project
+                .placement_of_content(content)
+                .map(|placement| (project.id, placement))
+        })
     }
 
     /// The content of `project`'s slot at `placement`, `None` when the slot is
@@ -699,12 +694,11 @@ impl RuntimeConfiguration {
     }
 
     /// The project a launcher belongs to, by searching each project's slots. The
-    /// topology's `project_of_launcher` answers from parent links instead, and is
+    /// topology's `project_of_target` answers from parent links instead, and is
     /// the right source when the scene hierarchy is available.
     pub fn project_of_launcher(&self, launcher: LaunchProfileId) -> Option<&Project> {
-        self.projects
-            .values()
-            .find(|project| project.slot_of_launcher(launcher).is_some())
+        self.slot_of_content(launcher)
+            .and_then(|(project, _)| self.project(project))
     }
 
     /// Every assigned slot of `project`, in placement order. `MatrixPlacement`
@@ -718,7 +712,7 @@ impl RuntimeConfiguration {
             project
                 .slots
                 .iter()
-                .map(|slot| (slot.placement, slot.ids()))
+                .map(|slot| (slot.placement, slot.content()))
         })
     }
 
@@ -865,7 +859,7 @@ impl Project {
     /// The content of the slot at `placement`, `None` when it is empty.
     pub fn content_at(&self, placement: MatrixPlacement) -> Option<SlotContent> {
         self.slot_index(placement)
-            .map(|index| self.slots[index].ids())
+            .map(|index| self.slots[index].content())
     }
 
     pub fn slots(&self) -> &[Slot] {
@@ -892,7 +886,7 @@ impl Project {
     pub fn nested_projects(&self) -> Vec<ProjectId> {
         self.slots
             .iter()
-            .map(|slot| slot.ids())
+            .map(|slot| slot.content())
             .filter_map(|content| match content {
                 SlotContent::Project(project) => Some(project),
                 SlotContent::Launcher(_) => None,
@@ -903,7 +897,7 @@ impl Project {
     /// The first project nested in this matrix, in placement order — the walk
     /// `first_launcher_depth_first` follows.
     pub fn first_nested_project(&self) -> Option<ProjectId> {
-        self.slots.iter().find_map(|slot| match slot.ids() {
+        self.slots.iter().find_map(|slot| match slot.content() {
             SlotContent::Project(project) => Some(project),
             SlotContent::Launcher(_) => None,
         })
@@ -926,10 +920,11 @@ impl Project {
     }
 
     /// The placement of the slot whose ids match `content`.
-    pub fn placement_of_content(&self, content: SlotContent) -> Option<MatrixPlacement> {
+    pub fn placement_of_content(&self, content: impl Into<SlotContent>) -> Option<MatrixPlacement> {
+        let content = content.into();
         self.slots
             .iter()
-            .find(|slot| slot.ids() == content)
+            .find(|slot| slot.content() == content)
             .map(|slot| slot.placement)
     }
 
@@ -940,14 +935,6 @@ impl Project {
             SlotPayload::Launcher(launcher) if launcher.name == name => Some(launcher.id),
             _ => None,
         })
-    }
-
-    /// The slot holding `launcher`.
-    pub fn slot_of_launcher(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
-        self.slots
-            .iter()
-            .find(|slot| slot.ids() == SlotContent::Launcher(launcher))
-            .map(|slot| slot.placement)
     }
 
     /// Empties the slot at `placement`, if it is assigned.
@@ -1001,7 +988,7 @@ impl Slot {
 
     /// The content's ids, for readers that only discriminate — the cheap
     /// `Copy` projection of the payload.
-    pub fn ids(&self) -> SlotContent {
+    pub fn content(&self) -> SlotContent {
         match &self.content {
             SlotPayload::Launcher(launcher) => SlotContent::Launcher(launcher.id),
             SlotPayload::Project(project) => SlotContent::Project(*project),
@@ -1094,7 +1081,7 @@ impl SlotPayload {}
 
 /// The `Copy` id-level view of a [`SlotPayload`], for readers that only match on
 /// which kind of content a slot holds.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
 pub enum SlotContent {
     Launcher(LaunchProfileId),
     Project(ProjectId),

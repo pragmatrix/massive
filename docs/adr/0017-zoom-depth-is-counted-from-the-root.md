@@ -1,6 +1,6 @@
 # Zoom depth is counted from the root
 
-## Status: accepted
+## Status: superseded by [ADR 0018](./0018-zoom-is-a-level-relative-to-the-focused-target.md)
 
 Supersedes [ADR 0016](./0016-camera-zoom-is-relative-to-keyboard-focus.md) and
 the Focus Depth sequence of

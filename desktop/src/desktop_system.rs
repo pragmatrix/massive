@@ -89,6 +89,14 @@ impl DesktopTarget {
     pub fn wants_cmd_enter_when_focused(&self) -> bool {
         matches!(self, Self::Launcher(_))
     }
+
+    /// A project target receives no text input, so `Enter` without `Cmd` enters it (ADR 0018).
+    pub fn enters_on_plain_enter(&self) -> bool {
+        matches!(
+            self,
+            Self::Project(_) | Self::ProjectHeader(_) | Self::ProjectMatrix(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,60 +135,57 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Commands = CollectingVec<DesktopCommand>;
 
-/// What a zoom step frames within its project (ADR 0017).
+/// What the camera frames, relative to the keyboard-focused target and the project whose matrix
+/// holds its slot (ADR 0018). Ordered from the outermost to the innermost frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ZoomLevel {
+    /// The project whose matrix holds the focused target's slot.
     Project,
+    /// The matrix row of the focused target's slot.
     Row,
+    /// The focused target's slot.
     Slot,
+    /// The focused target itself.
     #[default]
-    Instance,
+    Focus,
+}
+
+impl ZoomLevel {
+    /// The next inner level, `None` at `Focus`.
+    pub fn zoom_in(self, instance_target: bool) -> Option<Self> {
+        match self.normalized(instance_target) {
+            ZoomLevel::Project => Some(ZoomLevel::Row),
+            ZoomLevel::Row if instance_target => Some(ZoomLevel::Slot),
+            ZoomLevel::Row | ZoomLevel::Slot => Some(ZoomLevel::Focus),
+            ZoomLevel::Focus => None,
+        }
+    }
+
+    /// The next outer level, `None` at `Project`.
+    pub fn zoom_out(self, instance_target: bool) -> Option<Self> {
+        match self.normalized(instance_target) {
+            ZoomLevel::Focus if instance_target => Some(ZoomLevel::Slot),
+            ZoomLevel::Focus | ZoomLevel::Slot => Some(ZoomLevel::Row),
+            ZoomLevel::Row => Some(ZoomLevel::Project),
+            ZoomLevel::Project => None,
+        }
+    }
+
+    /// On a target that is not an instance, `Slot` frames the same rect as `Focus` and reads as
+    /// `Focus`.
+    pub fn normalized(self, instance_target: bool) -> Self {
+        match self {
+            ZoomLevel::Slot if !instance_target => ZoomLevel::Focus,
+            level => level,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ZoomLevelState {
-    zoom_depth: ZoomDepth,
+    zoom_level: ZoomLevel,
     keyboard_focus: Option<DesktopTarget>,
-}
-
-/// Camera zoom position counted inward from the root along the keyboard-focused target's
-/// zoom chain (ADR 0017).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ZoomDepth {
-    /// Frame index from the root; resolved against each target's chain, never clamped in place.
-    Depth(usize),
-    /// The end of whatever chain the focused target has.
-    #[default]
-    Innermost,
-}
-
-impl ZoomDepth {
-    pub fn zoom_in(self, chain_len: usize) -> Self {
-        let next = self.zoom_index_in(chain_len) + 1;
-        if next >= chain_len.saturating_sub(1) {
-            ZoomDepth::Innermost
-        } else {
-            ZoomDepth::Depth(next)
-        }
-    }
-
-    /// Zooming out at the root frame keeps the depth unchanged.
-    pub fn zoom_out(self, chain_len: usize) -> Self {
-        match self.zoom_index_in(chain_len) {
-            0 => self,
-            index => ZoomDepth::Depth(index - 1),
-        }
-    }
-
-    /// The zoom index this depth selects on a chain of `chain_len` frames.
-    pub fn zoom_index_in(self, chain_len: usize) -> usize {
-        let innermost = chain_len.saturating_sub(1);
-        match self {
-            ZoomDepth::Depth(depth) => depth.min(innermost),
-            ZoomDepth::Innermost => innermost,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +195,8 @@ pub enum KeyboardFocusReason {
     PresentInstance,
     Navigate,
     PromotePrimaryView,
+    /// Zooming moved focus across a project boundary (ADR 0018).
+    Zoom,
 }
 
 impl KeyboardFocusReason {
@@ -199,7 +206,8 @@ impl KeyboardFocusReason {
             KeyboardFocusReason::InputTransition
             | KeyboardFocusReason::StopInstanceReplacement
             | KeyboardFocusReason::PresentInstance
-            | KeyboardFocusReason::PromotePrimaryView => true,
+            | KeyboardFocusReason::PromotePrimaryView
+            | KeyboardFocusReason::Zoom => true,
         }
     }
 }
@@ -255,7 +263,7 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
 
     camera: CameraPresentation,
-    zoom_depth: ZoomDepth,
+    zoom_level: ZoomLevel,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
@@ -341,7 +349,7 @@ impl DesktopSystem {
 
             event_router,
             camera: CameraPresentation::new(PixelCamera::default()),
-            zoom_depth: ZoomDepth::Innermost,
+            zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
@@ -477,7 +485,7 @@ impl DesktopSystem {
 
     fn zoom_level_state(&self) -> ZoomLevelState {
         ZoomLevelState {
-            zoom_depth: self.zoom_depth,
+            zoom_level: self.zoom_level,
             keyboard_focus: self.event_router.keyboard_focus().cloned(),
         }
     }
@@ -647,28 +655,27 @@ fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
 
 #[cfg(test)]
 mod tests {
-    use super::ZoomDepth;
+    use super::ZoomLevel;
 
     #[test]
-    fn zoom_depth_resolves_against_each_chain_without_clamping_in_place() {
-        let depth = ZoomDepth::Depth(4);
-        assert_eq!(depth.zoom_index_in(3), 2);
-        assert_eq!(depth.zoom_index_in(6), 4);
-        assert_eq!(ZoomDepth::Innermost.zoom_index_in(3), 2);
-        assert_eq!(ZoomDepth::Innermost.zoom_index_in(6), 5);
+    fn zoom_steps_on_an_instance_pass_every_level() {
+        assert_eq!(ZoomLevel::Focus.zoom_out(true), Some(ZoomLevel::Slot));
+        assert_eq!(ZoomLevel::Slot.zoom_out(true), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Row.zoom_out(true), Some(ZoomLevel::Project));
+        assert_eq!(ZoomLevel::Project.zoom_out(true), None);
+
+        assert_eq!(ZoomLevel::Project.zoom_in(true), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Row.zoom_in(true), Some(ZoomLevel::Slot));
+        assert_eq!(ZoomLevel::Slot.zoom_in(true), Some(ZoomLevel::Focus));
+        assert_eq!(ZoomLevel::Focus.zoom_in(true), None);
     }
 
     #[test]
-    fn zoom_steps_normalize_to_the_resolved_zoom_index() {
-        assert_eq!(ZoomDepth::Innermost.zoom_out(6), ZoomDepth::Depth(4));
-        // A depth beyond a short chain zooms out from the frame it resolves to.
-        assert_eq!(ZoomDepth::Depth(9).zoom_out(3), ZoomDepth::Depth(1));
-        assert_eq!(ZoomDepth::Depth(0).zoom_out(6), ZoomDepth::Depth(0));
-        assert_eq!(ZoomDepth::Innermost.zoom_out(1), ZoomDepth::Innermost);
-
-        assert_eq!(ZoomDepth::Depth(3).zoom_in(6), ZoomDepth::Depth(4));
-        assert_eq!(ZoomDepth::Depth(4).zoom_in(6), ZoomDepth::Innermost);
-        assert_eq!(ZoomDepth::Depth(9).zoom_in(3), ZoomDepth::Innermost);
-        assert_eq!(ZoomDepth::Innermost.zoom_in(6), ZoomDepth::Innermost);
+    fn zoom_steps_on_other_targets_merge_slot_into_focus() {
+        assert_eq!(ZoomLevel::Slot.normalized(false), ZoomLevel::Focus);
+        assert_eq!(ZoomLevel::Focus.zoom_out(false), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Slot.zoom_out(false), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Row.zoom_in(false), Some(ZoomLevel::Focus));
+        assert_eq!(ZoomLevel::Slot.zoom_in(false), None);
     }
 }

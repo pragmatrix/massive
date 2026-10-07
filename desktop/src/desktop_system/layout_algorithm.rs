@@ -72,7 +72,10 @@ impl DesktopLayoutAlgorithm<'_> {
     /// The mode of a launcher, resolved through the topology's parent links and
     /// the hosting matrix.
     fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
-        let project = self.aggregates.hierarchy.project_of_launcher(launcher_id);
+        let project = self
+            .aggregates
+            .hierarchy
+            .project_of_target(&DesktopTarget::Launcher(launcher_id));
         self.aggregates.configuration[project]
             .launcher(launcher_id)
             .expect("the hosting matrix holds the launcher")

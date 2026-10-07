@@ -12,7 +12,7 @@ use massive_renderer::RenderGeometry;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::{
     DesktopCommand, DesktopFocusPath, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason,
-    ZoomDepth,
+    ZoomLevel,
 };
 use crate::desktop_system::change::Zoom;
 use crate::event_router::{FocusRequestSource, KeyboardFocusChange, RouterStep};
@@ -44,9 +44,9 @@ impl DesktopSystem {
                     changes <<= DesktopChange::ForwardEvents(EventTransition::from(change).into());
                 }
                 RouterStep::RequestKeyboardFocus { target, source } => {
-                    // Clicking a target frames it fully in (ADR 0017).
+                    // Clicking a target frames it fully in (ADR 0018).
                     if source == FocusRequestSource::PointerPress && target.is_some() {
-                        changes <<= DesktopChange::CommitZoomDepth(ZoomDepth::Innermost);
+                        changes <<= DesktopChange::CommitZoomLevel(ZoomLevel::Focus);
                     }
                     changes += set_focus(target, KeyboardFocusReason::InputTransition);
                 }
@@ -199,11 +199,23 @@ impl DesktopSystem {
         else {
             return None;
         };
-        if key_event.state != ElementState::Pressed || !event.device_states().is_command() {
+        if key_event.state != ElementState::Pressed {
             return None;
         }
 
         let focused_path = self.focused_path();
+
+        // (plain) Enter
+
+        if !event.device_states().is_command() {
+            let enters_project = key_event.logical_key == Key::Named(NamedKey::Enter)
+                && !key_event.repeat
+                && focused_path
+                    .last()
+                    .is_some_and(DesktopTarget::enters_on_plain_enter);
+            return enters_project.then_some(DesktopCommand::Zoom(Zoom::Enter));
+        }
+
         if let Some(focused_target) = focused_path.last()
             && !key_event.repeat
             && let Some(shortcut) =
@@ -245,12 +257,12 @@ impl DesktopSystem {
         // Cmd+Enter
 
         if key_event.logical_key == Key::Named(NamedKey::Enter) {
-            if self.is_fully_zoomed_in(focused_target, self.zoom_depth)
+            if self.is_fully_zoomed_in(focused_target, self.zoom_level)
                 && focused_target.wants_cmd_enter_when_focused()
             {
                 return None;
             }
-            return Some(DesktopCommand::Zoom(Zoom::Reset));
+            return Some(DesktopCommand::Zoom(Zoom::Enter));
         }
 
         // Cmd + t
