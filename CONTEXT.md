@@ -85,7 +85,7 @@ The project containing the keyboard-focused target. Project-relative paths and c
 _Avoid_: current project, camera project
 
 **Navigate**:
-Directional movement of keyboard focus one step from the current target, driven by an arrow key. It depends only on the keyboard-focused target, never on the zoom level. Landing on a project slot focuses the project itself; landing on a launcher slot focuses its instance anchor, else its directional edge instance.
+Directional movement of keyboard focus one step from the current target, driven by an arrow key. It depends only on the keyboard-focused target, never on the zoom level. When the project's matrix has no neighbor in that direction, the search escapes to the slot hosting the project in its parent's matrix and retries from there, up to the root; with no neighbor at any level the key does nothing. Landing on a project slot enters the project through its focus slots down to a leaf, so moving back restores the focus; a project with no remembered focus slot is focused as a slot itself. Landing on a launcher slot focuses its instance anchor, else its directional edge instance.
 _Avoid_: move, arrow
 
 **Navigate to target**:

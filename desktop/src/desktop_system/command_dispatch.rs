@@ -1398,13 +1398,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn navigation_ignores_the_zoom_level() -> Result<()> {
+    async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Result<()> {
         task_context::with_context(task_context(), async {
             let frame = massive_applications::begin_frame();
             let NestedSiblings {
                 mut system,
                 mut instance_manager,
                 instance_a,
+                instance_b,
                 ..
             } = nested_siblings()?;
 
@@ -1417,11 +1418,32 @@ mod tests {
             }
             assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
 
-            // `labs-a` holds a single slot, so there is nothing to its right inside it.
-            let changes = system.plan(DesktopCommand::Navigate(
+            // `labs-a` holds a single slot, so there is nothing to its right inside it: the
+            // navigation escapes to the sibling project, which was visited and so is re-entered
+            // at its focus leaf. Navigating back restores the original focus.
+            let navigate =
+                |system: &mut DesktopSystem, manager: &mut InstanceManager, direction| {
+                    run(system, manager, DesktopCommand::Navigate(direction))
+                };
+            navigate(
+                &mut system,
+                &mut instance_manager,
                 crate::desktop_system::Direction::Right,
-            ))?;
-            assert!(changes.is_empty());
+            )?;
+            assert_eq!(
+                system.event_router.keyboard_focus(),
+                Some(&DesktopTarget::Instance(instance_b))
+            );
+            assert_eq!(
+                system.focused_zoom_level().map(|(level, _)| level),
+                Some(ZoomLevel::Row)
+            );
+
+            navigate(
+                &mut system,
+                &mut instance_manager,
+                crate::desktop_system::Direction::Left,
+            )?;
             assert_eq!(
                 system.event_router.keyboard_focus(),
                 Some(&DesktopTarget::Instance(instance_a))

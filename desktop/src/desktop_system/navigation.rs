@@ -12,11 +12,12 @@ use crate::projects::{
     FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId,
     RuntimeConfiguration, SlotContent,
 };
+use crate::{Map, projects::ProjectPresenter};
 
 mod matrix_navigation;
 mod zoom_navigation;
 
-use matrix_navigation::MatrixNavigation;
+use matrix_navigation::{MatrixNavigation, NavigationStep};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HorizontalDirection {
@@ -114,6 +115,7 @@ impl DesktopSystem {
 
         let Some(plan) = plan_navigation_candidate(
             &self.aggregates.hierarchy,
+            &self.aggregates.projects,
             &self.aggregates.launchers,
             &self.aggregates.configuration,
             &self.navigation_control,
@@ -297,6 +299,7 @@ impl DesktopSystem {
 /// Call `apply_navigation_plan` to commit the affinity once the move is taken.
 fn plan_navigation_candidate(
     hierarchy: &DesktopTopology,
+    projects: &Map<ProjectId, ProjectPresenter>,
     launchers: &LauncherMap,
     configuration: &RuntimeConfiguration,
     navigation_control: &NavigationControl,
@@ -307,13 +310,47 @@ fn plan_navigation_candidate(
     let origin_placement = navigation_origin_placement(configuration, origin);
     let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
     let matrix_navigation = MatrixNavigation::new(hierarchy, configuration);
-    let target = navigate_from_origin(matrix_navigation, origin, direction, column_affinity)?;
+    let step = navigate_from_origin(matrix_navigation, origin, direction, column_affinity)?;
+    // An escape into an ancestor matrix re-latches the vertical affinity from the column of the
+    // slot hosting the origin there; the nested matrix's column means nothing in it.
+    let column_affinity = match step.escaped_from {
+        Some(placement) if direction.vertical().is_some() => Some(placement.column),
+        _ => column_affinity,
+    };
+    let target = match step.target {
+        DesktopTarget::Project(project) => {
+            remembered_project_target(projects, configuration, project)
+        }
+        target => target,
+    };
     let candidate =
         resolve_navigation_focus_target(hierarchy, launchers, configuration, target, direction);
     Some(NavigationPlan {
         candidate,
         column_affinity,
     })
+}
+
+/// The target a navigation landing on `project` focuses: the leaf its focus slots lead to, so
+/// moving back to where focus came from restores it. A project without a remembered focus slot
+/// is focused as a slot, and so is a nested project the descent reaches without one.
+fn remembered_project_target(
+    projects: &Map<ProjectId, ProjectPresenter>,
+    configuration: &RuntimeConfiguration,
+    project: ProjectId,
+) -> DesktopTarget {
+    let remembered = projects
+        .get(&project)
+        .and_then(|presenter| presenter.last_focused_placement)
+        .and_then(|placement| configuration.content_at(project, placement));
+
+    match remembered {
+        Some(SlotContent::Project(nested)) => {
+            remembered_project_target(projects, configuration, nested)
+        }
+        Some(content) => content.target(),
+        None => DesktopTarget::Project(project),
+    }
 }
 
 fn resolve_navigation_origin(
@@ -365,7 +402,7 @@ fn navigate_from_origin(
     origin: NavigationOrigin,
     direction: Direction,
     preferred_column: Option<u32>,
-) -> Option<DesktopTarget> {
+) -> Option<NavigationStep> {
     match origin {
         NavigationOrigin::MatrixSlot { project, placement } => matrix_navigation
             .navigate_from_matrix_slot(project, placement, direction, preferred_column),
