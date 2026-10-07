@@ -15,7 +15,6 @@ mod command_dispatch;
 mod commands;
 mod effects;
 mod event_forwarding;
-mod focus_depth_indicator;
 mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
@@ -26,6 +25,7 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod topology;
+mod zoom_level_indicator;
 
 use std::collections::{HashSet, VecDeque};
 use std::mem;
@@ -36,41 +36,46 @@ use log::warn;
 
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, ViewId};
-use massive_geometry::{PixelCamera, SizePx};
+use massive_geometry::{PixelCamera, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
-use massive_scene::prelude::*;
+use massive_scene::prelude::identity_location;
+use massive_scene::{Handle, Location};
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
-use change::{Changes, DesktopChange};
+use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
-use focus_depth_indicator::FocusDepthIndicatorPresenter;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
+use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
 pub(crate) use fullscreen::fullscreen_scale;
 pub(crate) use layout_algorithm::place_container_children;
+pub(crate) use massive_applications::SlotShift;
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
-use crate::projects::persistence;
+use crate::projects::FullScreenMode;
 use crate::projects::{
-    DesktopConfiguration, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
+    LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
 };
+use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
-
 /// This enum specifies a unique target inside the navigation and layout history.
+///
+/// `Desktop` is the hierarchy's virtual root: it is never inserted explicitly and
+/// has no presenter — it only appears as the parent key under which the root
+/// project's target is added.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopTarget {
     Desktop,
-
     Project(ProjectId),
     ProjectHeader(ProjectId),
     ProjectMatrix(ProjectId),
@@ -78,6 +83,20 @@ pub enum DesktopTarget {
 
     Instance(InstanceId),
     View(ViewId),
+}
+
+impl DesktopTarget {
+    pub fn wants_cmd_enter_when_focused(&self) -> bool {
+        matches!(self, Self::Launcher(_))
+    }
+
+    /// A project target receives no text input, so `Enter` without `Cmd` enters it (ADR 0018).
+    pub fn enters_on_plain_enter(&self) -> bool {
+        matches!(
+            self,
+            Self::Project(_) | Self::ProjectHeader(_) | Self::ProjectMatrix(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,32 +135,57 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Commands = CollectingVec<DesktopCommand>;
 
-/// What is the user currently focusing on.
-///
-/// As a general rule: The focus depth is always selectable by the user, but the implementation by
-/// the system is optional and depends on the currently focused target.
-///
-/// The system should show when the focus depth is changed, so that the user knows them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
+/// What the camera frames, relative to the keyboard-focused target and the project whose matrix
+/// holds its slot (ADR 0018). Ordered from the outermost to the innermost frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
-pub enum FocusDepth {
-    InstanceFullScreen,
-    #[default]
-    Instance,
-    Launcher,
-    Row,
+pub enum ZoomLevel {
+    /// The project whose matrix holds the focused target's slot.
     Project,
-    Desktop,
+    /// The matrix row of the focused target's slot.
+    Row,
+    /// The focused target's slot.
+    Slot,
+    /// The focused target itself.
+    #[default]
+    Focus,
 }
 
-impl FocusDepth {
-    pub fn zoom_in(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_sub(1)?)
+impl ZoomLevel {
+    /// The next inner level, `None` at `Focus`.
+    pub fn zoom_in(self, instance_target: bool) -> Option<Self> {
+        match self.normalized(instance_target) {
+            ZoomLevel::Project => Some(ZoomLevel::Row),
+            ZoomLevel::Row if instance_target => Some(ZoomLevel::Slot),
+            ZoomLevel::Row | ZoomLevel::Slot => Some(ZoomLevel::Focus),
+            ZoomLevel::Focus => None,
+        }
     }
 
-    pub fn zoom_out(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_add(1)?)
+    /// The next outer level, `None` at `Project`.
+    pub fn zoom_out(self, instance_target: bool) -> Option<Self> {
+        match self.normalized(instance_target) {
+            ZoomLevel::Focus if instance_target => Some(ZoomLevel::Slot),
+            ZoomLevel::Focus | ZoomLevel::Slot => Some(ZoomLevel::Row),
+            ZoomLevel::Row => Some(ZoomLevel::Project),
+            ZoomLevel::Project => None,
+        }
     }
+
+    /// On a target that is not an instance, `Slot` frames the same rect as `Focus` and reads as
+    /// `Focus`.
+    pub fn normalized(self, instance_target: bool) -> Self {
+        match self {
+            ZoomLevel::Slot if !instance_target => ZoomLevel::Focus,
+            level => level,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ZoomLevelState {
+    zoom_level: ZoomLevel,
+    keyboard_focus: Option<DesktopTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +195,8 @@ pub enum KeyboardFocusReason {
     PresentInstance,
     Navigate,
     PromotePrimaryView,
+    /// Zooming moved focus across a project boundary (ADR 0018).
+    Zoom,
 }
 
 impl KeyboardFocusReason {
@@ -160,7 +206,8 @@ impl KeyboardFocusReason {
             KeyboardFocusReason::InputTransition
             | KeyboardFocusReason::StopInstanceReplacement
             | KeyboardFocusReason::PresentInstance
-            | KeyboardFocusReason::PromotePrimaryView => true,
+            | KeyboardFocusReason::PromotePrimaryView
+            | KeyboardFocusReason::Zoom => true,
         }
     }
 }
@@ -195,15 +242,28 @@ impl TransactionEffectsMode {
     }
 }
 
+/// Host-facing effects emitted by a completed desktop transaction.
+#[derive(Debug)]
+pub struct TransactionOutput {
+    /// Effects that require capabilities owned by the desktop host.
+    pub effects: Vec<DesktopSystemEffect>,
+}
+
 #[derive(Debug)]
 pub struct DesktopSystem {
     env: DesktopEnvironment,
 
     default_panel_size: SizePx,
+    /// The window state, committed by `DesktopChange::WindowResized` — the
+    /// constructor seeds it from the default panel size (ADR 0014: the spawn
+    /// path reads the inner size to seed a fullscreen instance's application
+    /// canvas).
+    window_state: WindowState,
 
     event_router: EventRouter<DesktopTarget>,
+
     camera: CameraPresentation,
-    focus_depth: FocusDepth,
+    zoom_level: ZoomLevel,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
@@ -211,12 +271,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
-    /// The persisted desktop configuration; edited surgically and written on every
-    /// configuration change.
-    #[debug(skip)]
-    configuration: persistence::ConfigurationDocument,
-
-    focus_depth_indicator: FocusDepthIndicatorPresenter,
+    zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
@@ -231,14 +286,14 @@ struct Aggregates {
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
-    configuration: DesktopConfiguration,
+    configuration: RuntimeConfiguration,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
 impl Aggregates {
     pub fn new(
         hierarchy: OrderedHierarchy<DesktopTarget>,
-        configuration: DesktopConfiguration,
+        configuration: RuntimeConfiguration,
     ) -> Self {
         Self {
             hierarchy,
@@ -249,21 +304,38 @@ impl Aggregates {
             instances: Map::default(),
         }
     }
+
+    /// The Full Screen Mode `instance` currently presents in: an assistant's
+    /// temporary mode, or its launcher's mode shared by its base instances.
+    /// Every caller passes an instance of the live topology, whose launcher and
+    /// its configuration record are invariants — layout, camera, and hover reads
+    /// all run after the transaction's topology changes are applied.
+    pub(super) fn instance_full_screen_mode(&self, instance: InstanceId) -> FullScreenMode {
+        if let Some(mode) = self
+            .instances
+            .get(&instance)
+            .and_then(|presenter| presenter.full_screen_mode())
+        {
+            mode
+        } else {
+            let launcher = self.hierarchy.launcher_of_instance(instance);
+            self.configuration[launcher].full_screen_mode
+        }
+    }
 }
 
 impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         default_panel_size: SizePx,
-        configuration: persistence::ConfigurationDocument,
-        aggregate: DesktopConfiguration,
+        aggregate: RuntimeConfiguration,
     ) -> Result<Self> {
-        // Architecture: This is a direct requirement from the project presenter. But where does our
+        // Architecture: This is a direct requirement from the desktop presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = identity_location().submit();
 
         let desktop_presenter = DesktopPresenter::new(location);
-        let focus_depth_indicator = FocusDepthIndicatorPresenter::new();
+        let zoom_level_indicator = ZoomLevelIndicatorPresenter::new();
 
         let event_router = EventRouter::new();
 
@@ -273,16 +345,16 @@ impl DesktopSystem {
             env,
 
             default_panel_size,
+            window_state: WindowState::new(default_panel_size, false),
 
             event_router,
             camera: CameraPresentation::new(PixelCamera::default()),
-            focus_depth: FocusDepth::default(),
+            zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
-            configuration,
 
-            focus_depth_indicator,
+            zoom_level_indicator,
             desktop_presenter,
             aggregates: Aggregates::new(OrderedHierarchy::default(), aggregate),
         };
@@ -297,15 +369,18 @@ impl DesktopSystem {
     // of the earlier changes applied, so the state may be inconsistent
     // (including the document mirror, which lands before the apply — see the
     // `DesktopChange::Project` arm in `apply_change`).
+    /// Applies `changes` to completion and returns effects for the host to execute.
+    /// Configuration persistence remains outside the system (ADR 0013); setup
+    /// transactions emit no persistence effect because they replay parsed state.
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
-        window_size: SizePx,
-    ) -> Result<()> {
+    ) -> Result<TransactionOutput> {
         let changes = changes.into();
-        let previous_focus_depth = self.focus_depth;
+        let previous_zoom_level_state = self.zoom_level_state();
+        let window_size = self.window_state.inner_size;
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
         let effects_mode = effects_mode
@@ -315,10 +390,11 @@ impl DesktopSystem {
         // Run changes to completion and combine everything into a `ChangeSurface`.
 
         let mut change_surface = ChangeSurface::default();
+        let mut system_effects = Vec::new();
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, instance_manager, effects_mode)?; // TODO: I think Changes should support a DoubleEndedIterator.
+                let output = self.apply_change(change, instance_manager)?; // TODO: I think Changes should support a DoubleEndedIterator.
                 for new_change in output
                     .changes
                     .into_iter()
@@ -332,10 +408,13 @@ impl DesktopSystem {
             }
         }
 
-        // The initial setup loads the configuration from the file, so its changes
-        // must not be written back; after setup, every change persists.
-        if effects_mode != TransactionEffectsMode::Setup {
-            self.configuration.flush();
+        if change_surface.window_fullscreen_changed {
+            system_effects.push(DesktopSystemEffect::ToggleWindowFullScreen);
+        }
+
+        // A setup transaction replays configuration already on disk and never persists it (ADR 0013).
+        if change_surface.configuration_changed && effects_mode != TransactionEffectsMode::Setup {
+            system_effects.push(DesktopSystemEffect::PersistConfiguration);
         }
 
         // Collect deferred measures if the camera can be moved.
@@ -344,7 +423,14 @@ impl DesktopSystem {
         // For example, focus layout effects.
         //
         // Design: may replace deferred_* with a ChangeSurface (a "deferred" ChangeSurface?).
-        let camera_mode = effects_mode.camera_presentation_mode();
+        // Fullscreen transitions expose intermediate sizes; animating here makes the camera visibly leave the focused content.
+        let camera_mode = if change_surface.window_size_changed
+            && effects_mode == TransactionEffectsMode::Normal
+        {
+            CameraPresentationMode::Snap
+        } else {
+            effects_mode.camera_presentation_mode()
+        };
         if camera_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
             change_surface.size_invalid += mem::take(&mut self.deferred_focus_launcher_measures)
@@ -359,49 +445,58 @@ impl DesktopSystem {
         // change.
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
-        let focus_depth_changed = self.focus_depth != previous_focus_depth;
-        let update_focus_depth_indicator =
-            focus_depth_changed || change_surface.window_size_changed;
+        let zoom_level_changed = self.zoom_level_state() != previous_zoom_level_state;
+        let update_zoom_level_indicator = zoom_level_changed || change_surface.window_size_changed;
         let update_camera = change_surface.camera_invalid();
 
         // Convert the change surface to effects.
         let effects = convert_change_surface_to_effects(change_surface);
 
-        // Window size is needed to resolve layout and camera focus for presenters that
-        // must fit into the window.
-        self.run_effects_to_completion(effects_mode, effects, window_size, instance_manager)?;
+        // Layout and camera focus for presenters that must fit into the window
+        // read the size from the system's window state.
+        self.run_effects_to_completion(effects_mode, effects, instance_manager)?;
 
         // Resolve camera intent after all effects were run, when all placements are final.
         if update_camera {
-            let desired = self.resolve_desired_camera(window_size);
+            let desired = self.resolve_desired_camera();
             self.camera.set_desired(desired);
         }
 
         self.camera.synchronize(camera_mode);
 
-        if update_focus_depth_indicator {
-            self.focus_depth_indicator.sync_layout(window_size);
+        if update_zoom_level_indicator {
+            self.zoom_level_indicator.sync_layout(window_size);
         }
-        if effects_mode != TransactionEffectsMode::Setup && focus_depth_changed {
-            self.focus_depth_indicator.show(self.focus_depth);
+        if effects_mode != TransactionEffectsMode::Setup
+            && zoom_level_changed
+            && let Some((zoom_level, project_depth)) = self.focused_zoom_level()
+        {
+            self.zoom_level_indicator.show(zoom_level, project_depth);
         }
 
         // Update the hover target.
-        {
-            let hover_target = self
-                .event_router
-                .pointer_focus()
-                .or_else(|| self.event_router.keyboard_focus());
+        self.desktop_presenter
+            .set_hover_placement(self.hover_placement());
 
-            // Sync the hover rect.
-            self.sync_hover_with_target(hover_target.cloned().as_ref());
+        Ok(TransactionOutput {
+            effects: system_effects,
+        })
+    }
+
+    fn zoom_level_state(&self) -> ZoomLevelState {
+        ZoomLevelState {
+            zoom_level: self.zoom_level,
+            keyboard_focus: self.event_router.keyboard_focus().cloned(),
         }
-
-        Ok(())
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
         self.aggregates.instances.contains_key(instance)
+    }
+
+    /// The live configuration aggregate, for the caller's persistence (ADR 0013).
+    pub fn configuration(&self) -> &RuntimeConfiguration {
+        &self.aggregates.configuration
     }
 
     pub fn camera(&mut self) -> &PixelCamera {
@@ -523,6 +618,16 @@ impl Aggregates {
             None
         }
     }
+
+    // The parent project always has a presenter before it can host a slot, so
+    // a missing one is an invariant violation.
+    pub fn project_matrix_location(&self, project: ProjectId) -> Handle<Location> {
+        self.projects
+            .get(&project)
+            .unwrap_or_else(|| panic!("project {project:?} has no presenter"))
+            .matrix
+            .location()
+    }
 }
 
 impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
@@ -546,4 +651,31 @@ fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
         .into_iter()
         .map(DesktopEffect::Measure)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ZoomLevel;
+
+    #[test]
+    fn zoom_steps_on_an_instance_pass_every_level() {
+        assert_eq!(ZoomLevel::Focus.zoom_out(true), Some(ZoomLevel::Slot));
+        assert_eq!(ZoomLevel::Slot.zoom_out(true), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Row.zoom_out(true), Some(ZoomLevel::Project));
+        assert_eq!(ZoomLevel::Project.zoom_out(true), None);
+
+        assert_eq!(ZoomLevel::Project.zoom_in(true), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Row.zoom_in(true), Some(ZoomLevel::Slot));
+        assert_eq!(ZoomLevel::Slot.zoom_in(true), Some(ZoomLevel::Focus));
+        assert_eq!(ZoomLevel::Focus.zoom_in(true), None);
+    }
+
+    #[test]
+    fn zoom_steps_on_other_targets_merge_slot_into_focus() {
+        assert_eq!(ZoomLevel::Slot.normalized(false), ZoomLevel::Focus);
+        assert_eq!(ZoomLevel::Focus.zoom_out(false), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Slot.zoom_out(false), Some(ZoomLevel::Row));
+        assert_eq!(ZoomLevel::Row.zoom_in(false), Some(ZoomLevel::Focus));
+        assert_eq!(ZoomLevel::Slot.zoom_in(false), None);
+    }
 }

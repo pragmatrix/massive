@@ -34,6 +34,11 @@ impl<T: PartialEq> FocusPath<T> {
         self.0.split_last().map(|(_, rest)| rest.to_vec().into())
     }
 
+    /// The innermost target of the path, the one keyboard focus sits on.
+    pub fn focused(&self) -> Option<&T> {
+        self.0.last()
+    }
+
     /// Compute the nested exit / enter sequence required to move from this path to `other`.
     pub fn transitions(&self, other: Self) -> Vec<FocusTransition<T>>
     where

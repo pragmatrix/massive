@@ -89,6 +89,9 @@ impl ApplicationContext {
         let mut application_events = Vec::with_capacity(events.len());
         for event in events {
             match event {
+                ApplicationMessage::FullscreenRequested => {
+                    application_events.push(ApplicationEvent::FullscreenRequested);
+                }
                 ApplicationMessage::View(view_id, view_event) => {
                     application_events.push(ApplicationEvent::View(view_id, view_event));
                 }

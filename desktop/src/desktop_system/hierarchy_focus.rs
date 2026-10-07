@@ -10,44 +10,42 @@ impl OrderedHierarchy<DesktopTarget> {
         focused: &DesktopTarget,
         instance: InstanceId,
     ) -> Option<DesktopTarget> {
-        let instance_target = DesktopTarget::Instance(instance);
-        if !self.path_contains_target(Some(focused), &instance_target) {
+        if !self.path_contains_target(Some(focused), &DesktopTarget::Instance(instance)) {
             return None;
         }
 
         if let Some(neighbor) = self.resolve_neighbor_for_stopping_instance(focused, instance) {
-            return Some(self.resolve_neighbor_focus_target(&neighbor));
+            return Some(self.resolve_keyboard_focus_target(&neighbor));
         }
 
-        Some(self.launcher_of_instance(instance).into())
+        Some(DesktopTarget::Launcher(self.launcher_of_instance(instance)))
     }
 
-    pub(super) fn resolve_neighbor_for_stopping_instance(
+    fn resolve_neighbor_for_stopping_instance(
         &self,
         focused: &DesktopTarget,
         instance: InstanceId,
     ) -> Option<DesktopTarget> {
-        let focused_path = self.resolve_path(Some(focused));
-        if focused_path.instance() != Some(instance) {
+        if self.resolve_path(Some(focused)).instance() != Some(instance) {
             return None;
         }
-
-        let instance_target = DesktopTarget::Instance(instance);
-        self.entry(&instance_target)
+        self.entry(&DesktopTarget::Instance(instance))
             .neighbor(DirectionBias::Begin)
             .cloned()
     }
 
-    pub(super) fn resolve_neighbor_focus_target(&self, neighbor: &DesktopTarget) -> DesktopTarget {
-        match neighbor {
+    /// Resolves an instance to its sole view when present, so keyboard focus reaches the view;
+    /// otherwise, preserves the original target.
+    pub(super) fn resolve_keyboard_focus_target(&self, target: &DesktopTarget) -> DesktopTarget {
+        match target {
             DesktopTarget::Instance(_) => {
-                if let [DesktopTarget::View(view)] = self.get_nested(neighbor) {
+                if let [DesktopTarget::View(view)] = self.get_nested(target) {
                     DesktopTarget::View(*view)
                 } else {
-                    neighbor.clone()
+                    target.clone()
                 }
             }
-            _ => neighbor.clone(),
+            _ => target.clone(),
         }
     }
 
@@ -63,7 +61,7 @@ impl OrderedHierarchy<DesktopTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::LaunchProfileId;
+    use crate::projects::{LaunchProfileId, ProjectId};
     use uuid::Uuid;
 
     fn instance_id() -> InstanceId {
@@ -82,10 +80,23 @@ mod tests {
         instances: &[InstanceId],
     ) -> (OrderedHierarchy<DesktopTarget>, LaunchProfileId) {
         let launcher = launcher_id();
+        let project = ProjectId::new();
 
         let mut hierarchy = OrderedHierarchy::default();
         hierarchy
-            .add(DesktopTarget::Desktop, DesktopTarget::Launcher(launcher))
+            .add_nested(
+                DesktopTarget::Project(project),
+                [
+                    DesktopTarget::ProjectHeader(project),
+                    DesktopTarget::ProjectMatrix(project),
+                ],
+            )
+            .unwrap();
+        hierarchy
+            .add(
+                DesktopTarget::ProjectMatrix(project),
+                DesktopTarget::Launcher(launcher),
+            )
             .unwrap();
 
         for instance in instances {
@@ -197,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_neighbor_focus_target_prefers_single_view_of_instance() {
+    fn resolve_keyboard_focus_target_prefers_single_view_of_instance() {
         let instance = instance_id();
         let view = view_id();
         let (mut hierarchy, _launcher) = hierarchy_with_instances(&[instance]);
@@ -207,27 +218,27 @@ mod tests {
             .unwrap();
 
         let focus_target =
-            hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Instance(instance));
+            hierarchy.resolve_keyboard_focus_target(&DesktopTarget::Instance(instance));
         assert_eq!(focus_target, DesktopTarget::View(view));
     }
 
     #[test]
-    fn resolve_neighbor_focus_target_keeps_instance_without_view() {
+    fn resolve_keyboard_focus_target_keeps_instance_without_view() {
         let instance = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[instance]);
 
         let focus_target =
-            hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Instance(instance));
+            hierarchy.resolve_keyboard_focus_target(&DesktopTarget::Instance(instance));
         assert_eq!(focus_target, DesktopTarget::Instance(instance));
     }
 
     #[test]
-    fn resolve_neighbor_focus_target_keeps_non_instance_target() {
+    fn resolve_keyboard_focus_target_keeps_non_instance_target() {
         let launcher = launcher_id();
         let hierarchy = OrderedHierarchy::default();
 
         let focus_target =
-            hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Launcher(launcher));
+            hierarchy.resolve_keyboard_focus_target(&DesktopTarget::Launcher(launcher));
         assert_eq!(focus_target, DesktopTarget::Launcher(launcher));
     }
 }

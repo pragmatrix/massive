@@ -96,19 +96,56 @@ pub enum InstanceChange {
     End(Ref<Location>),
 }
 
+/// Requests sent by the terminal CLI as JSON over its desktop request stream.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ConfigurationRequest {
-    AddProject,
-    // `name` is for removing a specific project without selecting it first.
-    RemoveProject { name: Option<String> },
     AddLauncher,
-    // `name` is for removing a specific launcher without selecting it first.
-    RemoveLauncher { name: Option<String> },
-    MoveLauncher { direction: MoveDirection },
-    PushLauncher { direction: MoveDirection },
-    Resize { size_px: (u32, u32) },
+    Assign {
+        target: ConfigurationTarget,
+        name: String,
+        column: u32,
+        row: u32,
+        under: Option<String>,
+        #[serde(default)]
+        shift: SlotShift,
+    },
+    /// `name` selects a specific project or launcher without focusing it first.
+    Remove {
+        target: ConfigurationTarget,
+        name: Option<String>,
+    },
+    MoveLauncher {
+        direction: MoveDirection,
+    },
+    PushLauncher {
+        direction: MoveDirection,
+    },
+    SetStartup {
+        path: Option<String>,
+    },
+    Resize {
+        size_px: (u32, u32),
+    },
     Undo,
     Redo,
+}
+
+/// The kind of content an assignment or removal request addresses.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum ConfigurationTarget {
+    Project,
+    Launcher,
+}
+
+/// Whether assignment or clearing shifts neighboring slot content.
+///
+/// This is planning policy carried by a request; the dispatcher expands it into
+/// concrete slot moves before applying configuration changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SlotShift {
+    #[default]
+    Shift,
+    Keep,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

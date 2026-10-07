@@ -17,6 +17,7 @@ impl DesktopFocusPath {
             .enumerate()
             .rev()
             .find_map(|(i, t)| match t {
+                // Pre-fractal: the desktop node cannot parent instances.
                 DesktopTarget::Desktop => None,
                 DesktopTarget::Project(..) => None,
                 DesktopTarget::ProjectHeader(..) => None,

@@ -123,7 +123,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                             renderer.resize_redraw(&view_event)?;
                         }
                         ApplicationEvent::View(..) | ApplicationEvent::Shutdown(_) => {}
-                        ApplicationEvent::ApplyAnimations(_) => {}
+                        ApplicationEvent::ApplyAnimations(_)
+                        | ApplicationEvent::FullscreenRequested => {}
                         ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
                             logs.finish_fade_out(line_id);
                         }

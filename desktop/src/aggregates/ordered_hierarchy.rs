@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt, hash};
+use std::collections::HashMap;
+use std::{fmt, hash, iter};
 
 use anyhow::{Result, bail};
 
@@ -167,7 +168,7 @@ where
 
     /// Iterate over `id` and its ancestors, from `id` up to the root.
     pub fn parent_chain<'a>(&'a self, id: &'a Id) -> impl Iterator<Item = &'a Id> {
-        std::iter::successors(Some(id), move |id| self.parent(id))
+        iter::successors(Some(id), move |id| self.parent(id))
     }
 
     /// Check whether a node exists in the hierarchy.
@@ -264,7 +265,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn insert_root() {
+    fn missing_id_has_no_parent_and_no_nested() {
         let hierarchy = hierarchy();
 
         assert_eq!(hierarchy.parent(&1), None);

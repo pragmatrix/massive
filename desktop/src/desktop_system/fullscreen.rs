@@ -1,24 +1,27 @@
+//! Full Screen Mode (ADR 0014): an instance presentation state that scales the
+//! instance's content toward the window instead of its regular panel scale.
+//!
+//! The mode exists per launcher — one value shared by all of its base instances,
+//! persisted with the desktop configuration — and per assistant instance, where
+//! it is temporary. It is a pure content scale, analogous to the nested-project
+//! slot scale: launcher presentation and visor layout are untouched, and the
+//! camera resolves a focused full-screen instance as pixel-perfect at that scale
+//! automatically. Focus, navigation, zoom, and resize never change the mode; the
+//! only mutator is the `ToggleFullScreenMode` command.
+
 use massive_applications::InstanceId;
 use massive_geometry::SizePx;
 
-use crate::desktop_system::DesktopSystem;
-use crate::instance_presenter::InstancePresentation;
-
-use super::FocusDepth;
+use super::DesktopSystem;
 
 impl DesktopSystem {
-    pub fn resolve_instance_presentation(
-        &self,
-        instance: InstanceId,
-        window_size: SizePx,
-    ) -> InstancePresentation {
-        if self.focused_path().instance() == Some(instance)
-            && self.focus_depth == FocusDepth::InstanceFullScreen
-        {
-            InstancePresentation::full_screen(self.default_panel_size, window_size)
-        } else {
-            InstancePresentation::regular(self.default_panel_size)
-        }
+    /// Flips `instance`'s temporary Full Screen Mode. Only assistant instances
+    /// carry one; a base instance always follows its launcher.
+    pub(super) fn toggle_assistant_full_screen_mode(&mut self, instance: InstanceId) {
+        let Some(presenter) = self.aggregates.instances.get_mut(&instance) else {
+            panic!("a toggled assistant instance has a presenter");
+        };
+        presenter.toggle_full_screen_mode();
     }
 }
 

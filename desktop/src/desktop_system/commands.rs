@@ -1,11 +1,11 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters};
+use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
-use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
+use crate::instance_presenter::{InstanceKind, InstanceRoot};
+use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -20,28 +20,41 @@ pub enum DesktopCommand {
         instance: InstanceId,
         root: Option<InstanceRoot>,
         parameters: InstanceParameters,
+        /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T` or `Shift+Cmd+Enter`)
+        /// carries its own temporary Full Screen Mode.
+        kind: InstanceKind,
     },
     StopInstance(InstanceId),
 
     Navigate(Direction),
 
     Zoom(Zoom),
+    /// Routes a fullscreen request to the focused instance or the native window.
+    ToggleFullScreen,
 }
 
 #[derive(Debug)]
 pub enum ProjectCommand {
-    AddProject {
-        id: ProjectId,
-        name: String,
-        after: Option<ProjectId>,
-    },
-    RemoveProject(ProjectId),
-    AddLauncher {
-        project: ProjectId,
-        id: LaunchProfileId,
-        profile: LaunchProfile,
+    /// Assigns slot content, displacing the assigned content according to `shift`.
+    ///
+    /// A `None` parent creates the assigned project instead — there is no separate
+    /// "add project" operation. The root is assigned to the `Desktop` target, which
+    /// hosts no slots, so `placement` and `shift` are ignored; only
+    /// [`ProjectId::ROOT`] may be assigned there, exactly once.
+    AssignSlot {
+        parent: Option<ProjectId>,
         placement: MatrixPlacement,
+        content: SlotAssignment,
+        shift: SlotShift,
     },
-    RemoveLauncher(LaunchProfileId),
-    SetStartupLauncher(Option<LaunchProfileId>),
+    ClearSlot {
+        parent: ProjectId,
+        placement: MatrixPlacement,
+        shift: SlotShift,
+    },
+    MoveSlot {
+        source: (ProjectId, MatrixPlacement),
+        dest: (ProjectId, MatrixPlacement),
+    },
+    SetStartupPath(Option<String>),
 }

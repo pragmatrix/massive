@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::warn;
 
 use massive_applications::ViewEvent;
 use massive_geometry::{PixelCamera, SizePx, SizedTransform};
@@ -15,14 +16,12 @@ impl DesktopSystem {
         &mut self,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
-        window_size: SizePx,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
-            let follow_up =
-                self.handle_effect(effect, effects_mode, window_size, instance_manager)?;
+            let follow_up = self.handle_effect(effect, effects_mode, instance_manager)?;
             effects.enqueue_all(follow_up);
         }
 
@@ -33,12 +32,11 @@ impl DesktopSystem {
         &mut self,
         effect: DesktopEffect,
         effects_mode: TransactionEffectsMode,
-        window_size: SizePx,
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         match effect {
-            DesktopEffect::Measure(target) => self.measure_layout_effect(target, window_size),
-            DesktopEffect::Place(root) => self.place_layout_effect(root, window_size),
+            DesktopEffect::Measure(target) => self.measure_layout_effect(target),
+            DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayout(target) => {
                 self.apply_layout_effect(target, effects_mode, instance_manager)
             }
@@ -73,7 +71,7 @@ impl DesktopSystem {
                     .as_str()
             });
         let project = focused
-            .and_then(|target| self.aggregates.hierarchy.project_of_target(target))
+            .map(|target| self.aggregates.hierarchy.project_of_target(target))
             .map(|id| {
                 self.aggregates
                     .configuration
@@ -102,11 +100,7 @@ impl DesktopSystem {
     ///
     /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
     /// and re-enqueues `Measure(parent)` only when the measured size changed.
-    fn measure_layout_effect(
-        &mut self,
-        target: DesktopTarget,
-        window_size: SizePx,
-    ) -> Result<Effects> {
+    fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
         // If measurements of children are not available, push them as effects and return early.
         let missing_children = self
             .layout_state
@@ -124,8 +118,7 @@ impl DesktopSystem {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
             focused_instance,
-            focus_depth: self.focus_depth,
-            window_size,
+            window_size: self.window_state.inner_size,
         };
 
         let outcome =
@@ -147,17 +140,26 @@ impl DesktopSystem {
     /// This consumes measured child sizes from layout state, computes child placements, and
     /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
     /// placement changed; camera and hover synchronization follow from `ApplyLayout` itself.
-    fn place_layout_effect(&mut self, root: DesktopTarget, window_size: SizePx) -> Result<Effects> {
+    ///
+    /// `root`'s own placement is not this pass's to write: it belongs to `root`'s parent, and a
+    /// parent re-places a child only when the child's measured size changed — so a placement
+    /// dropped here (a matrix slot's rect, a presentation scale) would never be restored. Only
+    /// the parentless root, which has no parent, is placed here.
+    fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
             focused_instance,
-            focus_depth: self.focus_depth,
-            window_size,
+            window_size: self.window_state.inner_size,
         };
 
         let children = self.aggregates.hierarchy.children_of(&root);
+        // The exception to "every target is placed by its parent": the parentless root
+        // has no parent to place it.
+        if self.aggregates.hierarchy.parent_of(&root).is_none() {
+            self.layout_state.place_root(&root);
+        }
         let placement_outcomes = self
             .layout_state
             .place_children_of(&root, children, &algorithm);
@@ -218,6 +220,8 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         match target {
+            // The desktop node has no presenter, its layout state is only the
+            // placement bookkeeping the children read through `absolute_placement`.
             DesktopTarget::Desktop => {}
             DesktopTarget::Instance(instance_id) => {
                 self.aggregates
@@ -263,16 +267,20 @@ impl DesktopSystem {
                 };
                 if let Some(instance) = self.aggregates.instances.get_mut(&instance_id)
                     && let Some(resized) = instance.set_view_layout(view_id, layout)?
+                    && let Err(e) = instance_manager
+                        .send_view_event((instance_id, view_id), ViewEvent::Resized(resized))
                 {
-                    instance_manager
-                        .send_view_event((instance_id, view_id), ViewEvent::Resized(resized))?;
+                    // An instance can end while the layout loop still re-places
+                    // its view; event_forwarding and the ResizeAll arm tolerate
+                    // the same race.
+                    warn!("Sending view resize to {instance_id:?} failed with {e}");
                 }
             }
         }
         Ok(())
     }
-    pub(super) fn resolve_desired_camera(&self, window_size: SizePx) -> Option<PixelCamera> {
+    pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
         let focused = self.event_router.keyboard_focus()?;
-        Some(self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_size))
+        Some(self.resolve_camera_for_target(focused, self.zoom_level))
     }
 }

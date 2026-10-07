@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use uuid::Uuid;
-use winit::event::MouseButton;
+use winit::event::{ElementState, MouseButton};
 use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
@@ -16,9 +16,10 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
 use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
+use crate::instance_presenter::InstanceKind;
 use crate::projects::LaunchProfileId;
 
-use super::configuration::Params;
+use super::runtime_configuration::Params;
 
 // TODO: Need proper color palettes for UI elements.
 // spellcheck: ignore
@@ -206,19 +207,23 @@ impl LauncherPresenter {
             return Ok(Commands::Empty);
         };
 
-        if presents_instance {
-            return Ok(Commands::Empty);
-        }
-
-        // Can't go on focus here, we might focus launchers by other means (for example cursor
-        // navigation).
-        let start_instance = event.detect_click(MouseButton::Left).is_some()
-            || (event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
-                && event.keyboard_modifiers().super_key());
+        // Focus alone must not launch: navigation can focus a launcher without activating it.
+        let start_shortcut = matches!(
+            event.event(),
+            ViewEvent::KeyboardInput { event: key_event, .. }
+                if key_event.state == ElementState::Pressed
+                    && !key_event.repeat
+                    && (key_event.logical_key == Key::Named(NamedKey::Enter)
+                        || event.device_states().is_command()
+                            && matches!(&key_event.logical_key, Key::Character(key)
+                            if key.as_str().eq_ignore_ascii_case("t")))
+        );
+        let start_instance = start_shortcut
+            || (!presents_instance && event.detect_click(MouseButton::Left).is_some());
 
         if start_instance {
-            // Shift-click skips the profile's parameters: a user's explicit "open plain".
-            let parameters = if event.keyboard_modifiers().shift_key() {
+            let shift = event.keyboard_modifiers().shift_key();
+            let parameters = if shift {
                 InstanceParameters::new()
             } else {
                 params.clone()
@@ -230,6 +235,12 @@ impl LauncherPresenter {
                 instance: Uuid::new_v4().into(),
                 root: None,
                 parameters,
+                // Shift-click opens plain; only Shift-shortcuts create assistants (ADR 0014).
+                kind: if start_shortcut && shift {
+                    InstanceKind::Assistant
+                } else {
+                    InstanceKind::Base
+                },
             }
             .into());
         }

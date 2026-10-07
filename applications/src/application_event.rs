@@ -10,6 +10,7 @@ use crate::{InstanceId, PresentationId, ViewEvent, ViewId};
 pub enum ApplicationEvent<T> {
     View(ViewId, ViewEvent),
     ApplyAnimations(PresentationId),
+    FullscreenRequested,
     Shutdown(InstanceId),
     Custom(T),
 }
@@ -18,6 +19,7 @@ pub enum ApplicationEvent<T> {
 pub enum ApplicationMessage {
     View(ViewId, ViewEvent),
     ApplyAnimations(PresentationId),
+    FullscreenRequested,
     Shutdown(InstanceId),
 }
 
@@ -28,6 +30,7 @@ impl<T> From<ApplicationMessage> for ApplicationEvent<T> {
             ApplicationMessage::ApplyAnimations(presentation_id) => {
                 Self::ApplyAnimations(presentation_id)
             }
+            ApplicationMessage::FullscreenRequested => Self::FullscreenRequested,
             ApplicationMessage::Shutdown(instance_id) => Self::Shutdown(instance_id),
         }
     }
@@ -38,6 +41,7 @@ impl CoalescingKey for ApplicationMessage {
 
     fn coalescing_key(&self) -> Option<ApplicationEventCoalescingKey> {
         match self {
+            ApplicationMessage::FullscreenRequested => None,
             ApplicationMessage::View(view_id, event) => match event {
                 ViewEvent::Resized(..) => Some(ApplicationEventCoalescingKey::View(
                     *view_id,

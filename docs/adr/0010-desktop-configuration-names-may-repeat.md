@@ -2,6 +2,12 @@
 
 ## Status: accepted
 
+> The tag mechanism is superseded by
+> [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md):
+> the document is derived from the aggregate, so changes address ids directly
+> and no per-node identity lives in the file. The duplicate-name and
+> nearest-match decisions below still hold.
+
 ## Problem
 
 The desktop configuration's KDL document (ADR 0006) is keyed by name, and every
@@ -52,7 +58,10 @@ node**, and duplicates are allowed.
 - The "at least one launcher" invariant moves to the planner (`plan_project`),
   where the whole command is visible and a rejection emits no change at all. This
   closes the half-applied transaction and removes the document's last piece of
-  policy.
+  policy. Superseded by
+  [ADR 0012](./0012-a-configuration-without-a-launcher-is-given-one-at-load.md):
+  the invariant is dissolved — the parse gives a configuration without a launcher
+  one — so the planner no longer rejects on its account.
 
 ## Considered options
 

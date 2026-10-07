@@ -4,12 +4,20 @@ use massive_util::CollectingVec;
 
 use super::KeyboardFocusReason;
 use crate::DesktopTarget;
-use crate::desktop_system::FocusDepth;
-use crate::event_router::EventTransitions;
-use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
+use crate::desktop_system::ZoomLevel;
+use crate::instance_presenter::{InstanceKind, InstanceRoot};
+use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::targeted_event::EventTransitions;
+use crate::window_state::WindowState;
 
-pub type Changes = CollectingVec<DesktopChange>;
+/// An effect that the host application executes after the desktop system commits its changes.
+#[derive(Debug)]
+pub enum DesktopSystemEffect {
+    /// Ask the shell to toggle its native window fullscreen state.
+    ToggleWindowFullScreen,
+    /// Persist the live configuration after a transaction.
+    PersistConfiguration,
+}
 
 #[derive(Debug)]
 pub enum DesktopChange {
@@ -23,13 +31,7 @@ pub enum DesktopChange {
     },
     // Design: This could also be done as an external effect.
     ShutdownInstance(InstanceId),
-    PresentInstance {
-        launcher: LaunchProfileId,
-        initial_center_translation: Option<Vector3>,
-        instance: InstanceId,
-        root: InstanceRoot,
-        parameters: InstanceParameters,
-    },
+    PresentInstance(InstancePresentation),
     HideInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,
@@ -37,47 +39,87 @@ pub enum DesktopChange {
     SetFocus {
         // None: Completely removes the focus from the application.
         target: Option<DesktopTarget>,
-        reason: KeyboardFocusReason,
     },
-    /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
+    /// Sets the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
-    CommitNavigationAffinity(Option<u32>),
-    /// Commit the focus depth.
-    CommitFocusDepth(FocusDepth),
-    WindowResized,
+    SetNavigationAffinity(Option<u32>),
+    /// Sets the camera's zoom level (ADR 0018).
+    SetZoomLevel(ZoomLevel),
+    /// Toggles the Full Screen Mode of the focused launcher (its base instances)
+    /// or, when an assistant instance is focused, of that instance (ADR 0014).
+    ToggleFullScreenMode(ToggleFullScreenModeTarget),
+    /// The window state changed; commits it as the system's window state.
+    /// The constructor seeds the state, so a resize event commits only
+    /// updates.
+    WindowResized(WindowState),
+    /// Requests the desktop shell to toggle native window fullscreen.
+    ToggleWindowFullScreen,
     ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
 }
 
+pub type Changes = CollectingVec<DesktopChange>;
+
+/// The payload of [`DesktopChange::PresentInstance`]: everything introducing a
+/// new instance to the scene carries as one group.
+#[derive(Debug)]
+pub struct InstancePresentation {
+    pub launcher: LaunchProfileId,
+    pub initial_center_translation: Option<Vector3>,
+    pub instance: InstanceId,
+    pub root: InstanceRoot,
+    pub parameters: InstanceParameters,
+    /// The instance kind (ADR 0014): an assistant carries its own temporary
+    /// Full Screen Mode, a base instance follows its launcher's.
+    pub kind: InstanceKind,
+}
+
 #[derive(Debug)]
 pub enum Zoom {
     In,
     Out,
-    /// Focus on the currently keyboard focused object.
-    DefaultForFocused,
+    /// Points the camera at the focused target at `Focus`; a project target is entered down to its focused
+    /// leaf first (ADR 0018).
+    Enter,
+}
+
+/// What `ToggleFullScreenMode` resolves to when planned. An assistant instance
+/// toggles its own temporary mode; a launcher toggles the mode shared by all of
+/// its base instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToggleFullScreenModeTarget {
+    Launcher(LaunchProfileId),
+    AssistantInstance(InstanceId),
 }
 
 #[derive(Debug, Clone)]
 pub enum ConfigurationChange {
-    AddProject {
-        id: ProjectId,
-        name: String,
+    /// Assigns `assignment` to the slot `(parent, placement)`. Replacing content is a
+    /// clear plus an assign; displacement is expanded into `MoveSlot`s by the
+    /// plan, never applied here.
+    ///
+    /// A `None` parent creates the assigned project instead of slotting it: the
+    /// root project is hosted by the `Desktop` target, not a matrix (see
+    /// [`DesktopConfiguration::assign_slot`]).
+    AssignSlot {
+        parent: Option<ProjectId>,
+        placement: MatrixPlacement,
+        assignment: SlotAssignment,
     },
-    RemoveProject(ProjectId),
-    AddLauncher {
-        project: ProjectId,
-        id: LaunchProfileId,
-        profile: LaunchProfile,
+    /// Empties the slot `(parent, placement)`.
+    ClearSlot {
+        parent: ProjectId,
         placement: MatrixPlacement,
     },
-    MoveLauncher {
-        launcher: LaunchProfileId,
-        placement: MatrixPlacement,
+    /// Moves the content of the source slot to the destination slot. The content
+    /// may move to another project's matrix, but not into its own subtree.
+    MoveSlot {
+        source: (ProjectId, MatrixPlacement),
+        dest: (ProjectId, MatrixPlacement),
     },
-    RemoveLauncher(LaunchProfileId),
-    SetStartupLauncher(Option<LaunchProfileId>),
+    SetStartupPath(Option<String>),
 }
 
 /// Constructs the change(s) for a focus transition.
@@ -86,9 +128,9 @@ pub enum ConfigurationChange {
 /// `SetNavigationAffinity(None)` so the reset flows through change application rather than being
 /// applied inline in `focus()`.
 pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
-    let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
+    let mut changes: Changes = DesktopChange::SetFocus { target }.into();
     if reason.resets_navigation_affinity() {
-        changes <<= DesktopChange::CommitNavigationAffinity(None);
+        changes <<= DesktopChange::SetNavigationAffinity(None);
     }
     changes
 }

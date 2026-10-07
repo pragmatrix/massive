@@ -8,13 +8,46 @@ use winit::window::CursorIcon;
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Color, Rect, Size, SizePx, SizedTransform, Transform, Vector3};
+use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
-use crate::desktop_system::fullscreen_scale;
+use crate::projects::FullScreenMode;
+
+/// What an instance was started as (ADR 0014). A `Base` instance presents in
+/// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
+/// its own temporary mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InstanceKind {
+    #[default]
+    Base,
+    Assistant,
+}
+
+impl InstanceKind {
+    /// The Full Screen Mode a new instance of this kind starts in: an
+    /// assistant's temporary mode starts regular; a base instance presents in
+    /// the launcher's mode.
+    pub fn initial_full_screen_mode(self, launcher_mode: FullScreenMode) -> FullScreenMode {
+        match self {
+            Self::Base => launcher_mode,
+            Self::Assistant => FullScreenMode::Regular,
+        }
+    }
+}
+
+/// The Full Screen Mode state of an instance (ADR 0014), combining the two
+/// instance kinds with how each one's mode is determined: a `Base` instance
+/// presents in its launcher's persisted mode, an `Assistant` owns a temporary
+/// mode of its own. Folding the kinds together keeps a base instance with its
+/// own mode unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceFullScreen {
+    Base,
+    Assistant(FullScreenMode),
+}
 
 #[derive(Debug, Clone)]
 pub struct InstanceRoot {
@@ -58,6 +91,8 @@ const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
 pub struct InstancePresenter {
     state: InstancePresenterState,
     parameters: InstanceParameters,
+    /// The instance's Full Screen presentation (ADR 0014).
+    full_screen: InstanceFullScreen,
     movement: Movement<InstanceMovement>,
     /// Shared animated instance node for background and view.
     /// This avoids per-child world updates that can drift during animation.
@@ -92,30 +127,6 @@ struct PrimaryViewPresenter {
     view_size: SizePx,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct InstancePresentation {
-    view_size: SizePx,
-    scale: f64,
-}
-
-impl InstancePresentation {
-    pub fn regular(view_size: SizePx) -> Self {
-        Self {
-            view_size,
-            scale: 1.0,
-        }
-    }
-
-    pub fn full_screen(panel_size: SizePx, view_size: SizePx) -> Self {
-        let scale = fullscreen_scale(panel_size, view_size);
-        Self { view_size, scale }
-    }
-
-    pub fn layout_size(self) -> Size {
-        Size::from(self.view_size) * self.scale
-    }
-}
-
 #[derive(Debug)]
 struct InstanceMovement {
     /// The instance layout transform stores the panel center translation and yaw rotation.
@@ -137,6 +148,7 @@ impl InstancePresenter {
         root: InstanceRoot,
         parameters: InstanceParameters,
         parent: Handle<Location>,
+        kind: InstanceKind,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -171,6 +183,11 @@ impl InstancePresenter {
         )
         .mount();
 
+        let full_screen = match kind {
+            InstanceKind::Base => InstanceFullScreen::Base,
+            InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
+        };
+
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
             parameters,
@@ -180,11 +197,39 @@ impl InstancePresenter {
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
+            full_screen,
         }
     }
 
     pub fn parameters(&self) -> &InstanceParameters {
         &self.parameters
+    }
+
+    /// The instance's kind (ADR 0014): an assistant carries its own temporary
+    /// mode, a base instance presents in its launcher's mode.
+    pub fn kind(&self) -> InstanceKind {
+        match self.full_screen {
+            InstanceFullScreen::Base => InstanceKind::Base,
+            InstanceFullScreen::Assistant(_) => InstanceKind::Assistant,
+        }
+    }
+
+    /// The instance's temporary Full Screen Mode, `None` for a base instance
+    /// (a base instance presents in its launcher's mode instead).
+    pub fn full_screen_mode(&self) -> Option<FullScreenMode> {
+        match self.full_screen {
+            InstanceFullScreen::Base => None,
+            InstanceFullScreen::Assistant(mode) => Some(mode),
+        }
+    }
+
+    /// Flips the assistant's temporary Full Screen Mode. Panics for a base
+    /// instance, which presents in its launcher's mode and carries none.
+    pub fn toggle_full_screen_mode(&mut self) {
+        let InstanceFullScreen::Assistant(mode) = self.full_screen else {
+            panic!("a toggled instance is an assistant carrying a temporary mode");
+        };
+        self.full_screen = InstanceFullScreen::Assistant(mode.toggled());
     }
 
     pub fn latest_transform(&self) -> Transform {

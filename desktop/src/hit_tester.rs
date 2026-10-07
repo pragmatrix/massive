@@ -1,12 +1,12 @@
 use massive_geometry::{
     Contains, PerspectiveDivide, Point, Rect, RectPx, SizedTransform, Transform, Vector3, Vector4,
 };
-use massive_layout::Placement;
+use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
-use crate::projects::{DesktopConfiguration, LaunchProfileId, LauncherPresenter, launcher_mode};
-use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
+use crate::projects::{RuntimeConfiguration, launcher_mode};
+use crate::{DesktopTarget, HitTester, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
     fn placement(
@@ -19,8 +19,7 @@ pub(crate) trait PlacementSource {
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     placements: &'a dyn PlacementSource,
-    launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
-    configuration: &'a DesktopConfiguration,
+    configuration: &'a RuntimeConfiguration,
     geometry: &'a RenderGeometry,
 }
 
@@ -45,10 +44,11 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
                 .hit_test_hierarchy(screen_pos, &DesktopTarget::Desktop)
                 .map(|hit| (hit.target, hit.local_pos))
                 .or_else(|| {
-                    // Any position inside the window that misses all content maps to the Desktop,
-                    // so the pointer focus is never lost over empty margins. A cleared pointer
-                    // focus (`None`) then means only that pointer feedback is suppressed (keyboard
-                    // navigation active), which is what drives cursor visibility.
+                    // Any position inside the window that misses all content maps to the
+                    // desktop, so the pointer focus is never lost over empty margins. A
+                    // cleared pointer focus (`None`) then means only that pointer feedback is
+                    // suppressed (keyboard navigation active), which is what drives cursor
+                    // visibility.
                     self.hit_test_target_plane(screen_pos, &DesktopTarget::Desktop)
                         .map(|local_pos| (DesktopTarget::Desktop, local_pos))
                 }),
@@ -60,14 +60,12 @@ impl<'a> AggregateHitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,
-        launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
-        configuration: &'a DesktopConfiguration,
+        configuration: &'a RuntimeConfiguration,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
             hierarchy,
             placements,
-            launchers,
             configuration,
             geometry,
         }
@@ -99,15 +97,12 @@ impl<'a> AggregateHitTester<'a> {
     fn hit_test_overflow_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
-        for launcher_id in self.launchers.keys() {
-            let Some(launcher) = self.configuration.launcher(*launcher_id) else {
-                continue;
-            };
+        for launcher in self.configuration.launchers() {
             if !launcher_mode::includes_overflow_children_in_hit_testing(launcher.mode) {
                 continue;
             }
 
-            let launcher_target = DesktopTarget::Launcher(*launcher_id);
+            let launcher_target = DesktopTarget::Launcher(launcher.id);
             if !self.hierarchy.exists(&launcher_target) {
                 continue;
             }
@@ -212,9 +207,10 @@ impl<'a> AggregateHitTester<'a> {
         let rect_px: RectPx = placement.rect.into();
         let local_center = Rect::from(rect_px).size().to_rect().center();
 
-        // Desktop is the layout root and uses an origin-based transform (IDENTITY in the common
-        // case). Derive its origin from the rectangle offset directly.
-        if matches!(target, DesktopTarget::Desktop) {
+        // The layout root — the parentless project — uses an origin-based transform
+        // (IDENTITY in the common case). Derive its origin from the rectangle offset
+        // directly.
+        if self.hierarchy.parent_of(target).is_none() {
             let offset = placement.rect.offset;
             return Transform::from_xy(offset[0] as f64, offset[1] as f64);
         }

@@ -25,6 +25,12 @@ exclude = [
 [workspace.package]
 edition = "2024"
 
+[workspace.lints.clippy]
+# Temporary: derive_more 2.1.1's `Constructor` derive emits `field: field` inits in its
+# generated code, which trips this lint. Allow workspace-wide until a newer derive_more
+# release fixes the generated code, then remove this.
+redundant_field_names = { level = "allow", priority = -1 }
+
 [workspace.metadata]
 # For trunk
 root-package = "shell"
@@ -62,7 +68,7 @@ chrono = "0.4.38"
 # identical text across frames, so without it harfbuzz re-runs per frame.
 cosmic-text = { version = "0.19.0", features = ["swash", "shape-run-cache"] }
 criterion = "0.8.2"
-derive_more = { version = "2.0.1", features = ["full"] }
+derive_more = { version = "2.1.1", features = ["full"] }
 parley = "0.11"
 env_logger = "0.11.3"
 euclid = "0.22.11"

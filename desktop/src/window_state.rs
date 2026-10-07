@@ -11,15 +11,6 @@ pub struct WindowState {
     pub is_fullscreen: bool,
 }
 
-impl WindowState {
-    pub fn from_window(window: &ShellWindow) -> Self {
-        Self {
-            inner_size: window.inner_size(),
-            is_fullscreen: window.is_fullscreen(),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct WindowPresentationState {
     pub title: String,

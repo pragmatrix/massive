@@ -156,6 +156,7 @@ pub(crate) enum ShellCommand {
         on_created: oneshot::Sender<Result<Surface<'static>>>,
     },
     ToggleFullscreen,
+    FullscreenRequested,
     ApplicationEnded(Result<()>),
 }
 
@@ -196,7 +197,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             panic!("Resumed called in an invalid state");
         };
 
-        crate::platform::initialize_platform_menu();
+        crate::platform::initialize_platform_menu(proxy.clone());
 
         let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 
@@ -281,6 +282,16 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                     .expect("oneshot can send");
             }
             ShellCommand::ToggleFullscreen => crate::platform::toggle_fullscreen(),
+            ShellCommand::FullscreenRequested => {
+                let Self::Running { event_sender, .. } = self else {
+                    panic!(
+                        "Received FullscreenRequested while WinitApplicationHandler is not Running"
+                    );
+                };
+                if let Err(error) = event_sender.send(ApplicationMessage::FullscreenRequested) {
+                    error!("Failed to send fullscreen request to the application: {error:?}");
+                }
+            }
             ShellCommand::ApplicationEnded(r) => {
                 *self = Self::Ended {
                     application_result: r,

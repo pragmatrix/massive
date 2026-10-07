@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::fs;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -17,12 +18,12 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
-use crate::desktop_system::change::{Changes, DesktopChange};
+use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
 use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::InstanceRoot;
-use crate::projects::persistence::{self, ConfigurationDocument};
-use crate::projects::{DesktopConfiguration, to_commands};
+use crate::instance_presenter::{InstanceKind, InstanceRoot};
+use crate::projects::persistence::{self, ConfigurationPersistence};
+use crate::projects::{RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -31,11 +32,13 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Debug)]
 pub struct Desktop {
     window: ShellWindow,
-    window_state: WindowState,
     window_presentation_state: WindowPresentationState,
 
     renderer: AsyncWindowRenderer,
     system: DesktopSystem,
+    /// Persists configuration changes after a transaction (ADR 0013).
+    /// Setup replays the parsed configuration without persisting it.
+    configuration_persistence: ConfigurationPersistence,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -55,7 +58,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let (configuration_document, configuration) = load_configuration(&env)?;
+        let (configuration_persistence, configuration) = load_configuration(&env)?;
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -121,19 +124,20 @@ impl Desktop {
             to_commands(&configuration).map(DesktopCommand::Project);
         let boot_launcher = configuration
             .boot_launcher()
-            .expect("configuration parsing guarantees at least one launcher");
+            .expect("the configuration load gives a launcher-less configuration one");
 
-        let mut system =
-            DesktopSystem::new(env, default_size, configuration_document, configuration)?;
+        let mut system = DesktopSystem::new(env, default_size, configuration)?;
 
         // The session boots into the startup launcher the configuration names. The
-        // configuration parse guarantees at least one launcher, and no project
-        // command ran yet, so the fallback is the first launcher of it.
+        // load gives a launcher-less configuration one, and the fallback derived
+        // here is the first launcher of the loaded aggregate before any command
+        // replays.
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
             parameters: InstanceParameters::new(),
+            kind: InstanceKind::Base,
         }]
         .into();
 
@@ -142,19 +146,15 @@ impl Desktop {
 
         let commands = project_setup_commands + primary_instance_commands;
 
-        let window_state = WindowState::from_window(&window);
-
         let mut changes = Changes::Empty;
         for command in commands {
             changes += system.plan(command)?;
         }
-
         let frame = begin_frame();
         system.transact(
             changes + initial_submission_changes,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
-            window_state.inner_size,
         )?;
         let mut presentation_state = WindowPresentationState::default();
         finalize_desktop_frame(
@@ -167,10 +167,10 @@ impl Desktop {
 
         let desktop = Self {
             window,
-            window_state,
             window_presentation_state: presentation_state,
             renderer,
             system,
+            configuration_persistence,
             event_manager,
             instance_manager,
             instance_submissions: submissions_rx,
@@ -208,6 +208,10 @@ impl Desktop {
                 DesktopEvent::ApplicationEvents(events) => {
                     for event in events {
                         match event {
+                            ApplicationEvent::FullscreenRequested => {
+                                let changes = self.system.plan(DesktopCommand::ToggleFullScreen)?;
+                                self.transact_and_persist(changes)?;
+                            }
                             ApplicationEvent::View(_, ViewEvent::CloseRequested) => {
                                 return Ok(());
                             }
@@ -217,12 +221,10 @@ impl Desktop {
                                 if let ViewEvent::Resized(size_px) = &view_event {
                                     // For some reason this does not match.
                                     // `debug_assert_eq!(self.window.inner_size(), *size_px);`
-                                    let window_state =
-                                        WindowState::new(*size_px, self.window.is_fullscreen());
-                                    if window_state != self.window_state {
-                                        self.window_state = window_state;
-                                        desktop_changes <<= DesktopChange::WindowResized;
-                                    }
+                                    // The system ignores resize events that match its current state.
+                                    desktop_changes <<= DesktopChange::WindowResized(
+                                        WindowState::new(*size_px, self.window.is_fullscreen()),
+                                    );
                                 }
 
                                 if let Some(input_event) = self
@@ -234,8 +236,7 @@ impl Desktop {
 
                                     let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            let command = keyboard_cmd.into_command();
-                                            self.system.plan(command)?
+                                            self.system.plan(keyboard_cmd)?
                                         } else {
                                             self.system.process_input_event(
                                                 &input_event,
@@ -246,12 +247,7 @@ impl Desktop {
                                     desktop_changes += input_changes;
                                 }
 
-                                self.system.transact(
-                                    desktop_changes,
-                                    &mut self.instance_manager,
-                                    None,
-                                    self.window_state.inner_size,
-                                )?;
+                                self.transact_and_persist(desktop_changes)?;
 
                                 // This is completely weird here. We need a better solution for resize_redraw().
                                 self.renderer.resize_redraw(&view_event)?;
@@ -276,20 +272,13 @@ impl Desktop {
                         }
                     }
                 }
-                DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
-                    DesktopChange::IntegrateInstanceSubmission(instance, submission),
-                    &mut self.instance_manager,
-                    None,
-                    self.window_state.inner_size,
-                )?,
+                DesktopEvent::InstanceSubmission(instance, submission) => {
+                    self.transact_and_persist(DesktopChange::IntegrateInstanceSubmission(
+                        instance, submission,
+                    ))?;
+                }
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
-                    handle_instance_ended(
-                        &mut self.system,
-                        &mut self.instance_manager,
-                        &mut self.instance_submissions,
-                        (instance_id, instance_result),
-                        self.window_state.inner_size,
-                    )?;
+                    self.handle_instance_ended((instance_id, instance_result))?;
                 }
             }
 
@@ -332,20 +321,13 @@ impl Desktop {
 
             let frame = begin_frame();
             match event {
-                DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
-                    DesktopChange::IntegrateInstanceSubmission(instance, submission),
-                    &mut self.instance_manager,
-                    None,
-                    self.window_state.inner_size,
-                )?,
+                DesktopEvent::InstanceSubmission(instance, submission) => {
+                    self.transact_and_persist(DesktopChange::IntegrateInstanceSubmission(
+                        instance, submission,
+                    ))?;
+                }
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
-                    handle_instance_ended(
-                        &mut self.system,
-                        &mut self.instance_manager,
-                        &mut self.instance_submissions,
-                        (instance_id, instance_result),
-                        self.window_state.inner_size,
-                    )?;
+                    self.handle_instance_ended((instance_id, instance_result))?;
                 }
                 DesktopEvent::ApplicationEvents(_) => unreachable!(),
             }
@@ -360,6 +342,59 @@ impl Desktop {
         }
         Ok(())
     }
+
+    /// Integrates an instance's end: when it is still presented, the end acts
+    /// as if the user stopped it; its pending submissions drain in this frame
+    /// before the desktop may consider itself finished.
+    fn handle_instance_ended(
+        &mut self,
+        (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
+    ) -> Result<()> {
+        info!(
+            "Instance ended (submissions pending: {}): {instance_id:?}",
+            self.instance_submissions.len()
+        );
+
+        if self.system.is_present(&instance_id) {
+            // Did it end on its own? -> Act as if the user ended it.
+            // Robustness: This should probably handled differently.
+            let changes = self
+                .system
+                .plan(DesktopCommand::StopInstance(instance_id))?;
+            self.transact_and_persist(changes)?;
+        }
+
+        // Feature: Display the error to the user?
+        if let Err(e) = instance_result {
+            log::warn!("Instance returned error: {e}");
+        }
+
+        // Drain final submissions into this frame before deciding that the desktop is finished.
+        while let Ok((instance, submission)) = self.instance_submissions.try_recv() {
+            self.transact_and_persist(DesktopChange::IntegrateInstanceSubmission(
+                instance, submission,
+            ))?;
+        }
+
+        Ok(())
+    }
+
+    /// Transacts the changes, and persists the aggregate when they applied a
+    /// configuration change (ADR 0013).
+    fn transact_and_persist(&mut self, changes: impl Into<Changes>) -> Result<()> {
+        let output = self
+            .system
+            .transact(changes, &mut self.instance_manager, None)?;
+        for effect in output.effects {
+            match effect {
+                DesktopSystemEffect::ToggleWindowFullScreen => self.window.toggle_fullscreen()?,
+                DesktopSystemEffect::PersistConfiguration => self
+                    .configuration_persistence
+                    .persist(self.system.configuration()),
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Loads the desktop configuration from the projects directory.
@@ -369,7 +404,7 @@ impl Desktop {
 /// to. Any other file error fails and aborts desktop startup.
 fn load_configuration(
     env: &DesktopEnvironment,
-) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
+) -> Result<(ConfigurationPersistence, RuntimeConfiguration)> {
     let projects_dir = env
         .projects_dir()
         .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
@@ -381,44 +416,13 @@ fn load_configuration(
         );
         persistence::write_default_config(&configuration_path)?;
     }
-    ConfigurationDocument::load(&configuration_path)
-}
-
-fn handle_instance_ended(
-    system: &mut DesktopSystem,
-    instance_manager: &mut InstanceManager,
-    instance_submissions: &mut UnboundedReceiver<(InstanceId, InstanceSubmission)>,
-    (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
-    window_size: massive_geometry::SizePx,
-) -> Result<()> {
-    info!(
-        "Instance ended (submissions pending: {}): {instance_id:?}",
-        instance_submissions.len()
-    );
-
-    if system.is_present(&instance_id) {
-        // Did it end on its own? -> Act as if the user ended it.
-        // Robustness: This should probably handled differently.
-        let changes = system.plan(DesktopCommand::StopInstance(instance_id))?;
-        system.transact(changes, instance_manager, None, window_size)?;
-    }
-
-    // Feature: Display the error to the user?
-    if let Err(e) = instance_result {
-        log::warn!("Instance returned error: {e}");
-    }
-
-    // Drain final submissions into this frame before deciding that the desktop is finished.
-    while let Ok((instance, submission)) = instance_submissions.try_recv() {
-        system.transact(
-            DesktopChange::IntegrateInstanceSubmission(instance, submission),
-            instance_manager,
-            None,
-            window_size,
-        )?;
-    }
-
-    Ok(())
+    let text = fs::read_to_string(&configuration_path)
+        .with_context(|| format!("reading {}", configuration_path.display()))?;
+    let configuration = persistence::parse_configuration(&configuration_path, &text)?;
+    Ok((
+        ConfigurationPersistence::new(&configuration_path),
+        configuration,
+    ))
 }
 
 /// Push everything out.
