@@ -11,6 +11,7 @@ use anyhow::{Result, bail};
 use log::{error, warn};
 
 use winit::event::{DeviceId, ElementState, Modifiers};
+use winit::keyboard::{Key, NamedKey};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
@@ -384,9 +385,20 @@ where
                     });
                 }
 
-                // Unfocus the cursor when a key is newly pressed.
+                // Unfocus the cursor when a key is newly pressed. Modifier keys are excluded, they
+                // are used to alter pointer interaction (for example Cmd to activate hyperlinks).
                 if event.state == ElementState::Pressed
                     && !event.repeat
+                    && !matches!(
+                        event.logical_key,
+                        Key::Named(
+                            NamedKey::Super
+                                | NamedKey::Meta
+                                | NamedKey::Shift
+                                | NamedKey::Control
+                                | NamedKey::Alt
+                        )
+                    )
                     && let Some(change) = self.set_pointer_focus(None)
                 {
                     steps.push(RouterStep::PointerFocusChanged(change));
