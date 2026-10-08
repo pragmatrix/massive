@@ -116,6 +116,8 @@ pub struct InstancePresenter {
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
     /// commit.
     title_bar: TitleBarPresenter,
+    /// The launcher's label, shown after the view's title.
+    title_bar_label: String,
     /// The title bar's height, measured at regular presentation scale.
     title_bar_height: u32,
 }
@@ -206,6 +208,7 @@ impl InstancePresenter {
         };
 
         let title_bar_height = title_bar.metrics.height;
+        let title_bar_label = title_bar.label.clone();
         let title_bar = title_bar.into_title_bar(root.content_location.clone());
 
         Self {
@@ -218,6 +221,7 @@ impl InstancePresenter {
             pacing: RenderPacing::default(),
             background,
             title_bar,
+            title_bar_label,
             title_bar_height,
             full_screen,
         }
@@ -332,7 +336,8 @@ impl InstancePresenter {
     pub fn set_view_title(&mut self, view_id: ViewId, title: String) -> Result<()> {
         let view = self.presented_view_mut(view_id)?;
         view.window_state.title = title.clone();
-        self.title_bar.set_title(&title);
+        self.title_bar
+            .set_text(title_bar_candidates(&self.title_bar_label, &title));
         Ok(())
     }
 
@@ -558,7 +563,9 @@ impl InstanceTitleBarSpec {
             font_size: metrics.font_size,
             indent: metrics.indent,
         };
-        TitleBarPresenter::new(style, label, parent_location)
+        let mut title_bar = TitleBarPresenter::new(style, parent_location);
+        title_bar.set_text(title_bar_candidates(&label, ""));
+        title_bar
     }
 }
 
@@ -579,4 +586,29 @@ impl InstanceTitleBarMetrics {
             indent: (TITLE_BAR_INDENT_AT_1X * scale_factor).round(),
         }
     }
+}
+
+/// Separates the parts of a title, in the title bar as well as in the window title.
+pub const TITLE_SEPARATOR: &str = "  ·  ";
+const ELLIPSIS: char = '…';
+
+/// The title bar's text as candidates: the title followed by the label, then the title elided at
+/// its start one character at a time, and finally the label alone.
+fn title_bar_candidates(label: &str, title: &str) -> Vec<String> {
+    let compose = |title: &str| {
+        if title.is_empty() {
+            label.to_string()
+        } else {
+            format!("{title}{TITLE_SEPARATOR}{label}")
+        }
+    };
+
+    let elided = title
+        .char_indices()
+        .skip(1)
+        .map(|(start, _)| compose(&format!("{ELLIPSIS}{}", &title[start..])));
+    std::iter::once(compose(title))
+        .chain(elided)
+        .chain(std::iter::once(label.to_string()))
+        .collect()
 }

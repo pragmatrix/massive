@@ -4,7 +4,7 @@ use massive_scene::prelude::*;
 
 use crate::projects::MatrixPlacement;
 
-use super::title_bar::{TitleBarPresenter, TitleBarStyle};
+use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
 const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
 const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
@@ -21,15 +21,15 @@ impl ProjectPresenter {
     pub fn new(name: String, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
-        let header = TitleBarPresenter::new(
+        let mut header = TitleBarPresenter::new(
             TitleBarStyle {
                 background_color: PROJECT_HEADER_BACKGROUND_COLOR,
                 font_size: PROJECT_HEADER_FONT_SIZE,
                 indent: 0.0,
             },
-            name,
             location.clone(),
         );
+        header.set_text(vec![name]);
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {

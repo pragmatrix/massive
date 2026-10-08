@@ -8,10 +8,6 @@ use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 
 const TEXT_COLOR: Color = Color::WHITE;
 const TEXT_DECAL_ORDER: usize = 0;
-const ELLIPSIS: char = '…';
-
-/// Separates the parts of a title, in the bar as well as in the window title.
-pub const TITLE_SEPARATOR: &str = "  ·  ";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TitleBarStyle {
@@ -21,13 +17,13 @@ pub struct TitleBarStyle {
     pub indent: f64,
 }
 
-/// A colored bar with a single line of text: the title followed by the label, vertically centered.
-/// Layout changes are always animated, unless the caller asks to snap.
+/// A colored bar with a single line of vertically centered text. The text is given as candidates,
+/// and the first one that fits the bar is shown. Layout changes are always animated, unless the
+/// caller asks to snap.
 #[derive(Debug)]
 pub struct TitleBarPresenter {
     style: TitleBarStyle,
-    label: String,
-    title: String,
+    candidates: Vec<String>,
     available_width: Option<u32>,
     layout_height: f64,
     measured_size: SizePx,
@@ -38,7 +34,7 @@ pub struct TitleBarPresenter {
 }
 
 impl TitleBarPresenter {
-    pub fn new(style: TitleBarStyle, label: String, parent_location: Handle<Location>) -> Self {
+    pub fn new(style: TitleBarStyle, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let (text_transform, text_location) = identity_location().relative_to(&location).submit();
@@ -61,10 +57,9 @@ impl TitleBarPresenter {
         })
         .mount();
 
-        let mut bar = Self {
+        Self {
             style,
-            label,
-            title: String::new(),
+            candidates: Vec::new(),
             available_width: None,
             layout_height: 0.0,
             measured_size: SizePx::default(),
@@ -72,21 +67,21 @@ impl TitleBarPresenter {
             movement,
             text_transform,
             text,
-        };
-        bar.update_text();
-        bar
+        }
     }
 
-    /// The size the bar needs to show its whole text without eliding.
+    /// The size the bar needs to show its preferred text.
     pub fn measured_size(&self) -> SizePx {
         self.measured_size
     }
 
-    pub fn set_title(&mut self, title: &str) {
-        if self.title == title {
+    /// Sets the text as candidates, ordered from the preferred one to the most compact one. The
+    /// first candidate that fits is shown; if none does, the last one is shown anyway.
+    pub fn set_text(&mut self, candidates: Vec<String>) {
+        if self.candidates == candidates {
             return;
         }
-        self.title = title.to_string();
+        self.candidates = candidates;
         self.update_text();
     }
 
@@ -115,12 +110,7 @@ impl TitleBarPresenter {
     }
 
     fn update_text(&mut self) {
-        let fitted = fitted_text(
-            &self.label,
-            &self.title,
-            self.available_width,
-            self.style.font_size,
-        );
+        let fitted = fitted_text(&self.candidates, self.available_width, self.style.font_size);
         let full_size = fitted.full_size;
         self.measured_size = SizePx::new(
             full_size.width + (2.0 * self.style.indent) as u32,
@@ -162,35 +152,12 @@ impl Default for TitleBarMovement {
 struct FittedText {
     /// The shaped text that fits and its line height.
     text: Option<(Shape, f64)>,
-    /// The size of the whole, non-elided text.
+    /// The size of the first, preferred candidate.
     full_size: SizePx,
 }
 
-/// The title and the label as one shaped text and its height. If the text does not fit, the start
-/// of the title is elided, and if that does not help, only the label remains.
-fn fitted_text(
-    label: &str,
-    title: &str,
-    available_width: Option<u32>,
-    font_size: f32,
-) -> FittedText {
-    let compose = |title: &str| {
-        if title.is_empty() {
-            label.to_string()
-        } else {
-            format!("{title}{TITLE_SEPARATOR}{label}")
-        }
-    };
-
-    let elided = title
-        .char_indices()
-        .skip(1)
-        .map(|(start, _)| compose(&format!("{ELLIPSIS}{}", &title[start..])));
-    let candidates = std::iter::once(compose(title))
-        .chain(elided)
-        .chain(std::iter::once(label.to_string()));
-
-    // The label is the last candidate, so it is shaped even if it does not fit.
+/// The first candidate that fits as shaped text, or the last one if none does.
+fn fitted_text(candidates: &[String], available_width: Option<u32>, font_size: f32) -> FittedText {
     let mut shaped = None;
     let mut full_size = None;
     for candidate in candidates {
