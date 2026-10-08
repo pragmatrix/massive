@@ -275,7 +275,7 @@ impl DesktopSystem {
             // configured parameters and carries its own temporary Full Screen Mode (ADR 0014).
             if let Some(instance) = focused_path.instance() {
                 let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance);
-                // Assistants open plain; base instances inherit the focused instance's parameters.
+                // Assistants open plain; primary instances inherit the focused instance's parameters.
                 let parameters = match shift {
                     false => self
                         .aggregates
@@ -294,7 +294,7 @@ impl DesktopSystem {
                     kind: if shift {
                         InstanceKind::Assistant
                     } else {
-                        InstanceKind::Base
+                        InstanceKind::Primary
                     },
                 });
             }

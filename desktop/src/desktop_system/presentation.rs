@@ -10,8 +10,8 @@ use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
-use crate::instance_presenter::{InstanceKind, InstancePresenter};
-use crate::projects::{InstanceTitleBarSpec, LaunchProfileId, launcher_mode};
+use crate::instance_presenter::InstancePresenter;
+use crate::projects::{LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
 
@@ -52,7 +52,7 @@ impl DesktopSystem {
         };
 
         // An assistant owns a temporary Full Screen Mode, starting regular; a
-        // base instance is `None` and follows its launcher's mode (ADR 0014).
+        // primary instance is `None` and follows its launcher's mode (ADR 0014).
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
@@ -60,11 +60,8 @@ impl DesktopSystem {
             parameters,
             launcher_location,
             kind,
-            InstanceTitleBarSpec {
-                label: title_bar_label(&launcher_name, kind),
-                metrics: self.title_bar,
-                is_assistant: kind == InstanceKind::Assistant,
-            },
+            &launcher_name,
+            self.aggregates.instance_title_bar_metrics,
         );
 
         self.aggregates.instances.insert(instance, presenter)?;
@@ -199,14 +196,5 @@ impl DesktopSystem {
                 .map_or(DesktopTarget::View(view), DesktopTarget::Instance),
             target => target,
         })
-    }
-}
-
-/// The launcher's name, marked for an assistant instance, which does not run the launcher's
-/// configured parameters (ADR 0019).
-fn title_bar_label(launcher_name: &str, kind: InstanceKind) -> String {
-    match kind {
-        InstanceKind::Base => launcher_name.to_string(),
-        InstanceKind::Assistant => format!("{launcher_name} (assistant)"),
     }
 }

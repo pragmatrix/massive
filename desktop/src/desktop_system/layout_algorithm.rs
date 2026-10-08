@@ -63,7 +63,7 @@ pub struct DesktopLayoutAlgorithm<'a> {
 
 impl DesktopLayoutAlgorithm<'_> {
     /// Whether `instance` presents in Full Screen Mode (ADR 0014): the content
-    /// scale follows the instance's mode — a base instance's launcher mode, an
+    /// scale follows the instance's mode — a primary instance's launcher mode, an
     /// assistant's temporary one — independent of camera or focus depth.
     fn is_instance_full_screen(&self, instance: InstanceId) -> bool {
         self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
@@ -123,19 +123,14 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             DesktopTarget::ProjectMatrix(project_id) => self
                 .measure_project_matrix(*project_id, &child_sizes)
                 .into(),
-            DesktopTarget::Instance(instance_id) => {
-                let size: Size<2> = self.instance_extent(*instance_id).into();
+            DesktopTarget::Instance(_) => {
+                let size: Size<2> = self.instance_extent().into();
                 size.into()
             }
             DesktopTarget::InstanceTitleBar(_) => {
                 // In Full Screen Mode the bar is laid out at window resolution like the view and
                 // scaled with it, so it keeps its regular height on screen (ADR 0019).
-                let instance = self
-                    .aggregates
-                    .hierarchy
-                    .instance_of_target(id)
-                    .expect("A title bar belongs to an instance");
-                let height = self.aggregates.instance_title_bar_height(instance);
+                let height = self.aggregates.instance_title_bar_metrics.height;
                 let size: Size<2> = SizePx::new(self.view_size_of(id).width, height).into();
                 size.into()
             }
@@ -160,16 +155,16 @@ impl DesktopLayoutAlgorithm<'_> {
             self.aggregates.instance_full_screen_mode(instance),
             self.default_panel_size,
             self.window_size,
-            self.aggregates.instance_title_bar_height(instance),
+            self.aggregates.instance_title_bar_metrics.height,
         )
     }
 
     /// The extent of an instance: its title bar above the regular panel (ADR 0019). Full Screen
     /// Mode does not change it; the window-resolution content is scaled into it.
-    fn instance_extent(&self, instance: InstanceId) -> SizePx {
+    fn instance_extent(&self) -> SizePx {
         instance_extent(
             self.default_panel_size,
-            self.aggregates.instance_title_bar_height(instance),
+            self.aggregates.instance_title_bar_metrics.height,
         )
     }
 
@@ -413,7 +408,7 @@ impl DesktopLayoutAlgorithm<'_> {
                     LayoutAxis::HORIZONTAL.into()
                 }
             }
-            DesktopTarget::Instance(instance_id) => self.instance_extent(*instance_id).into(),
+            DesktopTarget::Instance(_) => self.instance_extent().into(),
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
     }

@@ -44,7 +44,7 @@ pub enum LauncherMode {
     Visor,
 }
 
-/// The Full Screen Mode shared by a launcher's base instances (ADR 0014).
+/// The Full Screen Mode shared by a launcher's primary instances (ADR 0014).
 /// Serialized as the lowercase variant name, `regular` the default.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1035,7 +1035,7 @@ pub struct Launcher {
     pub name: String,
     pub mode: LauncherMode,
     pub params: Params,
-    /// The Full Screen Mode all of the launcher's base instances follow
+    /// The Full Screen Mode all of the launcher's primary instances follow
     /// (ADR 0014). Persisted with the configuration.
     pub full_screen_mode: FullScreenMode,
 }
@@ -1063,7 +1063,7 @@ impl Launcher {
         }
     }
 
-    /// Sets the Full Screen Mode the launcher's base instances follow
+    /// Sets the Full Screen Mode the launcher's primary instances follow
     /// (ADR 0014). Returns `Self` for parse-time chaining.
     pub(crate) fn with_full_screen_mode(mut self, full_screen_mode: FullScreenMode) -> Self {
         self.full_screen_mode = full_screen_mode;

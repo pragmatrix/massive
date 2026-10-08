@@ -23,9 +23,9 @@ use crate::desktop_system::{
     Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode, instance_extent,
 };
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::{InstanceKind, InstanceRoot};
+use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
 use crate::projects::persistence::{self, ConfigurationPersistence};
-use crate::projects::{InstanceTitleBarMetrics, RuntimeConfiguration, to_commands};
+use crate::projects::{RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -108,10 +108,10 @@ impl Desktop {
         // and their primary view.
         let default_size = creation_info.size();
 
-        let title_bar =
+        let title_bar_metrics =
             InstanceTitleBarMetrics::from_scale_factor(context.primary_monitor_scale_factor());
         let window = context
-            .new_window(instance_extent(default_size, title_bar.height))
+            .new_window(instance_extent(default_size, title_bar_metrics.height))
             .await?;
         let mut renderer = window
             .renderer()
@@ -132,7 +132,7 @@ impl Desktop {
             .boot_launcher()
             .expect("the configuration load gives a launcher-less configuration one");
 
-        let mut system = DesktopSystem::new(env, default_size, title_bar, configuration)?;
+        let mut system = DesktopSystem::new(env, default_size, title_bar_metrics, configuration)?;
 
         // The session boots into the startup launcher the configuration names. The
         // load gives a launcher-less configuration one, and the fallback derived
@@ -143,7 +143,7 @@ impl Desktop {
             instance: primary_instance,
             root: Some(primary_root),
             parameters: InstanceParameters::new(),
-            kind: InstanceKind::Base,
+            kind: InstanceKind::Primary,
         }]
         .into();
 

@@ -104,9 +104,9 @@ _Avoid_: pending focus, focus request
 A configured entry that a slot may host; hosts one or more running instances and owns a launcher mode. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command.
 _Avoid_: profile, cell
 
-**Base instance**:
-An instance a launcher starts with the launcher's configured parameters — through the launcher's start action, or with `Cmd+T` / `Cmd+Enter` while one of the launcher's instances has keyboard focus. All base instances of a launcher follow the launcher's Full Screen Mode together; the assistant instance is the other kind.
-_Avoid_: default instance, primary instance
+**Primary instance**:
+An instance a launcher starts with the launcher's configured parameters — through the launcher's start action, or with `Cmd+T` / `Cmd+Enter` while one of the launcher's instances has keyboard focus. All primary instances of a launcher follow the launcher's Full Screen Mode together; the assistant instance is the other kind. In code it is `InstanceKind::Primary`. The name is provisional and is not related to an instance's primary view, which is the view that gives the instance its title.
+_Avoid_: base instance, default instance
 
 **Assistant instance**:
 An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cmd+Enter` starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
@@ -117,7 +117,7 @@ A single running application session owned by a launcher. Multiple instances of 
 _Avoid_: session, tab, process
 
 **Full Screen Mode**:
-An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when keyboard focus is fully in and resolves to an instance: a base instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` zooms to `Focus` before its usual action; when fully in, it starts an instance only from a launcher. `Cmd+T` starts an instance from a launcher or an existing instance. Starting an instance focuses it at the `Focus` zoom level. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
+An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its primary instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when keyboard focus is fully in and resolves to an instance: a primary instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` zooms to `Focus` before its usual action; when fully in, it starts an instance only from a launcher. `Cmd+T` starts an instance from a launcher or an existing instance. Starting an instance focuses it at the `Focus` zoom level. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
 _Avoid_: fullscreen flag, fullscreen presentation, full screen launcher
 
 **Close request**:

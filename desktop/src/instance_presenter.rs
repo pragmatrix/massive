@@ -14,38 +14,38 @@ use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
-use crate::projects::{FullScreenMode, InstanceTitleBarPresenter, InstanceTitleBarSpec};
+use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
-/// What an instance was started as (ADR 0014). A `Base` instance presents in
+/// What an instance was started as (ADR 0014). A `Primary` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
 /// its own temporary mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InstanceKind {
     #[default]
-    Base,
+    Primary,
     Assistant,
 }
 
 impl InstanceKind {
     /// The Full Screen Mode a new instance of this kind starts in: an
-    /// assistant's temporary mode starts regular; a base instance presents in
+    /// assistant's temporary mode starts regular; a primary instance presents in
     /// the launcher's mode.
     pub fn initial_full_screen_mode(self, launcher_mode: FullScreenMode) -> FullScreenMode {
         match self {
-            Self::Base => launcher_mode,
+            Self::Primary => launcher_mode,
             Self::Assistant => FullScreenMode::Regular,
         }
     }
 }
 
 /// The Full Screen Mode state of an instance (ADR 0014), combining the two
-/// instance kinds with how each one's mode is determined: a `Base` instance
+/// instance kinds with how each one's mode is determined: a `Primary` instance
 /// presents in its launcher's persisted mode, an `Assistant` owns a temporary
-/// mode of its own. Folding the kinds together keeps a base instance with its
+/// mode of its own. Folding the kinds together keeps a primary instance with its
 /// own mode unrepresentable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceFullScreen {
-    Base,
+    Primary,
     Assistant(FullScreenMode),
 }
 
@@ -115,7 +115,9 @@ pub struct InstancePresenter {
     background: Option<InstanceBackground>,
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
     /// commit.
-    title_bar: InstanceTitleBarPresenter,
+    title_bar: TitleBarPresenter,
+    /// The launcher's name, marked for an assistant, shown after the view's title.
+    launcher_title: String,
 }
 
 #[derive(Debug)]
@@ -156,6 +158,7 @@ pub struct ViewWindowState {
 }
 
 impl InstancePresenter {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
         show_background: bool,
@@ -163,7 +166,8 @@ impl InstancePresenter {
         parameters: InstanceParameters,
         parent: Handle<Location>,
         kind: InstanceKind,
-        title_bar: InstanceTitleBarSpec,
+        launcher_name: &str,
+        title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -199,11 +203,17 @@ impl InstancePresenter {
         .mount();
 
         let full_screen = match kind {
-            InstanceKind::Base => InstanceFullScreen::Base,
+            InstanceKind::Primary => InstanceFullScreen::Primary,
             InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
         };
 
-        let title_bar = InstanceTitleBarPresenter::new(title_bar, root.content_location.clone());
+        let launcher_title = launcher_title(launcher_name, kind);
+        let title_bar = new_title_bar(
+            kind,
+            title_bar_metrics,
+            &launcher_title,
+            root.content_location.clone(),
+        );
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
@@ -215,6 +225,7 @@ impl InstancePresenter {
             pacing: RenderPacing::default(),
             background,
             title_bar,
+            launcher_title,
             full_screen,
         }
     }
@@ -224,19 +235,19 @@ impl InstancePresenter {
     }
 
     /// The instance's kind (ADR 0014): an assistant carries its own temporary
-    /// mode, a base instance presents in its launcher's mode.
+    /// mode, a primary instance presents in its launcher's mode.
     pub fn kind(&self) -> InstanceKind {
         match self.full_screen {
-            InstanceFullScreen::Base => InstanceKind::Base,
+            InstanceFullScreen::Primary => InstanceKind::Primary,
             InstanceFullScreen::Assistant(_) => InstanceKind::Assistant,
         }
     }
 
-    /// The instance's temporary Full Screen Mode, `None` for a base instance
-    /// (a base instance presents in its launcher's mode instead).
+    /// The instance's temporary Full Screen Mode, `None` for a primary instance
+    /// (a primary instance presents in its launcher's mode instead).
     pub fn full_screen_mode(&self) -> Option<FullScreenMode> {
         match self.full_screen {
-            InstanceFullScreen::Base => None,
+            InstanceFullScreen::Primary => None,
             InstanceFullScreen::Assistant(mode) => Some(mode),
         }
     }
@@ -328,7 +339,8 @@ impl InstancePresenter {
     pub fn set_view_title(&mut self, view_id: ViewId, title: String) -> Result<()> {
         let view = self.presented_view_mut(view_id)?;
         view.window_state.title = title.clone();
-        self.title_bar.set_title(&title);
+        self.title_bar
+            .set_text(&title_bar_text(&title, &self.launcher_title));
         Ok(())
     }
 
@@ -366,12 +378,8 @@ impl InstancePresenter {
         Ok(resize)
     }
 
-    pub fn title_bar_height(&self) -> u32 {
-        self.title_bar.measured_height()
-    }
-
-    pub fn set_title_bar_layout(&mut self, layout: SizedTransform) {
-        self.title_bar.set_layout(layout);
+    pub fn set_title_bar_layout(&mut self, layout: SizedTransform, animate: bool) {
+        self.title_bar.set_layout(layout, animate);
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
@@ -517,4 +525,74 @@ impl InstancePresenterState {
 
 fn background_shape(rect: Rect) -> Shape {
     shapes::Rect::new(rect, INSTANCE_BACKGROUND_COLOR).into()
+}
+
+// Title bar height, font size, and horizontal text indent at a scale factor of 1.0.
+const TITLE_BAR_HEIGHT_AT_1X: f64 = 24.0;
+const TITLE_BAR_FONT_SIZE_AT_1X: f64 = 16.0;
+const TITLE_BAR_INDENT_AT_1X: f64 = 8.0;
+
+const PRIMARY_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4f8f);
+const ASSISTANT_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x6a3d8f);
+
+/// Creates the bar drawn above an instance's view (ADR 0019): the primary view's title followed by
+/// the launcher's title. Assistant instances are set apart by their background color.
+fn new_title_bar(
+    kind: InstanceKind,
+    metrics: InstanceTitleBarMetrics,
+    launcher_title: &str,
+    parent_location: Handle<Location>,
+) -> TitleBarPresenter {
+    let background_color = match kind {
+        InstanceKind::Primary => PRIMARY_INSTANCE_BACKGROUND_COLOR,
+        InstanceKind::Assistant => ASSISTANT_INSTANCE_BACKGROUND_COLOR,
+    };
+    let style = TitleBarStyle {
+        background_color,
+        font_size: metrics.font_size,
+        indent: metrics.indent,
+    };
+    let mut title_bar = TitleBarPresenter::new(style, parent_location);
+    title_bar.set_text(&title_bar_text("", launcher_title));
+    title_bar
+}
+
+/// The launcher's name, marked for an assistant instance, which does not run the launcher's
+/// configured parameters (ADR 0019).
+fn launcher_title(launcher_name: &str, kind: InstanceKind) -> String {
+    match kind {
+        InstanceKind::Primary => launcher_name.to_string(),
+        InstanceKind::Assistant => format!("{launcher_name} (assistant)"),
+    }
+}
+
+/// The bar's sizes in pixels at regular presentation scale (ADR 0019). They follow the monitor's
+/// scale factor, like the terminal's font.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstanceTitleBarMetrics {
+    pub height: u32,
+    font_size: f32,
+    indent: f64,
+}
+
+impl InstanceTitleBarMetrics {
+    pub fn from_scale_factor(scale_factor: f64) -> Self {
+        Self {
+            height: (TITLE_BAR_HEIGHT_AT_1X * scale_factor).round() as u32,
+            font_size: (TITLE_BAR_FONT_SIZE_AT_1X * scale_factor) as f32,
+            indent: (TITLE_BAR_INDENT_AT_1X * scale_factor).round(),
+        }
+    }
+}
+
+/// Separates the parts of a title, in the title bar as well as in the window title.
+pub const TITLE_SEPARATOR: &str = "  ·  ";
+
+/// The title bar's text: the view's title followed by the launcher's title.
+fn title_bar_text(view_title: &str, launcher_title: &str) -> String {
+    if view_title.is_empty() {
+        launcher_title.to_string()
+    } else {
+        format!("{view_title}{TITLE_SEPARATOR}{launcher_title}")
+    }
 }

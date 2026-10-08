@@ -52,19 +52,10 @@ impl DesktopPresenter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct HoverMovement {
     alpha: Animated<f32>,
     layout: Animated<SizedTransform>,
-}
-
-impl Default for HoverMovement {
-    fn default() -> Self {
-        Self {
-            alpha: 0.0.into(),
-            layout: SizedTransform::default().into(),
-        }
-    }
 }
 
 impl HoverMovement {

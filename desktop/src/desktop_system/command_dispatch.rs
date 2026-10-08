@@ -106,7 +106,7 @@ impl DesktopSystem {
 
                 let mut changes: Changes = if spawn {
                     // The spawned application's `size_px` seeds its canvas: a
-                    // fullscreen base instance presents at the window below its
+                    // fullscreen primary instance presents at the window below its
                     // title bar, not the panel, so it must start at that size or
                     // its first frames render panel-sized and reflow on Resized
                     // (ADR 0014, ADR 0019).
@@ -116,7 +116,7 @@ impl DesktopSystem {
                         ),
                         self.default_panel_size,
                         self.window_state.inner_size,
-                        self.title_bar.height,
+                        self.aggregates.instance_title_bar_metrics.height,
                     );
                     let mut spawn_parameters = parameters.clone();
                     spawn_parameters.insert(
@@ -205,7 +205,7 @@ impl DesktopSystem {
         }
     }
 
-    /// Plans `ToggleFullScreenMode` (ADR 0014): a base instance resolves to its
+    /// Plans `ToggleFullScreenMode` (ADR 0014): a primary instance resolves to its
     /// launcher's mode; an assistant instance resolves to its own. A launcher
     /// without instances is a no-op.
     fn plan_toggle_full_screen_mode(&self) -> Result<Changes> {
@@ -1209,8 +1209,7 @@ mod tests {
     use crate::desktop_system::change::DesktopSystemEffect;
     use crate::desktop_system::change::Zoom;
     use crate::instance_manager::InstanceManager;
-    use crate::instance_presenter::InstanceKind;
-    use crate::projects::InstanceTitleBarMetrics;
+    use crate::instance_presenter::{InstanceKind, InstanceTitleBarMetrics};
     use crate::projects::persistence::parse_configuration;
     use crate::window_state::WindowState;
     use massive_applications::task_context::{self, TaskContext};
@@ -1565,7 +1564,7 @@ mod tests {
                 instance,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let mut submission_changes = massive_util::ChangeSet::default();
             submission_changes.push(InstanceChange::CreateView(
@@ -1651,7 +1650,7 @@ mod tests {
                 instance,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let mut submission_changes = massive_util::ChangeSet::default();
             submission_changes.push(InstanceChange::CreateView(
@@ -1716,7 +1715,7 @@ mod tests {
                 instance: instance_b,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let mut submission_b = massive_util::ChangeSet::default();
             submission_b.push(InstanceChange::CreateView(
@@ -2081,7 +2080,7 @@ mod tests {
         Ok((system, instance_manager, launcher))
     }
 
-    /// The live StartInstance commit: a focused base instance whose view has not
+    /// The live StartInstance commit: a focused primary instance whose view has not
     /// arrived yet.
     fn start_instance(
         system: &mut DesktopSystem,
@@ -2097,7 +2096,7 @@ mod tests {
                 instance,
                 root: InstanceRoot::new(),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             }),
             DesktopChange::Topology(TopologyChange::Insert {
                 what: instance.into(),
@@ -2154,7 +2153,7 @@ mod tests {
             .distance
     }
 
-    /// A base instance created in a Full Screen launcher spawns at window
+    /// A primary instance created in a Full Screen launcher spawns at window
     /// resolution and frames fullscreen from its view-less first commit;
     /// framing it at the panel distance dollies the camera out and back in when
     /// the view arrives (the `Cmd+T` zoom-out bounce).
@@ -2172,7 +2171,7 @@ mod tests {
                 instance: uuid::Uuid::new_v4().into(),
                 root: None,
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let seed = start
                 .iter()
@@ -2185,7 +2184,7 @@ mod tests {
                 .expect("SpawnInstance seeds the application canvas size");
             assert_eq!(
                 seed,
-                serde_json::json!([1000, 800 - system.title_bar.height]),
+                serde_json::json!([1000, 800 - system.aggregates.instance_title_bar_metrics.height]),
                 "a fullscreen launcher's spawned instance must start at window resolution below the title bar, not panel"
             );
 
@@ -2198,7 +2197,7 @@ mod tests {
             );
             // The window-resolution stack (title bar and view) fits the instance extent: panel and bar.
             let fullscreen_distance = panel_distance
-                * (800.0_f64 / 1000.0).min((600.0 + system.title_bar.height as f64) / 800.0);
+                * (800.0_f64 / 1000.0).min((600.0 + system.aggregates.instance_title_bar_metrics.height as f64) / 800.0);
             let view_less_distance = camera_distance(&system);
             assert!(
                 (view_less_distance - fullscreen_distance).abs() < 1e-6,

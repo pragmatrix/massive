@@ -77,7 +77,7 @@ pub struct PersistedLauncher {
     pub mode: LauncherMode,
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
-    /// The launcher's Full Screen Mode, shared by its base instances (ADR 0014).
+    /// The launcher's Full Screen Mode, shared by its primary instances (ADR 0014).
     #[serde(default, skip_serializing_if = "full_screen_mode_is_regular")]
     pub full_screen_mode: FullScreenMode,
 }

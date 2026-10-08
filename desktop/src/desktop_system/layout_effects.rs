@@ -9,7 +9,7 @@ use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
-use crate::projects::TITLE_SEPARATOR;
+use crate::instance_presenter::TITLE_SEPARATOR;
 use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
@@ -236,7 +236,7 @@ impl DesktopSystem {
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
-                    .set_title_bar_layout(layout);
+                    .set_title_bar_layout(layout, animate);
             }
             DesktopTarget::Project(project_id) => {
                 self.aggregates

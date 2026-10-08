@@ -253,7 +253,7 @@ absence — there is no trybuild or compile-fail infrastructure in the tree.
 
 **Q8 — Documentation and naming.** Record the new seam as a new ADR (0009): a
 public framework-neutral hook plus a task-side callback scope is a distinct
-decision from ADR 0008's task-locals. Add the new terms to `CONTEXT.md`. ADR
+decision from ADR 0008's task-locals. Add the new terms to `GLOSSARY.md`. ADR
 0008's Context section still names `with_coordinator_and_movement`, which no
 longer exists; fix that in the same pass. Names to confirm: `TaskMovement<T>`,
 `CallbackScope`, `MovementCallback<'_>`, `apply_movement_animations`. Keep a
