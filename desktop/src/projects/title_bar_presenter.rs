@@ -1,3 +1,5 @@
+use std::iter;
+
 use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
@@ -152,7 +154,7 @@ fn fitted_text(text: &str, available_width: Option<u32>, font_size: f32) -> Fitt
         .char_indices()
         .skip(1)
         .map(|(start, _)| format!("{ELLIPSIS}{}", &text[start..]));
-    let candidates = std::iter::once(text.to_string()).chain(elided);
+    let candidates = iter::once(text.to_string()).chain(elided);
 
     let mut shaped = None;
     let mut full_size = None;
