@@ -19,11 +19,13 @@ use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
-use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
+use crate::desktop_system::{
+    Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode, instance_extent,
+};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::persistence::{self, ConfigurationPersistence};
-use crate::projects::{RuntimeConfiguration, to_commands};
+use crate::projects::{InstanceTitleBarMetrics, RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -106,7 +108,11 @@ impl Desktop {
         // and their primary view.
         let default_size = creation_info.size();
 
-        let window = context.new_window(creation_info.size()).await?;
+        let title_bar =
+            InstanceTitleBarMetrics::from_scale_factor(context.primary_monitor_scale_factor());
+        let window = context
+            .new_window(instance_extent(default_size, title_bar.height))
+            .await?;
         let mut renderer = window
             .renderer()
             .with_shapes()
@@ -126,7 +132,7 @@ impl Desktop {
             .boot_launcher()
             .expect("the configuration load gives a launcher-less configuration one");
 
-        let mut system = DesktopSystem::new(env, default_size, configuration)?;
+        let mut system = DesktopSystem::new(env, default_size, title_bar, configuration)?;
 
         // The session boots into the startup launcher the configuration names. The
         // load gives a launcher-less configuration one, and the fallback derived

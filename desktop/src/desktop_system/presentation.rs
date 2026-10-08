@@ -10,8 +10,8 @@ use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
-use crate::instance_presenter::InstancePresenter;
-use crate::projects::{LaunchProfileId, launcher_mode};
+use crate::instance_presenter::{InstanceKind, InstancePresenter};
+use crate::projects::{InstanceTitleBarSpec, LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
 
@@ -31,20 +31,24 @@ impl DesktopSystem {
             parameters,
             kind,
         } = presentation;
-        let (render_instance_background, launcher_location) = {
+        let (render_instance_background, launcher_location, launcher_name) = {
             let launcher = self
                 .aggregates
                 .launchers
                 .get(&launcher_id)
                 .expect("Launcher not found");
-            let render_instance_background = launcher_mode::renders_instance_background(
-                self.aggregates
-                    .configuration
-                    .launcher(launcher_id)
-                    .expect("Launcher not found")
-                    .mode,
-            );
-            (render_instance_background, launcher.location())
+            let launcher_configuration = self
+                .aggregates
+                .configuration
+                .launcher(launcher_id)
+                .expect("Launcher not found");
+            let render_instance_background =
+                launcher_mode::renders_instance_background(launcher_configuration.mode);
+            (
+                render_instance_background,
+                launcher.location(),
+                launcher_configuration.name.clone(),
+            )
         };
 
         // An assistant owns a temporary Full Screen Mode, starting regular; a
@@ -56,6 +60,11 @@ impl DesktopSystem {
             parameters,
             launcher_location,
             kind,
+            InstanceTitleBarSpec {
+                label: title_bar_label(&launcher_name, kind),
+                metrics: self.title_bar,
+                is_assistant: kind == InstanceKind::Assistant,
+            },
         );
 
         self.aggregates.instances.insert(instance, presenter)?;
@@ -162,6 +171,7 @@ impl DesktopSystem {
             | DesktopTarget::ProjectHeader(_)
             | DesktopTarget::ProjectMatrix(_)
             | DesktopTarget::Launcher(_)
+            | DesktopTarget::InstanceTitleBar(_)
             | DesktopTarget::View(_) => Some(self.placement(&target)),
             DesktopTarget::Desktop => None,
         }
@@ -180,7 +190,23 @@ impl DesktopSystem {
             DesktopTarget::ProjectHeader(project) | DesktopTarget::ProjectMatrix(project) => {
                 DesktopTarget::Project(project)
             }
+            // The title bar and the view outline their whole instance (ADR 0019).
+            DesktopTarget::InstanceTitleBar(instance) => DesktopTarget::Instance(instance),
+            DesktopTarget::View(view) => self
+                .aggregates
+                .hierarchy
+                .instance_of_target(&DesktopTarget::View(view))
+                .map_or(DesktopTarget::View(view), DesktopTarget::Instance),
             target => target,
         })
+    }
+}
+
+/// The launcher's name, marked for an assistant instance, which does not run the launcher's
+/// configured parameters (ADR 0019).
+fn title_bar_label(launcher_name: &str, kind: InstanceKind) -> String {
+    match kind {
+        InstanceKind::Base => launcher_name.to_string(),
+        InstanceKind::Assistant => format!("{launcher_name} (assistant)"),
     }
 }

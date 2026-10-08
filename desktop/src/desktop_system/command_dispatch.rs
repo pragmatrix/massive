@@ -9,14 +9,14 @@ use super::change::{
 };
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason,
-    ProjectCommand, ZoomLevel,
+    ProjectCommand, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{
-    DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode,
-    LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
+    DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter,
+    MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
 };
 
 use massive_applications::prelude::*;
@@ -106,16 +106,18 @@ impl DesktopSystem {
 
                 let mut changes: Changes = if spawn {
                     // The spawned application's `size_px` seeds its canvas: a
-                    // fullscreen base instance presents at the window, not the
-                    // panel, so it must start at the window resolution or its
-                    // first frames render panel-sized and reflow on Resized
-                    // (ADR 0014).
-                    let initial_size_px = match kind.initial_full_screen_mode(
-                        self.aggregates.configuration[launcher].full_screen_mode,
-                    ) {
-                        FullScreenMode::FullScreen => self.window_state.inner_size,
-                        FullScreenMode::Regular => self.default_panel_size,
-                    };
+                    // fullscreen base instance presents at the window below its
+                    // title bar, not the panel, so it must start at that size or
+                    // its first frames render panel-sized and reflow on Resized
+                    // (ADR 0014, ADR 0019).
+                    let initial_size_px = view_size(
+                        kind.initial_full_screen_mode(
+                            self.aggregates.configuration[launcher].full_screen_mode,
+                        ),
+                        self.default_panel_size,
+                        self.window_state.inner_size,
+                        self.title_bar.height,
+                    );
                     let mut spawn_parameters = parameters.clone();
                     spawn_parameters.insert(
                         "size_px".to_string(),
@@ -145,6 +147,12 @@ impl DesktopSystem {
                         what: instance.into(),
                         at_index: insertion_pos,
                         under: launcher.into(),
+                    }),
+                    // ADR 0019: The title bar exists with the instance, ahead of its view.
+                    DesktopChange::Topology(TopologyChange::Add {
+                        what: DesktopTarget::InstanceTitleBar(instance),
+                        under: DesktopTarget::Instance(instance),
+                        after: None,
                     }),
                 ];
                 changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
@@ -1150,7 +1158,10 @@ impl DesktopSystem {
     /// *measurement* (panel vs window size) and its placement both depend on
     /// Full Screen Mode, so a toggle must invalidate both.
     fn instance_view_targets(&self, instance: InstanceId) -> Vec<DesktopTarget> {
-        let mut targets = vec![DesktopTarget::Instance(instance)];
+        let mut targets = vec![
+            DesktopTarget::Instance(instance),
+            DesktopTarget::InstanceTitleBar(instance),
+        ];
         if let Some(view) = self
             .aggregates
             .instances
@@ -1199,11 +1210,15 @@ mod tests {
     use crate::desktop_system::change::Zoom;
     use crate::instance_manager::InstanceManager;
     use crate::instance_presenter::InstanceKind;
+    use crate::projects::InstanceTitleBarMetrics;
     use crate::projects::persistence::parse_configuration;
     use crate::window_state::WindowState;
     use massive_applications::task_context::{self, TaskContext};
     use massive_applications::{InstanceEnvironment, InstanceSubmission};
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+
+    /// Tests run at the scale factor of a standard display.
+    const TEST_SCALE_FACTOR: f64 = 1.0;
 
     const CONFIG: &str = r#"{
         "startup": "/shell",
@@ -2013,7 +2028,13 @@ mod tests {
         };
         let path = Path::new("/config/desktop.json");
         let aggregate = parse_configuration(path, config).unwrap();
-        let system = DesktopSystem::new(environment, SizePx::new(800, 600), aggregate).unwrap();
+        let system = DesktopSystem::new(
+            environment,
+            SizePx::new(800, 600),
+            InstanceTitleBarMetrics::from_scale_factor(TEST_SCALE_FACTOR),
+            aggregate,
+        )
+        .unwrap();
         (system, receiver)
     }
 
@@ -2082,6 +2103,11 @@ mod tests {
                 what: instance.into(),
                 at_index: index,
                 under: launcher.into(),
+            }),
+            DesktopChange::Topology(TopologyChange::Add {
+                what: DesktopTarget::InstanceTitleBar(instance),
+                under: DesktopTarget::Instance(instance),
+                after: None,
             }),
         ]
         .into();
@@ -2159,8 +2185,8 @@ mod tests {
                 .expect("SpawnInstance seeds the application canvas size");
             assert_eq!(
                 seed,
-                serde_json::json!([1000, 800]),
-                "a fullscreen launcher's spawned instance must start at window resolution, not panel"
+                serde_json::json!([1000, 800 - system.title_bar.height]),
+                "a fullscreen launcher's spawned instance must start at window resolution below the title bar, not panel"
             );
 
             // The plan's SpawnInstance would hit the (empty) test application
@@ -2170,7 +2196,9 @@ mod tests {
             let panel_distance = massive_geometry::PixelCamera::pixel_perfect_distance(
                 massive_geometry::PixelCamera::DEFAULT_FOVY,
             );
-            let fullscreen_distance = panel_distance * (600.0 / 800.0);
+            // The window-resolution stack (title bar and view) fits the instance extent: panel and bar.
+            let fullscreen_distance = panel_distance
+                * (800.0_f64 / 1000.0).min((600.0 + system.title_bar.height as f64) / 800.0);
             let view_less_distance = camera_distance(&system);
             assert!(
                 (view_less_distance - fullscreen_distance).abs() < 1e-6,

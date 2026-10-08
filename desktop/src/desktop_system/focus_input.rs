@@ -44,6 +44,7 @@ impl DesktopSystem {
                     changes <<= DesktopChange::ForwardEvents(EventTransition::from(change).into());
                 }
                 RouterStep::RequestKeyboardFocus { target, source } => {
+                    let target = target.map(DesktopTarget::title_bar_as_instance);
                     // Clicking a target frames it fully in (ADR 0018).
                     if source == FocusRequestSource::PointerPress && target.is_some() {
                         changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);

@@ -13,6 +13,7 @@ use massive_applications::InstanceId;
 use massive_geometry::SizePx;
 
 use super::DesktopSystem;
+use crate::projects::FullScreenMode;
 
 impl DesktopSystem {
     /// Flips `instance`'s temporary Full Screen Mode. Only assistant instances
@@ -31,5 +32,22 @@ pub fn fullscreen_scale(panel_size: SizePx, view_size: SizePx) -> f64 {
             .min(panel_size.height as f64 / view_size.height as f64)
     } else {
         1.0
+    }
+}
+
+/// The size a view presents at in `mode` (ADR 0014, ADR 0019): the regular panel, or the window
+/// below the instance title bar. The title bar spans the same width.
+pub fn view_size(
+    mode: FullScreenMode,
+    panel_size: SizePx,
+    window_size: SizePx,
+    title_bar_height: u32,
+) -> SizePx {
+    match mode {
+        FullScreenMode::Regular => panel_size,
+        FullScreenMode::FullScreen => SizePx::new(
+            window_size.width,
+            window_size.height.saturating_sub(title_bar_height),
+        ),
     }
 }

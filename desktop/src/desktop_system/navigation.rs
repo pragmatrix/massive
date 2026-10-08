@@ -5,12 +5,10 @@ use massive_geometry::{PixelCamera, Size, SizePx};
 use massive_scene::prelude::*;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::fullscreen::fullscreen_scale;
 use super::topology::DesktopTopology;
 use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
 use crate::projects::{
-    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId,
-    RuntimeConfiguration, SlotContent,
+    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
 };
 use crate::{Map, projects::ProjectPresenter};
 
@@ -243,32 +241,25 @@ impl DesktopSystem {
                 let transform = self
                     .placement(&DesktopTarget::Instance(*instance_id))
                     .transform;
-                // Full Screen Mode (ADR 0014): the view presents window-resolution
-                // content scaled by the fullscreen factor into its panel, so the
-                // camera dollies in by that factor — the content maps 1:1 onto the
-                // screen, the pixel-aligned fullscreen camera. The panel camera
-                // would render the content letterboxed at the panel scale.
+                // The camera frames the instance at its content scale, the scale the layout gives
+                // the instance's children: 1 at regular size, and in Full Screen Mode (ADR 0014)
+                // the factor that fits their window-resolution content into the instance extent.
+                // Dollying by it maps that content 1:1 onto the screen.
                 //
-                // The fullscreen camera applies from the instance's first commit,
-                // view-less included: the instance target exists between
-                // StartInstance and the view's first submission, and framing that
-                // commit at the panel distance dollies the camera out — then back
-                // in when the view arrives — the `Cmd+T` zoom-out bounce.
-                if self.aggregates.instance_full_screen_mode(*instance_id)
-                    == FullScreenMode::FullScreen
-                {
-                    let content_scale =
-                        fullscreen_scale(self.default_panel_size, self.window_state.inner_size);
-                    Some(Self::camera_from_placement(transform).with_distance(
-                        PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY)
-                            * transform.scale
-                            * content_scale,
-                    ))
-                } else {
-                    Some(Self::camera_from_placement(transform))
-                }
+                // The title bar is the source because it exists with the instance (ADR 0019), so a
+                // view-less fullscreen instance already frames fullscreen and the camera does not
+                // zoom out and back in when the view arrives.
+                let content_scale = self
+                    .placement(&DesktopTarget::InstanceTitleBar(*instance_id))
+                    .transform
+                    .scale;
+                Some(Self::camera_from_placement(Transform::new(
+                    transform.translate,
+                    transform.rotate,
+                    content_scale,
+                )))
             }
-            DesktopTarget::View(_) => {
+            DesktopTarget::InstanceTitleBar(_) | DesktopTarget::View(_) => {
                 self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
             }
         }
