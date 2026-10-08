@@ -158,6 +158,7 @@ pub struct ViewWindowState {
 }
 
 impl InstancePresenter {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
         show_background: bool,
