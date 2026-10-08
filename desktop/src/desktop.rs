@@ -108,10 +108,10 @@ impl Desktop {
         // and their primary view.
         let default_size = creation_info.size();
 
-        let title_bar =
+        let title_bar_metrics =
             InstanceTitleBarMetrics::from_scale_factor(context.primary_monitor_scale_factor());
         let window = context
-            .new_window(instance_extent(default_size, title_bar.height))
+            .new_window(instance_extent(default_size, title_bar_metrics.height))
             .await?;
         let mut renderer = window
             .renderer()
@@ -132,7 +132,7 @@ impl Desktop {
             .boot_launcher()
             .expect("the configuration load gives a launcher-less configuration one");
 
-        let mut system = DesktopSystem::new(env, default_size, title_bar, configuration)?;
+        let mut system = DesktopSystem::new(env, default_size, title_bar_metrics, configuration)?;
 
         // The session boots into the startup launcher the configuration names. The
         // load gives a launcher-less configuration one, and the fallback derived

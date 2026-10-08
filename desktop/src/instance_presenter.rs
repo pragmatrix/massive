@@ -116,10 +116,8 @@ pub struct InstancePresenter {
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
     /// commit.
     title_bar: TitleBarPresenter,
-    /// The launcher's label, shown after the view's title.
-    title_bar_label: String,
-    /// The title bar's height, measured at regular presentation scale.
-    title_bar_height: u32,
+    /// The launcher's name, marked for an assistant, shown after the view's title.
+    launcher_title: String,
 }
 
 #[derive(Debug)]
@@ -167,7 +165,8 @@ impl InstancePresenter {
         parameters: InstanceParameters,
         parent: Handle<Location>,
         kind: InstanceKind,
-        title_bar: InstanceTitleBarSpec,
+        launcher_name: &str,
+        title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -207,9 +206,13 @@ impl InstancePresenter {
             InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
         };
 
-        let title_bar_height = title_bar.metrics.height;
-        let title_bar_label = title_bar.label.clone();
-        let title_bar = title_bar.into_title_bar(root.content_location.clone());
+        let launcher_title = launcher_title(launcher_name, kind);
+        let title_bar = new_title_bar(
+            kind,
+            title_bar_metrics,
+            &launcher_title,
+            root.content_location.clone(),
+        );
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
@@ -221,8 +224,7 @@ impl InstancePresenter {
             pacing: RenderPacing::default(),
             background,
             title_bar,
-            title_bar_label,
-            title_bar_height,
+            launcher_title,
             full_screen,
         }
     }
@@ -337,7 +339,7 @@ impl InstancePresenter {
         let view = self.presented_view_mut(view_id)?;
         view.window_state.title = title.clone();
         self.title_bar
-            .set_text(&title_bar_text(&self.title_bar_label, &title));
+            .set_text(&title_bar_text(&title, &self.launcher_title));
         Ok(())
     }
 
@@ -373,10 +375,6 @@ impl InstancePresenter {
         }
 
         Ok(resize)
-    }
-
-    pub fn title_bar_height(&self) -> u32 {
-        self.title_bar_height
     }
 
     pub fn set_title_bar_layout(&mut self, layout: SizedTransform, animate: bool) {
@@ -536,36 +534,34 @@ const TITLE_BAR_INDENT_AT_1X: f64 = 8.0;
 const PRIMARY_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4f8f);
 const ASSISTANT_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x6a3d8f);
 
-/// What an instance needs to create its title bar (ADR 0019): the primary view's title followed by
-/// the launcher's label.
-#[derive(Debug, Clone)]
-pub struct InstanceTitleBarSpec {
-    pub label: String,
-    pub metrics: InstanceTitleBarMetrics,
-    /// Assistant instances are set apart by their background color.
-    pub is_assistant: bool,
+/// Creates the bar drawn above an instance's view (ADR 0019): the primary view's title followed by
+/// the launcher's title. Assistant instances are set apart by their background color.
+fn new_title_bar(
+    kind: InstanceKind,
+    metrics: InstanceTitleBarMetrics,
+    launcher_title: &str,
+    parent_location: Handle<Location>,
+) -> TitleBarPresenter {
+    let background_color = match kind {
+        InstanceKind::Primary => PRIMARY_INSTANCE_BACKGROUND_COLOR,
+        InstanceKind::Assistant => ASSISTANT_INSTANCE_BACKGROUND_COLOR,
+    };
+    let style = TitleBarStyle {
+        background_color,
+        font_size: metrics.font_size,
+        indent: metrics.indent,
+    };
+    let mut title_bar = TitleBarPresenter::new(style, parent_location);
+    title_bar.set_text(&title_bar_text("", launcher_title));
+    title_bar
 }
 
-impl InstanceTitleBarSpec {
-    pub fn into_title_bar(self, parent_location: Handle<Location>) -> TitleBarPresenter {
-        let Self {
-            label,
-            metrics,
-            is_assistant,
-        } = self;
-        let background_color = if is_assistant {
-            ASSISTANT_INSTANCE_BACKGROUND_COLOR
-        } else {
-            PRIMARY_INSTANCE_BACKGROUND_COLOR
-        };
-        let style = TitleBarStyle {
-            background_color,
-            font_size: metrics.font_size,
-            indent: metrics.indent,
-        };
-        let mut title_bar = TitleBarPresenter::new(style, parent_location);
-        title_bar.set_text(&title_bar_text(&label, ""));
-        title_bar
+/// The launcher's name, marked for an assistant instance, which does not run the launcher's
+/// configured parameters (ADR 0019).
+fn launcher_title(launcher_name: &str, kind: InstanceKind) -> String {
+    match kind {
+        InstanceKind::Primary => launcher_name.to_string(),
+        InstanceKind::Assistant => format!("{launcher_name} (assistant)"),
     }
 }
 
@@ -591,11 +587,11 @@ impl InstanceTitleBarMetrics {
 /// Separates the parts of a title, in the title bar as well as in the window title.
 pub const TITLE_SEPARATOR: &str = "  ·  ";
 
-/// The title bar's text: the title followed by the label.
-fn title_bar_text(label: &str, title: &str) -> String {
-    if title.is_empty() {
-        label.to_string()
+/// The title bar's text: the view's title followed by the launcher's title.
+fn title_bar_text(view_title: &str, launcher_title: &str) -> String {
+    if view_title.is_empty() {
+        launcher_title.to_string()
     } else {
-        format!("{title}{TITLE_SEPARATOR}{label}")
+        format!("{view_title}{TITLE_SEPARATOR}{launcher_title}")
     }
 }

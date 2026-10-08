@@ -116,7 +116,7 @@ impl DesktopSystem {
                         ),
                         self.default_panel_size,
                         self.window_state.inner_size,
-                        self.title_bar.height,
+                        self.aggregates.instance_title_bar_metrics.height,
                     );
                     let mut spawn_parameters = parameters.clone();
                     spawn_parameters.insert(
@@ -2184,7 +2184,7 @@ mod tests {
                 .expect("SpawnInstance seeds the application canvas size");
             assert_eq!(
                 seed,
-                serde_json::json!([1000, 800 - system.title_bar.height]),
+                serde_json::json!([1000, 800 - system.aggregates.instance_title_bar_metrics.height]),
                 "a fullscreen launcher's spawned instance must start at window resolution below the title bar, not panel"
             );
 
@@ -2197,7 +2197,7 @@ mod tests {
             );
             // The window-resolution stack (title bar and view) fits the instance extent: panel and bar.
             let fullscreen_distance = panel_distance
-                * (800.0_f64 / 1000.0).min((600.0 + system.title_bar.height as f64) / 800.0);
+                * (800.0_f64 / 1000.0).min((600.0 + system.aggregates.instance_title_bar_metrics.height as f64) / 800.0);
             let view_less_distance = camera_distance(&system);
             assert!(
                 (view_less_distance - fullscreen_distance).abs() < 1e-6,

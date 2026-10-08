@@ -265,8 +265,6 @@ pub struct DesktopSystem {
     env: DesktopEnvironment,
 
     default_panel_size: SizePx,
-    /// The sizes of the instance title bar (ADR 0019).
-    title_bar: InstanceTitleBarMetrics,
     /// The window state, committed by `DesktopChange::WindowResized` — the
     /// constructor seeds it from the instance extent, the default panel size plus the title bar
     /// (ADR 0014: the spawn path reads the inner size to seed a fullscreen instance's application
@@ -301,21 +299,16 @@ struct Aggregates {
     launchers: LauncherMap,
     configuration: RuntimeConfiguration,
     instances: Map<InstanceId, InstancePresenter>,
+
+    /// The sizes of the instance title bar (ADR 0019).
+    instance_title_bar_metrics: InstanceTitleBarMetrics,
 }
 
 impl Aggregates {
-    /// The height of an instance's title bar (ADR 0019). An instance has a presenter, and with
-    /// it a bar, before it has any target.
-    pub fn instance_title_bar_height(&self, instance: InstanceId) -> u32 {
-        self.instances
-            .get(&instance)
-            .expect("Instance missing")
-            .title_bar_height()
-    }
-
     pub fn new(
         hierarchy: OrderedHierarchy<DesktopTarget>,
         configuration: RuntimeConfiguration,
+        instance_title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
         Self {
             hierarchy,
@@ -324,6 +317,7 @@ impl Aggregates {
             launchers: Map::default(),
             configuration,
             instances: Map::default(),
+            instance_title_bar_metrics,
         }
     }
 
@@ -350,7 +344,7 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         default_panel_size: SizePx,
-        title_bar: InstanceTitleBarMetrics,
+        instance_title_bar_metrics: InstanceTitleBarMetrics,
         aggregate: RuntimeConfiguration,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the desktop presenter. But where does our
@@ -368,10 +362,9 @@ impl DesktopSystem {
             env,
 
             default_panel_size,
-            title_bar,
             // The window starts at the extent of an instance: its title bar and its panel (ADR 0019).
             window_state: WindowState::new(
-                instance_extent(default_panel_size, title_bar.height),
+                instance_extent(default_panel_size, instance_title_bar_metrics.height),
                 false,
             ),
 
@@ -384,7 +377,11 @@ impl DesktopSystem {
 
             zoom_level_indicator,
             desktop_presenter,
-            aggregates: Aggregates::new(OrderedHierarchy::default(), aggregate),
+            aggregates: Aggregates::new(
+                OrderedHierarchy::default(),
+                aggregate,
+                instance_title_bar_metrics,
+            ),
         };
 
         Ok(system)
