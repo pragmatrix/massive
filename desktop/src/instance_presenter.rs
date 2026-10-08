@@ -337,7 +337,7 @@ impl InstancePresenter {
         let view = self.presented_view_mut(view_id)?;
         view.window_state.title = title.clone();
         self.title_bar
-            .set_text(title_bar_candidates(&self.title_bar_label, &title));
+            .set_text(&title_bar_text(&self.title_bar_label, &title));
         Ok(())
     }
 
@@ -564,7 +564,7 @@ impl InstanceTitleBarSpec {
             indent: metrics.indent,
         };
         let mut title_bar = TitleBarPresenter::new(style, parent_location);
-        title_bar.set_text(title_bar_candidates(&label, ""));
+        title_bar.set_text(&title_bar_text(&label, ""));
         title_bar
     }
 }
@@ -590,25 +590,12 @@ impl InstanceTitleBarMetrics {
 
 /// Separates the parts of a title, in the title bar as well as in the window title.
 pub const TITLE_SEPARATOR: &str = "  ·  ";
-const ELLIPSIS: char = '…';
 
-/// The title bar's text as candidates: the title followed by the label, then the title elided at
-/// its start one character at a time, and finally the label alone.
-fn title_bar_candidates(label: &str, title: &str) -> Vec<String> {
-    let compose = |title: &str| {
-        if title.is_empty() {
-            label.to_string()
-        } else {
-            format!("{title}{TITLE_SEPARATOR}{label}")
-        }
-    };
-
-    let elided = title
-        .char_indices()
-        .skip(1)
-        .map(|(start, _)| compose(&format!("{ELLIPSIS}{}", &title[start..])));
-    std::iter::once(compose(title))
-        .chain(elided)
-        .chain(std::iter::once(label.to_string()))
-        .collect()
+/// The title bar's text: the title followed by the label.
+fn title_bar_text(label: &str, title: &str) -> String {
+    if title.is_empty() {
+        label.to_string()
+    } else {
+        format!("{title}{TITLE_SEPARATOR}{label}")
+    }
 }

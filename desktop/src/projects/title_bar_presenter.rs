@@ -8,6 +8,7 @@ use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 
 const TEXT_COLOR: Color = Color::WHITE;
 const TEXT_DECAL_ORDER: usize = 0;
+const ELLIPSIS: char = '…';
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TitleBarStyle {
@@ -17,13 +18,12 @@ pub struct TitleBarStyle {
     pub indent: f64,
 }
 
-/// A colored bar with a single line of vertically centered text. The text is given as candidates,
-/// and the first one that fits the bar is shown. Layout changes are always animated, unless the
-/// caller asks to snap.
+/// A colored bar with a single line of vertically centered text. If the text does not fit, its
+/// start is elided. Layout changes are always animated, unless the caller asks to snap.
 #[derive(Debug)]
 pub struct TitleBarPresenter {
     style: TitleBarStyle,
-    candidates: Vec<String>,
+    content: String,
     available_width: Option<u32>,
     layout_height: f64,
     measured_size: SizePx,
@@ -59,7 +59,7 @@ impl TitleBarPresenter {
 
         Self {
             style,
-            candidates: Vec::new(),
+            content: String::new(),
             available_width: None,
             layout_height: 0.0,
             measured_size: SizePx::default(),
@@ -70,18 +70,16 @@ impl TitleBarPresenter {
         }
     }
 
-    /// The size the bar needs to show its preferred text.
+    /// The size the bar needs to show its whole text.
     pub fn measured_size(&self) -> SizePx {
         self.measured_size
     }
 
-    /// Sets the text as candidates, ordered from the preferred one to the most compact one. The
-    /// first candidate that fits is shown; if none does, the last one is shown anyway.
-    pub fn set_text(&mut self, candidates: Vec<String>) {
-        if self.candidates == candidates {
+    pub fn set_text(&mut self, text: &str) {
+        if self.content == text {
             return;
         }
-        self.candidates = candidates;
+        self.content = text.to_string();
         self.update_text();
     }
 
@@ -110,7 +108,7 @@ impl TitleBarPresenter {
     }
 
     fn update_text(&mut self) {
-        let fitted = fitted_text(&self.candidates, self.available_width, self.style.font_size);
+        let fitted = fitted_text(&self.content, self.available_width, self.style.font_size);
         let full_size = fitted.full_size;
         self.measured_size = SizePx::new(
             full_size.width + (2.0 * self.style.indent) as u32,
@@ -152,12 +150,19 @@ impl Default for TitleBarMovement {
 struct FittedText {
     /// The shaped text that fits and its line height.
     text: Option<(Shape, f64)>,
-    /// The size of the first, preferred candidate.
+    /// The size of the whole, non-elided text.
     full_size: SizePx,
 }
 
-/// The first candidate that fits as shaped text, or the last one if none does.
-fn fitted_text(candidates: &[String], available_width: Option<u32>, font_size: f32) -> FittedText {
+/// The text as shaped text. If it does not fit, the start is elided character by character until
+/// it does. If even a single character does not fit, that is shown anyway.
+fn fitted_text(text: &str, available_width: Option<u32>, font_size: f32) -> FittedText {
+    let elided = text
+        .char_indices()
+        .skip(1)
+        .map(|(start, _)| format!("{ELLIPSIS}{}", &text[start..]));
+    let candidates = std::iter::once(text.to_string()).chain(elided);
+
     let mut shaped = None;
     let mut full_size = None;
     for candidate in candidates {

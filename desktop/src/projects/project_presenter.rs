@@ -29,7 +29,7 @@ impl ProjectPresenter {
             },
             location.clone(),
         );
-        header.set_text(vec![name]);
+        header.set_text(&name);
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
