@@ -134,17 +134,9 @@ impl TitleBarPresenter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TitleBarMovement {
     layout: Animated<SizedTransform>,
-}
-
-impl Default for TitleBarMovement {
-    fn default() -> Self {
-        Self {
-            layout: SizedTransform::default().into(),
-        }
-    }
 }
 
 struct FittedText {
