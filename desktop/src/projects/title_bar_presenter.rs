@@ -27,7 +27,6 @@ pub struct TitleBarPresenter {
     available_width: Option<u32>,
     layout_height: f64,
     measured_size: SizePx,
-    has_layout: bool,
     movement: Movement<TitleBarMovement>,
     text_transform: Handle<Transform>,
     text: Handle<Visual>,
@@ -63,7 +62,6 @@ impl TitleBarPresenter {
             available_width: None,
             layout_height: 0.0,
             measured_size: SizePx::default(),
-            has_layout: false,
             movement,
             text_transform,
             text,
@@ -84,6 +82,8 @@ impl TitleBarPresenter {
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
+        // The available width is known once a layout has been set.
+        let has_layout = self.available_width.is_some();
         self.movement.modify(move |movement, context| {
             movement.layout.animate_if_changed_with(
                 context,
@@ -92,10 +92,9 @@ impl TitleBarPresenter {
                 Interpolation::CubicOut,
             );
         });
-        if !animate || !self.has_layout {
+        if !animate || !has_layout {
             self.movement.snap();
         }
-        self.has_layout = true;
 
         // The text is fitted to the target layout once, not to every animation step.
         let available_width = (layout.size.width - 2.0 * self.style.indent).max(0.0) as u32;
