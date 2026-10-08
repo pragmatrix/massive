@@ -20,7 +20,7 @@ pub trait AnimationAllocator {
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Animated<T>
 where
     T: Send,
