@@ -11,7 +11,7 @@ It is replaced by **Full Screen Mode**, a state of a kind of instance rather
 than of the camera or the Focus Depths:
 
 - **Per launcher, persisted.** The launcher stores one Full Screen Mode shared
-  by all of its *base instances*. It rides the `Launcher` → `LaunchProfile` →
+  by all of its *primary instances*. It rides the `Launcher` → `LaunchProfile` →
   `PersistedLauncher` chain and survives sessions in `desktop.json`.
 - **Per assistant instance, temporary.** An *assistant instance* (started with
   `Shift+Cmd+T`, without the launcher's configured parameters) owns its own
@@ -27,7 +27,7 @@ is involved.
 The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever
 the window is windowed, regardless of focus. Once the native window is fullscreen,
 the action toggles Full Screen Mode only when focus depth is `Instance` and
-keyboard focus resolves to an instance: a base instance
+keyboard focus resolves to an instance: a primary instance
 toggles its launcher's mode, and an assistant toggles its own. In every other
 focus state, the action exits native window fullscreen. `Cmd+Enter` starts an
 instance like `Cmd+T`; starting an instance always commits `FocusDepth::Instance`

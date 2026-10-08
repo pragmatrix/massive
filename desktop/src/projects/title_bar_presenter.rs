@@ -145,8 +145,8 @@ struct FittedText {
     full_size: SizePx,
 }
 
-/// The text as shaped text. If it does not fit, the start is elided character by character until
-/// it does. If even a single character does not fit, that is shown anyway.
+/// Elides the start of `text` character by character until it fits. If even a single character
+/// does not fit, that is shown anyway.
 fn fitted_text(text: &str, available_width: Option<u32>, font_size: f32) -> FittedText {
     let elided = text
         .char_indices()
