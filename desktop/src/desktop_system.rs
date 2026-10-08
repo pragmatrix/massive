@@ -61,11 +61,10 @@ use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::{InstancePresenter, ViewWindowState};
+use crate::instance_presenter::{InstancePresenter, InstanceTitleBarMetrics, ViewWindowState};
 use crate::projects::FullScreenMode;
 use crate::projects::{
-    InstanceTitleBarMetrics, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
-    RuntimeConfiguration,
+    LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};

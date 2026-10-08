@@ -236,7 +236,7 @@ impl DesktopSystem {
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
-                    .set_title_bar_layout(layout);
+                    .set_title_bar_layout(layout, animate);
             }
             DesktopTarget::Project(project_id) => {
                 self.aggregates

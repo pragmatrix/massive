@@ -23,9 +23,9 @@ use crate::desktop_system::{
     Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode, instance_extent,
 };
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::{InstanceKind, InstanceRoot};
+use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
 use crate::projects::persistence::{self, ConfigurationPersistence};
-use crate::projects::{InstanceTitleBarMetrics, RuntimeConfiguration, to_commands};
+use crate::projects::{RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 

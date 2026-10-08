@@ -10,8 +10,8 @@ use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
-use crate::instance_presenter::{InstanceKind, InstancePresenter};
-use crate::projects::{InstanceTitleBarSpec, LaunchProfileId, launcher_mode};
+use crate::instance_presenter::{InstanceKind, InstancePresenter, InstanceTitleBarSpec};
+use crate::projects::{LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
 

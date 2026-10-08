@@ -1209,8 +1209,7 @@ mod tests {
     use crate::desktop_system::change::DesktopSystemEffect;
     use crate::desktop_system::change::Zoom;
     use crate::instance_manager::InstanceManager;
-    use crate::instance_presenter::InstanceKind;
-    use crate::projects::InstanceTitleBarMetrics;
+    use crate::instance_presenter::{InstanceKind, InstanceTitleBarMetrics};
     use crate::projects::persistence::parse_configuration;
     use crate::window_state::WindowState;
     use massive_applications::task_context::{self, TaskContext};

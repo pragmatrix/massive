@@ -14,7 +14,7 @@ use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
-use crate::projects::{FullScreenMode, InstanceTitleBarPresenter, InstanceTitleBarSpec};
+use crate::projects::{FullScreenMode, TitleBar, TitleBarStyle};
 
 /// What an instance was started as (ADR 0014). A `Base` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
@@ -115,7 +115,9 @@ pub struct InstancePresenter {
     background: Option<InstanceBackground>,
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
     /// commit.
-    title_bar: InstanceTitleBarPresenter,
+    title_bar: TitleBar,
+    /// The title bar's height, measured at regular presentation scale.
+    title_bar_height: u32,
 }
 
 #[derive(Debug)]
@@ -203,7 +205,8 @@ impl InstancePresenter {
             InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
         };
 
-        let title_bar = InstanceTitleBarPresenter::new(title_bar, root.content_location.clone());
+        let title_bar_height = title_bar.metrics.height;
+        let title_bar = title_bar.into_title_bar(root.content_location.clone());
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
@@ -215,6 +218,7 @@ impl InstancePresenter {
             pacing: RenderPacing::default(),
             background,
             title_bar,
+            title_bar_height,
             full_screen,
         }
     }
@@ -367,11 +371,11 @@ impl InstancePresenter {
     }
 
     pub fn title_bar_height(&self) -> u32 {
-        self.title_bar.measured_height()
+        self.title_bar_height
     }
 
-    pub fn set_title_bar_layout(&mut self, layout: SizedTransform) {
-        self.title_bar.set_layout(layout);
+    pub fn set_title_bar_layout(&mut self, layout: SizedTransform, animate: bool) {
+        self.title_bar.set_layout(layout, animate);
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
@@ -517,4 +521,62 @@ impl InstancePresenterState {
 
 fn background_shape(rect: Rect) -> Shape {
     shapes::Rect::new(rect, INSTANCE_BACKGROUND_COLOR).into()
+}
+
+// Title bar height, font size, and horizontal text indent at a scale factor of 1.0.
+const TITLE_BAR_HEIGHT_AT_1X: f64 = 24.0;
+const TITLE_BAR_FONT_SIZE_AT_1X: f64 = 16.0;
+const TITLE_BAR_INDENT_AT_1X: f64 = 8.0;
+
+const BASE_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4f8f);
+const ASSISTANT_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x6a3d8f);
+
+/// What an instance needs to create its title bar (ADR 0019): the primary view's title followed by
+/// the launcher's label.
+#[derive(Debug, Clone)]
+pub struct InstanceTitleBarSpec {
+    pub label: String,
+    pub metrics: InstanceTitleBarMetrics,
+    /// Assistant instances are set apart by their background color.
+    pub is_assistant: bool,
+}
+
+impl InstanceTitleBarSpec {
+    pub fn into_title_bar(self, parent_location: Handle<Location>) -> TitleBar {
+        let Self {
+            label,
+            metrics,
+            is_assistant,
+        } = self;
+        let background_color = if is_assistant {
+            ASSISTANT_INSTANCE_BACKGROUND_COLOR
+        } else {
+            BASE_INSTANCE_BACKGROUND_COLOR
+        };
+        let style = TitleBarStyle {
+            background_color,
+            font_size: metrics.font_size,
+            indent: metrics.indent,
+        };
+        TitleBar::new(style, label, parent_location)
+    }
+}
+
+/// The bar's sizes in pixels at regular presentation scale (ADR 0019). They follow the monitor's
+/// scale factor, like the terminal's font.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstanceTitleBarMetrics {
+    pub height: u32,
+    font_size: f32,
+    indent: f64,
+}
+
+impl InstanceTitleBarMetrics {
+    pub fn from_scale_factor(scale_factor: f64) -> Self {
+        Self {
+            height: (TITLE_BAR_HEIGHT_AT_1X * scale_factor).round() as u32,
+            font_size: (TITLE_BAR_FONT_SIZE_AT_1X * scale_factor) as f32,
+            indent: (TITLE_BAR_INDENT_AT_1X * scale_factor).round(),
+        }
+    }
 }
