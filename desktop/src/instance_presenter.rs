@@ -56,8 +56,8 @@ pub struct InstanceRoot {
 
     // The content origin: The top-left corner of the instance's extent (ADR 0019). The title bar
     // and the view are placed relative to it, with the same coordinates the layout uses.
-    presentation_transform: Handle<Transform>,
-    presentation_location: Handle<Location>,
+    content_transform: Handle<Transform>,
+    content_location: Handle<Location>,
 
     // The view's own placement inside the content: centered, scaled smaller in full-screen mode.
     view_transform: Handle<Transform>,
@@ -67,19 +67,19 @@ pub struct InstanceRoot {
 impl InstanceRoot {
     pub fn new() -> Self {
         let (layout_transform, layout_location) = identity_location().submit();
-        let (presentation_transform, presentation_location) = identity_location()
+        let (content_transform, content_location) = identity_location()
             .relative_to(layout_location.to_ref())
             .submit();
 
         let (view_transform, view_location) = identity_location()
-            .relative_to(presentation_location.to_ref())
+            .relative_to(content_location.to_ref())
             .submit();
 
         Self {
             layout_transform,
             layout_location,
-            presentation_transform,
-            presentation_location,
+            content_transform,
+            content_location,
             view_transform,
             view_location,
         }
@@ -203,8 +203,7 @@ impl InstancePresenter {
             InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
         };
 
-        let title_bar =
-            InstanceTitleBarPresenter::new(title_bar, root.presentation_location.clone());
+        let title_bar = InstanceTitleBarPresenter::new(title_bar, root.content_location.clone());
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
@@ -389,7 +388,7 @@ impl InstancePresenter {
         // The content origin is the top-left corner of the extent, while the layout transform is
         // centered on it.
         self.root
-            .presentation_transform
+            .content_transform
             .update_if_changed(Transform::from_translation(Vector3::new(
                 -layout.size.width * 0.5,
                 -layout.size.height * 0.5,
