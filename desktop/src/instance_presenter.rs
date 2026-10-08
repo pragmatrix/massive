@@ -14,7 +14,7 @@ use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
-use crate::projects::FullScreenMode;
+use crate::projects::{FullScreenMode, InstanceTitleBarPresenter, InstanceTitleBarSpec};
 
 /// What an instance was started as (ADR 0014). A `Base` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
@@ -54,9 +54,14 @@ pub struct InstanceRoot {
     layout_transform: Handle<Transform>,
     layout_location: Handle<Location>,
 
-    // The presentation transform: Effectively scales the view smaller in full-screen mode.
+    // The content origin: The top-left corner of the instance's extent (ADR 0019). The title bar
+    // and the view are placed relative to it, with the same coordinates the layout uses.
     presentation_transform: Handle<Transform>,
     presentation_location: Handle<Location>,
+
+    // The view's own placement inside the content: centered, scaled smaller in full-screen mode.
+    view_transform: Handle<Transform>,
+    view_location: Handle<Location>,
 }
 
 impl InstanceRoot {
@@ -66,17 +71,23 @@ impl InstanceRoot {
             .relative_to(layout_location.to_ref())
             .submit();
 
+        let (view_transform, view_location) = identity_location()
+            .relative_to(presentation_location.to_ref())
+            .submit();
+
         Self {
             layout_transform,
             layout_location,
             presentation_transform,
             presentation_location,
+            view_transform,
+            view_location,
         }
     }
 
     /// The view's parent location.
     pub fn view_parent(&self) -> Ref<Location> {
-        self.presentation_location.to_ref()
+        self.view_location.to_ref()
     }
 
     fn layout_transform(&self) -> Handle<Transform> {
@@ -102,6 +113,9 @@ pub struct InstancePresenter {
     has_applied_layout: bool,
     pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
+    /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
+    /// commit.
+    title_bar: InstanceTitleBarPresenter,
 }
 
 #[derive(Debug)]
@@ -149,6 +163,7 @@ impl InstancePresenter {
         parameters: InstanceParameters,
         parent: Handle<Location>,
         kind: InstanceKind,
+        title_bar: InstanceTitleBarSpec,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -164,7 +179,7 @@ impl InstancePresenter {
 
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
-                .at(&root.presentation_location)
+                .at(&root.view_location)
                 .submit();
 
             InstanceBackground {
@@ -188,6 +203,9 @@ impl InstancePresenter {
             InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
         };
 
+        let title_bar =
+            InstanceTitleBarPresenter::new(title_bar, root.presentation_location.clone());
+
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
             parameters,
@@ -197,6 +215,7 @@ impl InstancePresenter {
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
+            title_bar,
             full_screen,
         }
     }
@@ -309,7 +328,8 @@ impl InstancePresenter {
 
     pub fn set_view_title(&mut self, view_id: ViewId, title: String) -> Result<()> {
         let view = self.presented_view_mut(view_id)?;
-        view.window_state.title = title;
+        view.window_state.title = title.clone();
+        self.title_bar.set_title(&title);
         Ok(())
     }
 
@@ -338,15 +358,21 @@ impl InstancePresenter {
         let resize = (view.view_size != new_size).then_some(new_size);
         view.view_size = new_size;
 
-        self.root
-            .presentation_transform
-            .update_if_changed(Transform::from_scale(layout.transform.scale));
+        self.root.view_transform.update_if_changed(layout.transform);
 
         if let Some(background) = &mut self.background {
             background.update_rect(layout.rect());
         }
 
         Ok(resize)
+    }
+
+    pub fn title_bar_height(&self) -> u32 {
+        self.title_bar.measured_height()
+    }
+
+    pub fn set_title_bar_layout(&mut self, layout: SizedTransform) {
+        self.title_bar.set_layout(layout);
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
@@ -360,6 +386,16 @@ impl InstancePresenter {
     }
 
     fn apply_layout(&mut self, layout: SizedTransform, visible: bool) {
+        // The content origin is the top-left corner of the extent, while the layout transform is
+        // centered on it.
+        self.root
+            .presentation_transform
+            .update_if_changed(Transform::from_translation(Vector3::new(
+                -layout.size.width * 0.5,
+                -layout.size.height * 0.5,
+                0.0,
+            )));
+
         let (target_visibility_alpha, layout_transform) = if visible {
             (1.0, layout.transform)
         } else {

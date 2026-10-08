@@ -24,6 +24,10 @@ impl DesktopFocusPath {
                 DesktopTarget::ProjectMatrix(..) => None,
                 DesktopTarget::Launcher(..) => Some(i + 1),
                 DesktopTarget::Instance(..) => Some(i),
+                DesktopTarget::InstanceTitleBar(..) => {
+                    assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
+                    Some(i - 1)
+                }
                 DesktopTarget::View(..) => {
                     assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
                     Some(i - 1)

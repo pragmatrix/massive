@@ -384,7 +384,10 @@ impl DesktopSystem {
 }
 
 fn is_instance_target(target: &DesktopTarget) -> bool {
-    matches!(target, DesktopTarget::Instance(_) | DesktopTarget::View(_))
+    matches!(
+        target,
+        DesktopTarget::Instance(_) | DesktopTarget::InstanceTitleBar(_) | DesktopTarget::View(_)
+    )
 }
 
 /// The project a project-level target stands for; `Desktop` stands for the root project.
@@ -394,6 +397,9 @@ fn project_of_project_target(target: &DesktopTarget) -> Option<ProjectId> {
         | DesktopTarget::ProjectHeader(project)
         | DesktopTarget::ProjectMatrix(project) => Some(*project),
         DesktopTarget::Desktop => Some(ProjectId::ROOT),
-        DesktopTarget::Launcher(_) | DesktopTarget::Instance(_) | DesktopTarget::View(_) => None,
+        DesktopTarget::Launcher(_)
+        | DesktopTarget::Instance(_)
+        | DesktopTarget::InstanceTitleBar(_)
+        | DesktopTarget::View(_) => None,
     }
 }

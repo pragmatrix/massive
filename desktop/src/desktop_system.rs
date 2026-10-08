@@ -53,8 +53,8 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
-pub(crate) use fullscreen::fullscreen_scale;
-pub(crate) use layout_algorithm::place_container_children;
+pub(crate) use fullscreen::{fullscreen_scale, view_size};
+pub(crate) use layout_algorithm::{instance_extent, place_container_children};
 pub(crate) use massive_applications::SlotShift;
 
 use crate::desktop_presenter::DesktopPresenter;
@@ -64,7 +64,8 @@ use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::FullScreenMode;
 use crate::projects::{
-    LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
+    InstanceTitleBarMetrics, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
+    RuntimeConfiguration,
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
@@ -82,12 +83,23 @@ pub enum DesktopTarget {
     Launcher(LaunchProfileId),
 
     Instance(InstanceId),
+    /// The bar above an instance's view (ADR 0019). Selects its instance.
+    InstanceTitleBar(InstanceId),
     View(ViewId),
 }
 
 impl DesktopTarget {
     pub fn wants_cmd_enter_when_focused(&self) -> bool {
         matches!(self, Self::Launcher(_))
+    }
+
+    /// An instance's title bar stands for its instance (ADR 0019); every other target stays as it
+    /// is.
+    pub fn title_bar_as_instance(self) -> Self {
+        match self {
+            Self::InstanceTitleBar(instance) => Self::Instance(instance),
+            target => target,
+        }
     }
 
     /// A project target receives no text input, so `Enter` without `Cmd` enters it (ADR 0018).
@@ -254,6 +266,8 @@ pub struct DesktopSystem {
     env: DesktopEnvironment,
 
     default_panel_size: SizePx,
+    /// The sizes of the instance title bar (ADR 0019).
+    title_bar: InstanceTitleBarMetrics,
     /// The window state, committed by `DesktopChange::WindowResized` — the
     /// constructor seeds it from the default panel size (ADR 0014: the spawn
     /// path reads the inner size to seed a fullscreen instance's application
@@ -291,6 +305,15 @@ struct Aggregates {
 }
 
 impl Aggregates {
+    /// The height of an instance's title bar (ADR 0019). An instance has a presenter, and with
+    /// it a bar, before it has any target.
+    pub fn instance_title_bar_height(&self, instance: InstanceId) -> u32 {
+        self.instances
+            .get(&instance)
+            .expect("Instance missing")
+            .title_bar_height()
+    }
+
     pub fn new(
         hierarchy: OrderedHierarchy<DesktopTarget>,
         configuration: RuntimeConfiguration,
@@ -328,6 +351,7 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         default_panel_size: SizePx,
+        title_bar: InstanceTitleBarMetrics,
         aggregate: RuntimeConfiguration,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the desktop presenter. But where does our
@@ -345,7 +369,12 @@ impl DesktopSystem {
             env,
 
             default_panel_size,
-            window_state: WindowState::new(default_panel_size, false),
+            title_bar,
+            // The window starts at the extent of an instance: its title bar and its panel (ADR 0019).
+            window_state: WindowState::new(
+                instance_extent(default_panel_size, title_bar.height),
+                false,
+            ),
 
             event_router,
             camera: CameraPresentation::new(PixelCamera::default()),
@@ -611,12 +640,13 @@ impl DesktopSystem {
 
 impl Aggregates {
     pub fn view_of_instance(&self, instance: InstanceId) -> Option<ViewId> {
-        let nested = self.hierarchy.get_nested(&instance.into());
-        if let [DesktopTarget::View(view)] = nested {
-            Some(*view)
-        } else {
-            None
-        }
+        self.hierarchy
+            .get_nested(&instance.into())
+            .iter()
+            .find_map(|target| match target {
+                DesktopTarget::View(view) => Some(*view),
+                _ => None,
+            })
     }
 
     // The parent project always has a presenter before it can host a slot, so

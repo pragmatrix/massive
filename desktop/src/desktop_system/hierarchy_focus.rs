@@ -38,13 +38,12 @@ impl OrderedHierarchy<DesktopTarget> {
     /// otherwise, preserves the original target.
     pub(super) fn resolve_keyboard_focus_target(&self, target: &DesktopTarget) -> DesktopTarget {
         match target {
-            DesktopTarget::Instance(_) => {
-                if let [DesktopTarget::View(view)] = self.get_nested(target) {
-                    DesktopTarget::View(*view)
-                } else {
-                    target.clone()
-                }
-            }
+            DesktopTarget::Instance(_) => self
+                .get_nested(target)
+                .iter()
+                .find(|nested| matches!(nested, DesktopTarget::View(_)))
+                .unwrap_or(target)
+                .clone(),
             _ => target.clone(),
         }
     }
