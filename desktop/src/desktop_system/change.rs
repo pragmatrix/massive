@@ -45,7 +45,7 @@ pub enum DesktopChange {
     SetNavigationAffinity(Option<u32>),
     /// Sets the camera's zoom level (ADR 0018).
     SetZoomLevel(ZoomLevel),
-    /// Toggles the Full Screen Mode of the focused launcher (its base instances)
+    /// Toggles the Full Screen Mode of the focused launcher (its primary instances)
     /// or, when an assistant instance is focused, of that instance (ADR 0014).
     ToggleFullScreenMode(ToggleFullScreenModeTarget),
     /// The window state changed; commits it as the system's window state.
@@ -72,7 +72,7 @@ pub struct InstancePresentation {
     pub root: InstanceRoot,
     pub parameters: InstanceParameters,
     /// The instance kind (ADR 0014): an assistant carries its own temporary
-    /// Full Screen Mode, a base instance follows its launcher's.
+    /// Full Screen Mode, a primary instance follows its launcher's.
     pub kind: InstanceKind,
 }
 
@@ -87,7 +87,7 @@ pub enum Zoom {
 
 /// What `ToggleFullScreenMode` resolves to when planned. An assistant instance
 /// toggles its own temporary mode; a launcher toggles the mode shared by all of
-/// its base instances.
+/// its primary instances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToggleFullScreenModeTarget {
     Launcher(LaunchProfileId),

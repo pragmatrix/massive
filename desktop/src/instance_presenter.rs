@@ -16,36 +16,36 @@ use massive_shapes::{self as shapes, Shape};
 
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
-/// What an instance was started as (ADR 0014). A `Base` instance presents in
+/// What an instance was started as (ADR 0014). A `Primary` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
 /// its own temporary mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InstanceKind {
     #[default]
-    Base,
+    Primary,
     Assistant,
 }
 
 impl InstanceKind {
     /// The Full Screen Mode a new instance of this kind starts in: an
-    /// assistant's temporary mode starts regular; a base instance presents in
+    /// assistant's temporary mode starts regular; a primary instance presents in
     /// the launcher's mode.
     pub fn initial_full_screen_mode(self, launcher_mode: FullScreenMode) -> FullScreenMode {
         match self {
-            Self::Base => launcher_mode,
+            Self::Primary => launcher_mode,
             Self::Assistant => FullScreenMode::Regular,
         }
     }
 }
 
 /// The Full Screen Mode state of an instance (ADR 0014), combining the two
-/// instance kinds with how each one's mode is determined: a `Base` instance
+/// instance kinds with how each one's mode is determined: a `Primary` instance
 /// presents in its launcher's persisted mode, an `Assistant` owns a temporary
-/// mode of its own. Folding the kinds together keeps a base instance with its
+/// mode of its own. Folding the kinds together keeps a primary instance with its
 /// own mode unrepresentable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceFullScreen {
-    Base,
+    Primary,
     Assistant(FullScreenMode),
 }
 
@@ -203,7 +203,7 @@ impl InstancePresenter {
         .mount();
 
         let full_screen = match kind {
-            InstanceKind::Base => InstanceFullScreen::Base,
+            InstanceKind::Primary => InstanceFullScreen::Primary,
             InstanceKind::Assistant => InstanceFullScreen::Assistant(FullScreenMode::Regular),
         };
 
@@ -232,19 +232,19 @@ impl InstancePresenter {
     }
 
     /// The instance's kind (ADR 0014): an assistant carries its own temporary
-    /// mode, a base instance presents in its launcher's mode.
+    /// mode, a primary instance presents in its launcher's mode.
     pub fn kind(&self) -> InstanceKind {
         match self.full_screen {
-            InstanceFullScreen::Base => InstanceKind::Base,
+            InstanceFullScreen::Primary => InstanceKind::Primary,
             InstanceFullScreen::Assistant(_) => InstanceKind::Assistant,
         }
     }
 
-    /// The instance's temporary Full Screen Mode, `None` for a base instance
-    /// (a base instance presents in its launcher's mode instead).
+    /// The instance's temporary Full Screen Mode, `None` for a primary instance
+    /// (a primary instance presents in its launcher's mode instead).
     pub fn full_screen_mode(&self) -> Option<FullScreenMode> {
         match self.full_screen {
-            InstanceFullScreen::Base => None,
+            InstanceFullScreen::Primary => None,
             InstanceFullScreen::Assistant(mode) => Some(mode),
         }
     }
@@ -533,7 +533,7 @@ const TITLE_BAR_HEIGHT_AT_1X: f64 = 24.0;
 const TITLE_BAR_FONT_SIZE_AT_1X: f64 = 16.0;
 const TITLE_BAR_INDENT_AT_1X: f64 = 8.0;
 
-const BASE_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4f8f);
+const PRIMARY_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4f8f);
 const ASSISTANT_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x6a3d8f);
 
 /// What an instance needs to create its title bar (ADR 0019): the primary view's title followed by
@@ -556,7 +556,7 @@ impl InstanceTitleBarSpec {
         let background_color = if is_assistant {
             ASSISTANT_INSTANCE_BACKGROUND_COLOR
         } else {
-            BASE_INSTANCE_BACKGROUND_COLOR
+            PRIMARY_INSTANCE_BACKGROUND_COLOR
         };
         let style = TitleBarStyle {
             background_color,

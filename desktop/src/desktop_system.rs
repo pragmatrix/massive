@@ -328,7 +328,7 @@ impl Aggregates {
     }
 
     /// The Full Screen Mode `instance` currently presents in: an assistant's
-    /// temporary mode, or its launcher's mode shared by its base instances.
+    /// temporary mode, or its launcher's mode shared by its primary instances.
     /// Every caller passes an instance of the live topology, whose launcher and
     /// its configuration record are invariants — layout, camera, and hover reads
     /// all run after the transaction's topology changes are applied.

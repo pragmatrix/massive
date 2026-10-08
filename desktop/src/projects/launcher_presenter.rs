@@ -239,7 +239,7 @@ impl LauncherPresenter {
                 kind: if start_shortcut && shift {
                     InstanceKind::Assistant
                 } else {
-                    InstanceKind::Base
+                    InstanceKind::Primary
                 },
             }
             .into());

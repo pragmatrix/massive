@@ -143,7 +143,7 @@ impl Desktop {
             instance: primary_instance,
             root: Some(primary_root),
             parameters: InstanceParameters::new(),
-            kind: InstanceKind::Base,
+            kind: InstanceKind::Primary,
         }]
         .into();
 

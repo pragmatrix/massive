@@ -52,7 +52,7 @@ impl DesktopSystem {
         };
 
         // An assistant owns a temporary Full Screen Mode, starting regular; a
-        // base instance is `None` and follows its launcher's mode (ADR 0014).
+        // primary instance is `None` and follows its launcher's mode (ADR 0014).
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
@@ -206,7 +206,7 @@ impl DesktopSystem {
 /// configured parameters (ADR 0019).
 fn title_bar_label(launcher_name: &str, kind: InstanceKind) -> String {
     match kind {
-        InstanceKind::Base => launcher_name.to_string(),
+        InstanceKind::Primary => launcher_name.to_string(),
         InstanceKind::Assistant => format!("{launcher_name} (assistant)"),
     }
 }

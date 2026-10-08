@@ -15,7 +15,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Demo runs from [README.md](../README.md): `cargo run --release --example code` and `cargo run --release --example markdown`.
 - WASM example workflows live in [justfile](../justfile), including `trunk serve --example markdown --port 8888 --open` and release build targets.
 - Architecture anchors: scene graph and handle model in [scene/src/lib.rs](../scene/src/lib.rs), [scene/src/handle.rs](../scene/src/handle.rs), [scene/src/change.rs](../scene/src/change.rs); fluent scene ergonomics in [scene/src/ergonomics.rs](../scene/src/ergonomics.rs); desktop orchestration and event routing in [desktop/src/lib.rs](../desktop/src/lib.rs); platform split (native vs wasm) in [shell/Cargo.toml](../shell/Cargo.toml) and [animation/src/lib.rs](../animation/src/lib.rs). Prefer linking to these files in explanations instead of duplicating architectural prose.
-- When domain terms or architectural trade-offs are resolved, prefer recording them in CONTEXT.md and docs/adr/* over creating other new Markdown documentation files.
+- When domain terms or architectural trade-offs are resolved, prefer recording them in GLOSSARY.md and docs/adr/* over creating other new Markdown documentation files.
 
 ## Shared Guidance
 The generic guidance for code style, design principles, Rust conventions, safety & quality, testing, error handling, data loading, communication, continuous learning, and documentation lives in [shared-instructions.md](./shared-instructions.md). Keep generic guidance there and project-specific guidance in this file.

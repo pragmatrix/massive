@@ -106,7 +106,7 @@ impl DesktopSystem {
 
                 let mut changes: Changes = if spawn {
                     // The spawned application's `size_px` seeds its canvas: a
-                    // fullscreen base instance presents at the window below its
+                    // fullscreen primary instance presents at the window below its
                     // title bar, not the panel, so it must start at that size or
                     // its first frames render panel-sized and reflow on Resized
                     // (ADR 0014, ADR 0019).
@@ -205,7 +205,7 @@ impl DesktopSystem {
         }
     }
 
-    /// Plans `ToggleFullScreenMode` (ADR 0014): a base instance resolves to its
+    /// Plans `ToggleFullScreenMode` (ADR 0014): a primary instance resolves to its
     /// launcher's mode; an assistant instance resolves to its own. A launcher
     /// without instances is a no-op.
     fn plan_toggle_full_screen_mode(&self) -> Result<Changes> {
@@ -1564,7 +1564,7 @@ mod tests {
                 instance,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let mut submission_changes = massive_util::ChangeSet::default();
             submission_changes.push(InstanceChange::CreateView(
@@ -1650,7 +1650,7 @@ mod tests {
                 instance,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let mut submission_changes = massive_util::ChangeSet::default();
             submission_changes.push(InstanceChange::CreateView(
@@ -1715,7 +1715,7 @@ mod tests {
                 instance: instance_b,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let mut submission_b = massive_util::ChangeSet::default();
             submission_b.push(InstanceChange::CreateView(
@@ -2080,7 +2080,7 @@ mod tests {
         Ok((system, instance_manager, launcher))
     }
 
-    /// The live StartInstance commit: a focused base instance whose view has not
+    /// The live StartInstance commit: a focused primary instance whose view has not
     /// arrived yet.
     fn start_instance(
         system: &mut DesktopSystem,
@@ -2096,7 +2096,7 @@ mod tests {
                 instance,
                 root: InstanceRoot::new(),
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             }),
             DesktopChange::Topology(TopologyChange::Insert {
                 what: instance.into(),
@@ -2153,7 +2153,7 @@ mod tests {
             .distance
     }
 
-    /// A base instance created in a Full Screen launcher spawns at window
+    /// A primary instance created in a Full Screen launcher spawns at window
     /// resolution and frames fullscreen from its view-less first commit;
     /// framing it at the panel distance dollies the camera out and back in when
     /// the view arrives (the `Cmd+T` zoom-out bounce).
@@ -2171,7 +2171,7 @@ mod tests {
                 instance: uuid::Uuid::new_v4().into(),
                 root: None,
                 parameters: Default::default(),
-                kind: InstanceKind::Base,
+                kind: InstanceKind::Primary,
             })?;
             let seed = start
                 .iter()
