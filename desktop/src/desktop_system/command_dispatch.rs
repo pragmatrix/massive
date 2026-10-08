@@ -106,10 +106,10 @@ impl DesktopSystem {
 
                 let mut changes: Changes = if spawn {
                     // The spawned application's `size_px` seeds its canvas: a
-                    // fullscreen base instance presents at the window, not the
-                    // panel, so it must start at the window resolution or its
-                    // first frames render panel-sized and reflow on Resized
-                    // (ADR 0014).
+                    // fullscreen base instance presents at the window below its
+                    // title bar, not the panel, so it must start at that size or
+                    // its first frames render panel-sized and reflow on Resized
+                    // (ADR 0014, ADR 0019).
                     let initial_size_px = view_size(
                         kind.initial_full_screen_mode(
                             self.aggregates.configuration[launcher].full_screen_mode,

@@ -269,8 +269,8 @@ pub struct DesktopSystem {
     /// The sizes of the instance title bar (ADR 0019).
     title_bar: InstanceTitleBarMetrics,
     /// The window state, committed by `DesktopChange::WindowResized` — the
-    /// constructor seeds it from the default panel size (ADR 0014: the spawn
-    /// path reads the inner size to seed a fullscreen instance's application
+    /// constructor seeds it from the instance extent, the default panel size plus the title bar
+    /// (ADR 0014: the spawn path reads the inner size to seed a fullscreen instance's application
     /// canvas).
     window_state: WindowState,
 

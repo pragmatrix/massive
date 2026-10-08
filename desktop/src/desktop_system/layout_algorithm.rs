@@ -62,6 +62,9 @@ pub struct DesktopLayoutAlgorithm<'a> {
 }
 
 impl DesktopLayoutAlgorithm<'_> {
+    /// Whether `instance` presents in Full Screen Mode (ADR 0014): the content
+    /// scale follows the instance's mode — a base instance's launcher mode, an
+    /// assistant's temporary one — independent of camera or focus depth.
     fn is_instance_full_screen(&self, instance: InstanceId) -> bool {
         self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
     }
