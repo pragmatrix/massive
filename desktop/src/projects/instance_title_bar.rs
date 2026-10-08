@@ -5,7 +5,7 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
 // Height, font size, and horizontal text indent at a scale factor of 1.0.
 const HEIGHT_AT_1X: f64 = 24.0;
-const FONT_SIZE_AT_1X: f64 = 14.0;
+const FONT_SIZE_AT_1X: f64 = 16.0;
 const INDENT_AT_1X: f64 = 8.0;
 
 const BASE_INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4f8f);
