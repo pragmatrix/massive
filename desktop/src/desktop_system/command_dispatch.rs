@@ -470,7 +470,7 @@ impl DesktopSystem {
             DesktopChange::SpawnInstance {
                 instance,
                 root,
-                mut parameters,
+                parameters,
             } => {
                 // Probably pull the name of the application into SpawnInstance?
                 let application = self
@@ -479,13 +479,6 @@ impl DesktopSystem {
                     .get_named(&self.env.primary_application)
                     .context("Internal error, application not registered")?;
 
-                parameters.insert(
-                    "size_px".to_string(),
-                    json!([
-                        self.default_panel_size.width,
-                        self.default_panel_size.height
-                    ]),
-                );
                 instance_manager.spawn(
                     instance,
                     application,
