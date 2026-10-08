@@ -24,7 +24,7 @@ pub struct TitleBarStyle {
 /// A colored bar with a single line of text: the title followed by the label, vertically centered.
 /// Layout changes are always animated, unless the caller asks to snap.
 #[derive(Debug)]
-pub struct TitleBar {
+pub struct TitleBarPresenter {
     style: TitleBarStyle,
     label: String,
     title: String,
@@ -37,7 +37,7 @@ pub struct TitleBar {
     text: Handle<Visual>,
 }
 
-impl TitleBar {
+impl TitleBarPresenter {
     pub fn new(style: TitleBarStyle, label: String, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();

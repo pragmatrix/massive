@@ -14,7 +14,7 @@ use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
-use crate::projects::{FullScreenMode, TitleBar, TitleBarStyle};
+use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
 /// What an instance was started as (ADR 0014). A `Base` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
@@ -115,7 +115,7 @@ pub struct InstancePresenter {
     background: Option<InstanceBackground>,
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
     /// commit.
-    title_bar: TitleBar,
+    title_bar: TitleBarPresenter,
     /// The title bar's height, measured at regular presentation scale.
     title_bar_height: u32,
 }
@@ -542,7 +542,7 @@ pub struct InstanceTitleBarSpec {
 }
 
 impl InstanceTitleBarSpec {
-    pub fn into_title_bar(self, parent_location: Handle<Location>) -> TitleBar {
+    pub fn into_title_bar(self, parent_location: Handle<Location>) -> TitleBarPresenter {
         let Self {
             label,
             metrics,
@@ -558,7 +558,7 @@ impl InstanceTitleBarSpec {
             font_size: metrics.font_size,
             indent: metrics.indent,
         };
-        TitleBar::new(style, label, parent_location)
+        TitleBarPresenter::new(style, label, parent_location)
     }
 }
 
