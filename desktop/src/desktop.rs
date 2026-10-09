@@ -237,20 +237,10 @@ impl Desktop {
                                     .event_manager
                                     .add_event(view_event.clone(), Instant::now())
                                 {
-                                    let keyboard_shortcut =
-                                        self.system.match_desktop_keyboard_shortcut(&input_event);
-
-                                    let input_changes: Changes =
-                                        if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            self.system.plan(keyboard_cmd)?
-                                        } else {
-                                            self.system.process_input_event(
-                                                &input_event,
-                                                self.renderer.geometry(),
-                                            )?
-                                        };
-
-                                    desktop_changes += input_changes;
+                                    desktop_changes += self.system.process_input_event(
+                                        &input_event,
+                                        self.renderer.geometry(),
+                                    )?;
                                 }
 
                                 self.transact_and_persist(desktop_changes)?;
