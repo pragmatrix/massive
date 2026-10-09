@@ -3,17 +3,22 @@ use std::time::Duration;
 
 use anyhow::{Result, bail};
 
+use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
-use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
+use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
+use crate::desktop_system::change::Zoom;
+use crate::desktop_system::{
+    Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+};
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
 /// What an instance was started as (ADR 0014). A `Primary` instance presents in
@@ -438,6 +443,74 @@ impl InstancePresenter {
         }
 
         Ok(view)
+    }
+}
+
+/// The instance is the last level of key delivery. Cmd+Enter zooms to it until the camera is
+/// there, Cmd+T starts another instance from it, Cmd+W closes it, and its application receives
+/// every other key.
+impl KeyHandler for InstancePresenter {
+    fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        match Shortcut::from_input(input) {
+            Some(Shortcut::CommandEnter) if !context.fully_zoomed_in => {
+                return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+            }
+            Some(Shortcut::StartInstance) => {
+                return KeyOutcome::Consumed(self.start_instance(input, context).into());
+            }
+            Some(Shortcut::CloseInstance) => {
+                return KeyOutcome::Consumed(Self::stop_instance(context).into());
+            }
+            _ => {}
+        }
+
+        // An instance without a view has no application to hand the key to yet.
+        let Some(&DesktopTarget::View(view)) = context.focused() else {
+            return KeyOutcome::Consumed(Commands::Empty);
+        };
+
+        KeyOutcome::Consumed(
+            DesktopCommand::ForwardToView {
+                view,
+                event: input.view_event(),
+            }
+            .into(),
+        )
+    }
+}
+
+impl InstancePresenter {
+    /// Starts an instance under the launcher of this one. `Shift` makes it an assistant: it
+    /// spawns without the launcher's configured parameters and carries its own temporary Full
+    /// Screen Mode (ADR 0014). A primary instance inherits the parameters of this one.
+    fn start_instance(&self, input: &KeyInput, context: &KeyContext<'_>) -> DesktopCommand {
+        let instance = Self::focused_instance(context);
+        let (parameters, kind) = if input.is_shift() {
+            (InstanceParameters::default(), InstanceKind::Assistant)
+        } else {
+            (self.parameters().clone(), InstanceKind::Primary)
+        };
+
+        DesktopCommand::StartInstance {
+            launcher: context.hierarchy.launcher_of_instance(instance),
+            instance: Uuid::new_v4().into(),
+            root: None,
+            parameters,
+            kind,
+        }
+    }
+
+    fn stop_instance(context: &KeyContext<'_>) -> DesktopCommand {
+        // Architecture: Shouldn't this just end the current view, and let the
+        // instance decide then?
+        DesktopCommand::StopInstance(Self::focused_instance(context))
+    }
+
+    fn focused_instance(context: &KeyContext<'_>) -> InstanceId {
+        context
+            .focused_path
+            .instance()
+            .expect("An instance level is only on a focus path that contains the instance")
     }
 }
 

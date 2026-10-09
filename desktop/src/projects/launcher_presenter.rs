@@ -2,8 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use uuid::Uuid;
-use winit::event::{ElementState, MouseButton};
-use winit::keyboard::{Key, NamedKey};
+use winit::event::MouseButton;
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
@@ -15,7 +14,11 @@ use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
 use super::visor_layout;
-use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
+use crate::desktop_system::change::Zoom;
+use crate::desktop_system::{
+    Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome,
+    Shortcut, place_container_children,
+};
 use crate::instance_presenter::InstanceKind;
 use crate::projects::LaunchProfileId;
 
@@ -207,42 +210,11 @@ impl LauncherPresenter {
             return Ok(Commands::Empty);
         };
 
-        // Focus alone must not launch: navigation can focus a launcher without activating it.
-        let start_shortcut = matches!(
-            event.event(),
-            ViewEvent::KeyboardInput { event: key_event, .. }
-                if key_event.state == ElementState::Pressed
-                    && !key_event.repeat
-                    && (key_event.logical_key == Key::Named(NamedKey::Enter)
-                        || event.device_states().is_command()
-                            && matches!(&key_event.logical_key, Key::Character(key)
-                            if key.as_str().eq_ignore_ascii_case("t")))
-        );
-        let start_instance = start_shortcut
-            || (!presents_instance && event.detect_click(MouseButton::Left).is_some());
-
-        if start_instance {
+        if !presents_instance && event.detect_click(MouseButton::Left).is_some() {
             let shift = event.keyboard_modifiers().shift_key();
-            let parameters = if shift {
-                InstanceParameters::new()
-            } else {
-                params.clone()
-            };
-
-            // Usability: Should pass this rectangle?
-            return Ok(DesktopCommand::StartInstance {
-                launcher: self.id,
-                instance: Uuid::new_v4().into(),
-                root: None,
-                parameters,
-                // Shift-click opens plain; only Shift-shortcuts create assistants (ADR 0014).
-                kind: if start_shortcut && shift {
-                    InstanceKind::Assistant
-                } else {
-                    InstanceKind::Primary
-                },
-            }
-            .into());
+            return Ok(self
+                .start_instance(shift, InstanceKind::Primary, params)
+                .into());
         }
 
         Ok(Commands::Empty)
@@ -250,6 +222,24 @@ impl LauncherPresenter {
 
     fn presents_instance(&self) -> bool {
         self.presents_instance
+    }
+
+    /// Shift opens the instance plain, without the launcher's configured parameters.
+    fn start_instance(&self, shift: bool, kind: InstanceKind, params: &Params) -> DesktopCommand {
+        let parameters = if shift {
+            InstanceParameters::new()
+        } else {
+            params.clone()
+        };
+
+        // Usability: Should pass this rectangle?
+        DesktopCommand::StartInstance {
+            launcher: self.id,
+            instance: Uuid::new_v4().into(),
+            root: None,
+            parameters,
+            kind,
+        }
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
@@ -281,6 +271,36 @@ impl LauncherPresenter {
                 .fader
                 .animate_with(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
         });
+    }
+}
+
+/// The launcher starts an instance on Enter and Cmd+T, but only when it is itself the keyboard
+/// focus. Keys passing through to an instance of this launcher are not meant for it.
+///
+/// Cmd+Enter zooms to the launcher first and starts only once the camera is there.
+impl KeyHandler for LauncherPresenter {
+    fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        if context.focused() != Some(&DesktopTarget::Launcher(self.id)) {
+            return KeyOutcome::Pass;
+        }
+
+        match Shortcut::from_input(input) {
+            Some(Shortcut::CommandEnter) if !context.fully_zoomed_in => {
+                return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+            }
+            Some(Shortcut::Enter | Shortcut::CommandEnter | Shortcut::StartInstance) => {}
+            _ => return KeyOutcome::Pass,
+        }
+
+        // Shift-shortcuts create assistants (ADR 0014).
+        let shift = input.is_shift();
+        let kind = if shift {
+            InstanceKind::Assistant
+        } else {
+            InstanceKind::Primary
+        };
+        let params = &context.configuration[self.id].params;
+        KeyOutcome::Consumed(self.start_instance(shift, kind, params).into())
     }
 }
 

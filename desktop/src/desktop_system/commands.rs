@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, SlotShift};
+use massive_applications::{InstanceId, InstanceParameters, SlotShift, ViewEvent, ViewId};
 
 use super::Direction;
 use super::change::Zoom;
@@ -31,6 +31,11 @@ pub enum DesktopCommand {
     Zoom(Zoom),
     /// Routes a fullscreen request to the focused instance or the native window.
     ToggleFullScreen,
+    /// Hands an event to the application behind `view`.
+    ForwardToView {
+        view: ViewId,
+        event: ViewEvent,
+    },
 }
 
 #[derive(Debug)]
