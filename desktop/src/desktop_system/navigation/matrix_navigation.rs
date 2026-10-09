@@ -1,3 +1,6 @@
+//! Directional navigation over project matrices: finds the neighbor slot of a slot, escaping to
+//! the hosting slot in the parent project's matrix when the matrix has none in that direction.
+
 use massive_applications::InstanceId;
 
 use super::{HorizontalDirection, VerticalDirection};
@@ -9,14 +12,14 @@ use crate::projects::{
 };
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct MatrixNavigation<'a> {
+pub struct MatrixNavigation<'a> {
     hierarchy: &'a DesktopTopology,
     configuration: &'a RuntimeConfiguration,
 }
 
 /// The outcome of a navigation lookup.
 #[derive(Debug, Clone)]
-pub(super) struct NavigationStep {
+pub struct NavigationStep {
     pub target: DesktopTarget,
     /// The placement of the slot the search escaped to in an ancestor matrix, if the target was
     /// not found in the origin's own matrix.
@@ -30,24 +33,11 @@ struct MatrixEntry<K> {
 }
 
 impl<'a> MatrixNavigation<'a> {
-    pub(super) fn new(
-        hierarchy: &'a DesktopTopology,
-        configuration: &'a RuntimeConfiguration,
-    ) -> Self {
+    pub fn new(hierarchy: &'a DesktopTopology, configuration: &'a RuntimeConfiguration) -> Self {
         Self {
             hierarchy,
             configuration,
         }
-    }
-
-    pub(super) fn navigate_from_slot(
-        self,
-        content: impl Into<SlotContent>,
-        direction: Direction,
-        preferred_column: Option<u32>,
-    ) -> Option<NavigationStep> {
-        let (project_id, origin_placement) = self.configuration.slot_of_content(content)?;
-        self.navigate_from_matrix_slot(project_id, origin_placement, direction, preferred_column)
     }
 
     /// Navigates from an assigned slot of `project`'s matrix. A project-assigned
@@ -58,8 +48,8 @@ impl<'a> MatrixNavigation<'a> {
     /// the project in its parent's matrix and retries from there, recursively up to the root.
     /// `preferred_column` applies only to the starting matrix; escaped levels use the hosting
     /// slot's own column.
-    pub(super) fn navigate_from_matrix_slot(
-        self,
+    pub fn navigate_from_matrix_slot(
+        &self,
         project_id: ProjectId,
         origin_placement: MatrixPlacement,
         direction: Direction,
@@ -86,8 +76,8 @@ impl<'a> MatrixNavigation<'a> {
         }
     }
 
-    pub(super) fn navigate_within_matrix(
-        self,
+    pub fn navigate_within_matrix(
+        &self,
         project_id: ProjectId,
         origin_placement: MatrixPlacement,
         direction: Direction,
@@ -98,8 +88,8 @@ impl<'a> MatrixNavigation<'a> {
             .map(SlotContent::target)
     }
 
-    pub(super) fn navigate_from_child(
-        self,
+    pub fn navigate_from_child(
+        &self,
         launcher_id: LaunchProfileId,
         index: usize,
         direction: Direction,
@@ -121,7 +111,20 @@ impl<'a> MatrixNavigation<'a> {
         self.navigate_from_slot(launcher_id, direction, preferred_column)
     }
 
-    fn create_project_matrix_entries(self, project_id: ProjectId) -> Vec<MatrixEntry<SlotContent>> {
+    fn navigate_from_slot(
+        &self,
+        content: impl Into<SlotContent>,
+        direction: Direction,
+        preferred_column: Option<u32>,
+    ) -> Option<NavigationStep> {
+        let (project_id, origin_placement) = self.configuration.slot_of_content(content)?;
+        self.navigate_from_matrix_slot(project_id, origin_placement, direction, preferred_column)
+    }
+
+    fn create_project_matrix_entries(
+        &self,
+        project_id: ProjectId,
+    ) -> Vec<MatrixEntry<SlotContent>> {
         self.configuration
             .slots_ordered(project_id)
             .map(|(placement, content)| MatrixEntry {

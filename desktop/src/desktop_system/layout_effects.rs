@@ -287,8 +287,12 @@ impl DesktopSystem {
         }
         Ok(())
     }
+
     pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
         let focused = self.event_router.keyboard_focus()?;
-        Some(self.resolve_camera_for_target(focused, self.zoom_level))
+        Some(
+            self.zoom_geometry()
+                .resolve_camera_for_target(focused, self.zoom_level),
+        )
     }
 }

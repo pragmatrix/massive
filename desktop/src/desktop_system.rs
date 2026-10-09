@@ -101,6 +101,27 @@ impl DesktopTarget {
         }
     }
 
+    /// Whether the target is an instance or part of one (title bar, view).
+    pub fn is_instance_target(&self) -> bool {
+        matches!(
+            self,
+            Self::Instance(_) | Self::InstanceTitleBar(_) | Self::View(_)
+        )
+    }
+
+    /// The project a project-level target stands for; `Desktop` stands for the root project.
+    pub fn stands_for_project(&self) -> Option<ProjectId> {
+        match self {
+            Self::Project(project)
+            | Self::ProjectHeader(project)
+            | Self::ProjectMatrix(project) => Some(*project),
+            Self::Desktop => Some(ProjectId::ROOT),
+            Self::Launcher(_) | Self::Instance(_) | Self::InstanceTitleBar(_) | Self::View(_) => {
+                None
+            }
+        }
+    }
+
     /// A project target receives no text input, so `Enter` without `Cmd` enters it (ADR 0018).
     pub fn enters_on_plain_enter(&self) -> bool {
         matches!(
@@ -288,6 +309,8 @@ pub struct DesktopSystem {
 }
 
 pub type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
+pub type ProjectMap = Map<ProjectId, ProjectPresenter>;
+pub type InstanceMap = Map<InstanceId, InstancePresenter>;
 
 /// Aggregates are separated, so that we can control borrowing them in a more granular way.
 #[derive(Debug)]
@@ -295,10 +318,10 @@ struct Aggregates {
     hierarchy: OrderedHierarchy<DesktopTarget>,
 
     // presenters
-    projects: Map<ProjectId, ProjectPresenter>,
+    projects: ProjectMap,
     launchers: LauncherMap,
     configuration: RuntimeConfiguration,
-    instances: Map<InstanceId, InstancePresenter>,
+    instances: InstanceMap,
 
     /// The sizes of the instance title bar (ADR 0019).
     instance_title_bar_metrics: InstanceTitleBarMetrics,
@@ -494,7 +517,7 @@ impl DesktopSystem {
         }
         if effects_mode != TransactionEffectsMode::Setup
             && zoom_level_changed
-            && let Some((zoom_level, project_depth)) = self.focused_zoom_level()
+            && let Some((zoom_level, project_depth)) = self.zoom_navigation().focused_zoom_level()
         {
             self.zoom_level_indicator.show(zoom_level, project_depth);
         }

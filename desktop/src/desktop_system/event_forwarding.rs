@@ -36,7 +36,7 @@ impl DesktopSystem {
     ///
     /// Design: I think we need to split the events sent to the view and the events delivered
     /// internally. This way, we can perhaps remove the access to the `InstanceManager` here.
-    pub(super) fn forward_event(
+    pub fn forward_event(
         &mut self,
         TargetedEvent(target, event): TargetedEvent<DesktopTarget>,
         instance_manager: &InstanceManager,

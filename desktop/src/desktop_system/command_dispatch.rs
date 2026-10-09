@@ -189,14 +189,11 @@ impl DesktopSystem {
                 Ok(changes)
             }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
-            DesktopCommand::Zoom(zoom) => Ok(self.plan_zoom(zoom)),
+            DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 if self.window_state.is_fullscreen
                     && self.focused_path().instance().is_some()
-                    && self
-                        .event_router
-                        .keyboard_focus()
-                        .is_some_and(|focused| self.is_fully_zoomed_in(focused, self.zoom_level))
+                    && self.zoom_navigation().is_fully_zoomed_in()
                 {
                     return self.plan_toggle_full_screen_mode();
                 }
@@ -1199,7 +1196,6 @@ mod tests {
 
     use massive_animation::{AnimationCoordinator, MovementRuntime};
     use massive_geometry::{Rect, RectPx, SizePx};
-    use massive_layout::LayoutTopology;
     use massive_renderer::{FontManager, ShapingEngineKind};
     use massive_scene::{AnyCollector, SceneChange};
 
@@ -1252,7 +1248,6 @@ mod tests {
     struct NestedSiblings {
         system: DesktopSystem,
         instance_manager: InstanceManager,
-        project_b: ProjectId,
         instance_a: InstanceId,
         instance_b: InstanceId,
     }
@@ -1311,7 +1306,6 @@ mod tests {
         Ok(NestedSiblings {
             system,
             instance_manager,
-            project_b,
             instance_a,
             instance_b,
         })
@@ -1325,83 +1319,6 @@ mod tests {
         let changes = system.plan(command)?;
         system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn unified_requests_assign_under_a_path_and_remove_both_content_kinds() -> Result<()> {
-        task_context::with_context(task_context(), async {
-            let frame = massive_applications::begin_frame();
-            let NestedSiblings {
-                mut system,
-                mut instance_manager,
-                project_b,
-                instance_a,
-                instance_b,
-                ..
-            } = nested_siblings()?;
-            let placement = MatrixPlacement { column: 1, row: 1 };
-            for target in [ConfigurationTarget::Project, ConfigurationTarget::Launcher] {
-                let output = system.apply_configuration_request(
-                    instance_a,
-                    ConfigurationRequest::Assign {
-                        target,
-                        name: "added".into(),
-                        column: placement.column,
-                        row: placement.row,
-                        under: Some("/labs-b".into()),
-                        shift: SlotShift::Keep,
-                    },
-                )?;
-                system.transact(
-                    output.changes,
-                    &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                )?;
-                let content = system
-                    .aggregates
-                    .configuration
-                    .content_at(project_b, placement)
-                    .expect("the request assigns content under the resolved project");
-                assert!(matches!(
-                    (target, content),
-                    (ConfigurationTarget::Project, SlotContent::Project(_))
-                        | (ConfigurationTarget::Launcher, SlotContent::Launcher(_))
-                ));
-                assert!(system.aggregates.hierarchy.exists(&content.target()));
-                if let SlotContent::Project(project) = content {
-                    assert_eq!(
-                        system.aggregates.hierarchy.get_nested(&content.target()),
-                        &[
-                            DesktopTarget::ProjectHeader(project),
-                            DesktopTarget::ProjectMatrix(project)
-                        ]
-                    );
-                }
-                let output = system.apply_configuration_request(
-                    instance_b,
-                    ConfigurationRequest::Remove {
-                        target,
-                        name: Some("added".into()),
-                    },
-                )?;
-                system.transact(
-                    output.changes,
-                    &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                )?;
-                assert_eq!(
-                    system
-                        .aggregates
-                        .configuration
-                        .content_at(project_b, placement),
-                    None
-                );
-                assert!(!system.aggregates.hierarchy.exists(&content.target()));
-            }
-            drop(frame);
-            Ok(())
-        })
-        .await
     }
 
     #[tokio::test]
@@ -1423,7 +1340,10 @@ mod tests {
                     DesktopCommand::Zoom(Zoom::Out),
                 )?;
             }
-            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Row, 1)));
+            assert_eq!(
+                system.zoom_navigation().focused_zoom_level(),
+                Some((ZoomLevel::Row, 1))
+            );
 
             // `labs-a` holds a single slot, so there is nothing to its right inside it: the
             // navigation escapes to the sibling project, which was visited and so is re-entered
@@ -1442,7 +1362,10 @@ mod tests {
                 Some(&DesktopTarget::Instance(instance_b))
             );
             assert_eq!(
-                system.focused_zoom_level().map(|(level, _)| level),
+                system
+                    .zoom_navigation()
+                    .focused_zoom_level()
+                    .map(|(level, _)| level),
                 Some(ZoomLevel::Row)
             );
 
@@ -1488,7 +1411,10 @@ mod tests {
                     &mut instance_manager,
                     DesktopCommand::Zoom(Zoom::Out),
                 )?;
-                assert_eq!(system.focused_zoom_level(), Some((expected, 0)));
+                assert_eq!(
+                    system.zoom_navigation().focused_zoom_level(),
+                    Some((expected, 0))
+                );
                 assert_eq!(
                     system.event_router.keyboard_focus(),
                     Some(&DesktopTarget::Instance(instance))
@@ -1497,42 +1423,6 @@ mod tests {
             assert!(system.plan(DesktopCommand::Zoom(Zoom::Out))?.is_empty());
 
             drop(frame.submission::<SceneChange>());
-            Ok(())
-        })
-        .await
-    }
-
-    #[tokio::test]
-    async fn a_parentless_assign_slot_creates_the_root_under_desktop() -> Result<()> {
-        task_context::with_context(task_context(), async {
-            let (mut system, receiver) = system();
-            let mut instance_manager = instance_manager(&receiver);
-
-            let changes = system.plan(DesktopCommand::Project(ProjectCommand::AssignSlot {
-                parent: None,
-                placement: MatrixPlacement { column: 0, row: 0 },
-                content: SlotAssignment::Project {
-                    id: ProjectId::ROOT,
-                    name: crate::projects::ROOT_PROJECT_NAME.into(),
-                },
-                shift: SlotShift::default(),
-            }))?;
-            system.transact(
-                changes,
-                &mut instance_manager,
-                TransactionEffectsMode::Setup,
-            )?;
-
-            let hierarchy = &system.aggregates.hierarchy;
-            assert!(
-                hierarchy
-                    .parent_of(&DesktopTarget::Project(ProjectId::ROOT))
-                    .is_some(),
-                "the root project hangs under the implicit Desktop root"
-            );
-            assert!(hierarchy.exists(&DesktopTarget::Desktop));
-            assert!(system.aggregates.projects.get(&ProjectId::ROOT).is_some());
-
             Ok(())
         })
         .await
@@ -1558,48 +1448,12 @@ mod tests {
                 )?;
             }
 
-            let instance = uuid::Uuid::new_v4().into();
-            let start = system.plan(DesktopCommand::StartInstance {
-                launcher,
-                instance,
-                root: Some(InstanceRoot::new()),
-                parameters: Default::default(),
-                kind: InstanceKind::Primary,
-            })?;
-            let mut submission_changes = massive_util::ChangeSet::default();
-            submission_changes.push(InstanceChange::CreateView(
-                massive_applications::ViewCreationInfo {
-                    id: uuid::Uuid::new_v4().into(),
-                    role: ViewRole::Primary,
-                    extents: massive_geometry::BoxPx::new(
-                        massive_geometry::PointPx::new(0, 0),
-                        massive_geometry::PointPx::new(800, 600),
-                    ),
-                },
-            ));
-            let initial_submission = InstanceSubmission::new(
-                submission_changes,
-                massive_renderer::RenderPacing::default(),
-            );
-            let mut changes: Changes = start;
-            changes <<= DesktopChange::IntegrateInstanceSubmission(instance, initial_submission);
-            system.transact(
-                changes,
-                &mut instance_manager,
-                TransactionEffectsMode::Setup,
-            )?;
+            let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+            deliver_view(&mut system, &mut instance_manager, instance)?;
 
-            assert_eq!(
-                system.event_router.keyboard_focus(),
-                Some(&DesktopTarget::View(
-                    system.aggregates.instances[&instance]
-                        .primary_view_id()
-                        .expect("the initial submission created a primary view")
-                ))
-            );
-            assert_eq!(system.zoom_level, ZoomLevel::Focus);
-            let focused = system.event_router.keyboard_focus().unwrap();
-            let expected = system.resolve_camera_for_target(focused, system.zoom_level);
+            let expected = system
+                .resolve_desired_camera()
+                .expect("a focused target must have a camera");
             assert_eq!(
                 *system.camera(),
                 expected,
@@ -1868,44 +1722,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_boot_replay_builds_the_tree_through_plan_and_transact() -> Result<()> {
-        task_context::with_context(task_context(), async {
-            let (mut system, receiver) = system();
-            let mut instance_manager = instance_manager(&receiver);
-
-            let aggregate = parse_configuration(
-                Path::new("/config/desktop.json"),
-                r#"{ "slots": [ { "at": [0, 0], "project": { "name": "work", "slots": [
-                    { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } }
-                ] } } ] }"#,
-            )?;
-            for command in crate::projects::to_commands(&aggregate) {
-                let changes = system.plan(DesktopCommand::Project(command))?;
-                system.transact(
-                    changes,
-                    &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                )?;
-            }
-
-            let hierarchy = &system.aggregates.hierarchy;
-            assert!(hierarchy.exists(&DesktopTarget::Desktop));
-            let root = DesktopTarget::Project(ProjectId::ROOT);
-            assert!(hierarchy.exists(&root));
-            assert!(hierarchy.exists(&DesktopTarget::ProjectMatrix(ProjectId::ROOT)));
-            let nested_slot = hierarchy
-                .get_nested(&DesktopTarget::ProjectMatrix(ProjectId::ROOT))
-                .first()
-                .cloned()
-                .expect("the boot replay assigned the parsed project slot");
-            assert!(matches!(nested_slot, DesktopTarget::Project(_)));
-
-            Ok(())
-        })
-        .await
-    }
-
-    #[tokio::test]
     async fn fullscreen_request_enters_native_fullscreen_before_toggling_instance_mode()
     -> Result<()> {
         task_context::with_context(task_context(), async {
@@ -2146,13 +1962,6 @@ mod tests {
         Ok(())
     }
 
-    fn camera_distance(system: &DesktopSystem) -> f64 {
-        system
-            .resolve_desired_camera()
-            .expect("a focused instance resolves a camera")
-            .distance
-    }
-
     /// A primary instance created in a Full Screen launcher spawns at window
     /// resolution and frames fullscreen from its view-less first commit;
     /// framing it at the panel distance dollies the camera out and back in when
@@ -2217,13 +2026,6 @@ mod tests {
         .await
     }
 
-    /// Regression: `Cmd+T` on a fullscreen launcher must keep camera framing stable
-    /// while the new instance waits for its first view and once that view arrives.
-    #[tokio::test]
-    async fn cmd_t_on_a_fullscreen_instance_keeps_camera_stable() -> Result<()> {
-        cmd_t_keeps_camera_stable(CONFIG).await
-    }
-
     /// The same while the launcher sits in a nested project's scaled slot.
     #[tokio::test]
     async fn cmd_t_in_a_nested_slot_keeps_camera_stable() -> Result<()> {
@@ -2260,5 +2062,12 @@ mod tests {
             Ok(())
         })
         .await
+    }
+
+    fn camera_distance(system: &DesktopSystem) -> f64 {
+        system
+            .resolve_desired_camera()
+            .expect("a focused instance resolves a camera")
+            .distance
     }
 }

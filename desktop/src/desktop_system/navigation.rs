@@ -1,21 +1,24 @@
 use anyhow::Result;
 use log::error;
 
-use massive_geometry::{PixelCamera, Size, SizePx};
-use massive_scene::prelude::*;
-
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
-use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
+use super::{
+    DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap, ProjectMap,
+};
 use crate::projects::{
     LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
 };
-use crate::{Map, projects::ProjectPresenter};
 
+mod focus_targets;
 mod matrix_navigation;
+mod zoom_geometry;
 mod zoom_navigation;
 
+use focus_targets::FocusTargets;
 use matrix_navigation::{MatrixNavigation, NavigationStep};
+use zoom_geometry::ZoomGeometry;
+use zoom_navigation::ZoomNavigation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HorizontalDirection {
@@ -129,79 +132,9 @@ impl DesktopSystem {
         Ok(changes)
     }
 
-    /// Lands focus on a slot's content without a direction: a launcher focuses its instance
-    /// anchor, else its first instance, else itself; a project is focused as a slot (ADR 0018).
-    pub(super) fn slot_focus_target(&self, target: DesktopTarget) -> DesktopTarget {
-        match target {
-            DesktopTarget::Launcher(launcher) => self.focus_target_for_launcher(launcher),
-            target => target,
-        }
-    }
-
-    /// The leaf a project is entered down to: its focus slots followed through nested projects,
-    /// else its first launcher depth first, else the project itself.
-    pub(super) fn focus_target_for_project(&self, project: ProjectId) -> DesktopTarget {
-        if let Some(content) = self.last_focused_content(project) {
-            return self.focus_target_for_slot(content);
-        }
-
-        if let Some(launcher) = self.first_launcher_depth_first(project) {
-            return self.focus_target_for_launcher(launcher);
-        }
-
-        DesktopTarget::Project(project)
-    }
-
-    pub fn last_focused_content(&self, project: ProjectId) -> Option<SlotContent> {
-        let placement = self
-            .aggregates
-            .projects
-            .get(&project)?
-            .last_focused_placement?;
-        self.aggregates.configuration.content_at(project, placement)
-    }
-
-    fn focus_target_for_slot(&self, content: SlotContent) -> DesktopTarget {
-        match content {
-            SlotContent::Launcher(launcher) => self.focus_target_for_launcher(launcher),
-            SlotContent::Project(project) => self.focus_target_for_project(project),
-        }
-    }
-
-    fn focus_target_for_launcher(&self, launcher: LaunchProfileId) -> DesktopTarget {
-        let hierarchy = &self.aggregates.hierarchy;
-        let target = self
-            .aggregates
-            .launchers
-            .get(&launcher)
-            .and_then(|presenter| presenter.focus_anchor_instance)
-            .filter(|instance| {
-                hierarchy.parent(&DesktopTarget::Instance(*instance))
-                    == Some(&DesktopTarget::Launcher(launcher))
-            })
-            .or_else(|| hierarchy.launcher_instances(launcher).next())
-            .map(DesktopTarget::Instance)
-            .unwrap_or(DesktopTarget::Launcher(launcher));
-        hierarchy.resolve_keyboard_focus_target(&target)
-    }
-
-    fn first_launcher_depth_first(&self, project: ProjectId) -> Option<LaunchProfileId> {
-        for (_, content) in self.aggregates.configuration.slots_ordered(project) {
-            match content {
-                SlotContent::Launcher(launcher) => return Some(launcher),
-                SlotContent::Project(nested) => {
-                    if let Some(launcher) = self.first_launcher_depth_first(nested) {
-                        return Some(launcher);
-                    }
-                }
-            }
-        }
-        None
-    }
-
     /// The focus replacement when slot `content` is removed: the first available
     /// right, left, down, or up neighbor in its matrix, else its hosting project.
-    pub(super) fn slot_removal_focus(&self, content: SlotContent) -> DesktopTarget {
+    pub fn slot_removal_focus(&self, content: SlotContent) -> DesktopTarget {
         let (parent, placement) = self
             .aggregates
             .configuration
@@ -219,68 +152,35 @@ impl DesktopSystem {
         .find_map(|direction| {
             matrix_navigation.navigate_within_matrix(parent, placement, direction, None)
         })
-        .map(|replacement| self.slot_focus_target(replacement))
+        .map(|replacement| self.focus_targets().slot_focus_target(replacement))
         .unwrap_or(DesktopTarget::Project(parent))
     }
 
-    pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
-        match focus {
-            DesktopTarget::Desktop => {
-                // The desktop node has no presenter to frame; its child (the root
-                // project) carries the camera.
-                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
-            }
-            DesktopTarget::Project(_)
-            | DesktopTarget::ProjectHeader(_)
-            | DesktopTarget::ProjectMatrix(_)
-            | DesktopTarget::Launcher(_) => {
-                let transform = self.placement(focus).transform;
-                Some(Self::camera_from_placement(transform))
-            }
-            DesktopTarget::Instance(instance_id) => {
-                let transform = self
-                    .placement(&DesktopTarget::Instance(*instance_id))
-                    .transform;
-                // The camera frames the instance at its content scale, the scale the layout gives
-                // the instance's children: 1 at regular size, and in Full Screen Mode (ADR 0014)
-                // the factor that fits their window-resolution content into the instance extent.
-                // Dollying by it maps that content 1:1 onto the screen.
-                //
-                // The title bar is the source because it exists with the instance (ADR 0019), so a
-                // view-less fullscreen instance already frames fullscreen and the camera does not
-                // zoom out and back in when the view arrives.
-                let content_scale = self
-                    .placement(&DesktopTarget::InstanceTitleBar(*instance_id))
-                    .transform
-                    .scale;
-                Some(Self::camera_from_placement(Transform::new(
-                    transform.translate,
-                    transform.rotate,
-                    content_scale,
-                )))
-            }
-            DesktopTarget::InstanceTitleBar(_) | DesktopTarget::View(_) => {
-                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
-            }
-        }
-    }
-
-    /// Build a camera that looks at the placement's full transform (translate + rotate),
-    /// at the pixel-perfect distance.
-    pub(super) fn camera_from_placement(transform: Transform) -> PixelCamera {
-        let look_at = Transform::new(transform.translate, transform.rotate, 1.0);
-        look_at.to_camera().with_distance(
-            PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) * transform.scale,
+    pub(super) fn zoom_navigation(&self) -> ZoomNavigation<'_> {
+        ZoomNavigation::new(
+            self.zoom_geometry(),
+            self.focus_targets(),
+            self.event_router.keyboard_focus(),
+            self.zoom_level,
         )
     }
 
-    /// The letterboxing camera distance that fits `size` within the window.
-    pub(super) fn fit_letterbox_distance(size: Size, window_size: SizePx) -> f64 {
-        let (surface_width, surface_height) = window_size.into();
-        let scale_x = surface_width as f64 / size.width;
-        let scale_y = surface_height as f64 / size.height;
-        let fit_scale = scale_x.min(scale_y).max(f64::MIN_POSITIVE);
-        PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) / fit_scale
+    pub(super) fn zoom_geometry(&self) -> ZoomGeometry<'_> {
+        ZoomGeometry::new(
+            &self.aggregates.hierarchy,
+            &self.aggregates.configuration,
+            &self.layout_state,
+            self.window_state.inner_size,
+        )
+    }
+
+    pub(super) fn focus_targets(&self) -> FocusTargets<'_> {
+        FocusTargets::new(
+            &self.aggregates.hierarchy,
+            &self.aggregates.configuration,
+            &self.aggregates.projects,
+            &self.aggregates.launchers,
+        )
     }
 }
 
@@ -290,7 +190,7 @@ impl DesktopSystem {
 /// Call `apply_navigation_plan` to commit the affinity once the move is taken.
 fn plan_navigation_candidate(
     hierarchy: &DesktopTopology,
-    projects: &Map<ProjectId, ProjectPresenter>,
+    projects: &ProjectMap,
     launchers: &LauncherMap,
     configuration: &RuntimeConfiguration,
     navigation_control: &NavigationControl,
@@ -326,7 +226,7 @@ fn plan_navigation_candidate(
 /// moving back to where focus came from restores it. A project without a remembered focus slot
 /// is focused as a slot, and so is a nested project the descent reaches without one.
 fn remembered_project_target(
-    projects: &Map<ProjectId, ProjectPresenter>,
+    projects: &ProjectMap,
     configuration: &RuntimeConfiguration,
     project: ProjectId,
 ) -> DesktopTarget {
@@ -490,17 +390,6 @@ fn select_concrete_instance_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn focused_scaled_content_keeps_its_local_pixel_scale() {
-        let scale = 0.25;
-        let camera = DesktopSystem::camera_from_placement(Transform::from_scale(scale));
-
-        assert_eq!(
-            camera.distance,
-            PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) * scale
-        );
-    }
 
     #[test]
     fn concrete_instance_selection_prefers_directional_edge() {

@@ -258,7 +258,7 @@ impl DesktopSystem {
         // Cmd+Enter
 
         if key_event.logical_key == Key::Named(NamedKey::Enter) {
-            if self.is_fully_zoomed_in(focused_target, self.zoom_level)
+            if self.zoom_navigation().is_fully_zoomed_in()
                 && focused_target.wants_cmd_enter_when_focused()
             {
                 return None;
