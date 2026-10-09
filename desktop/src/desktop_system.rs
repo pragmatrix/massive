@@ -19,6 +19,8 @@ mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
 mod hierarchy_focus;
+mod key_delivery;
+mod keyboard_shortcuts;
 mod layout_algorithm;
 mod layout_effects;
 mod layout_state;
@@ -54,6 +56,8 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
 pub(crate) use fullscreen::{fullscreen_scale, view_size};
+pub(crate) use key_delivery::{KeyContext, KeyHandler, KeyInput, KeyOutcome};
+pub(crate) use keyboard_shortcuts::Shortcut;
 pub(crate) use layout_algorithm::{instance_extent, place_container_children};
 pub(crate) use massive_applications::SlotShift;
 
@@ -88,10 +92,6 @@ pub enum DesktopTarget {
 }
 
 impl DesktopTarget {
-    pub fn wants_cmd_enter_when_focused(&self) -> bool {
-        matches!(self, Self::Launcher(_))
-    }
-
     /// An instance's title bar stands for its instance (ADR 0019); every other target stays as it
     /// is.
     pub fn title_bar_as_instance(self) -> Self {

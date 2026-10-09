@@ -1,24 +1,16 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use uuid::Uuid;
-use winit::event::{ElementState, KeyEvent};
-use winit::keyboard::{Key, NamedKey};
 
 use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::{
-    DesktopCommand, DesktopFocusPath, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason,
-    ZoomLevel,
-};
-use crate::desktop_system::change::Zoom;
+use super::{DesktopSystem, DesktopTarget, KeyInput, KeyboardFocusReason, ZoomLevel};
 use crate::event_router::{FocusRequestSource, KeyboardFocusChange, RouterStep};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::InstanceKind;
 use crate::projects::{LaunchProfileId, launcher_mode};
 use crate::targeted_event::EventTransition;
 
@@ -51,10 +43,17 @@ impl DesktopSystem {
                     }
                     changes += set_focus(target, KeyboardFocusReason::InputTransition);
                 }
-                RouterStep::DeliverInput { target, event } => {
-                    changes <<=
-                        DesktopChange::ForwardEvents(EventTransition::Send(target, event).into());
-                }
+                RouterStep::DeliverInput {
+                    target,
+                    event: delivered,
+                } => match KeyInput::from_event(event) {
+                    Some(input) => changes += self.deliver_key_along_focus_path(&input)?,
+                    None => {
+                        changes <<= DesktopChange::ForwardEvents(
+                            EventTransition::Send(target, delivered).into(),
+                        );
+                    }
+                },
             }
         }
 
@@ -182,147 +181,6 @@ impl DesktopSystem {
         }
         Ok(())
     }
-
-    /// Architecture: Somehow the desktop presenter should handle these (we need some kind of
-    /// event delivery down / up?)
-    ///
-    /// Design: This function is mixing state checks with the key detection.
-    pub fn match_desktop_keyboard_shortcut(
-        &self,
-        event: &Event<ViewEvent>,
-    ) -> Option<DesktopCommand> {
-        // Cmd+Enter focuses a launcher slot or instance, then starts only from a launcher.
-        // Cmd+T starts from either, and Cmd+W closes an instance.
-
-        let ViewEvent::KeyboardInput {
-            event: key_event, ..
-        } = event.event()
-        else {
-            return None;
-        };
-        if key_event.state != ElementState::Pressed {
-            return None;
-        }
-
-        let focused_path = self.focused_path();
-
-        // (plain) Enter
-
-        if !event.device_states().is_command() {
-            let enters_project = key_event.logical_key == Key::Named(NamedKey::Enter)
-                && !key_event.repeat
-                && focused_path
-                    .focused()
-                    .is_some_and(DesktopTarget::enters_on_plain_enter);
-            return enters_project.then_some(DesktopCommand::Zoom(Zoom::Enter));
-        }
-
-        if let Some(focused_target) = focused_path.focused()
-            && !key_event.repeat
-            && let Some(shortcut) =
-                self.match_focused_target_shortcut(key_event, event, &focused_path, focused_target)
-        {
-            return Some(shortcut);
-        }
-
-        if let Some(direction) = match &key_event.logical_key {
-            Key::Named(NamedKey::ArrowLeft) => Some(Direction::Left),
-            Key::Named(NamedKey::ArrowRight) => Some(Direction::Right),
-            Key::Named(NamedKey::ArrowUp) => Some(Direction::Up),
-            Key::Named(NamedKey::ArrowDown) => Some(Direction::Down),
-            _ => None,
-        } {
-            if event.device_states().is_ctrl() {
-                match direction {
-                    Direction::Up => {
-                        return Some(DesktopCommand::Zoom(Zoom::In));
-                    }
-                    Direction::Down => {
-                        return Some(DesktopCommand::Zoom(Zoom::Out));
-                    }
-                    _ => {}
-                }
-            }
-            return Some(DesktopCommand::Navigate(direction));
-        }
-        None
-    }
-
-    fn match_focused_target_shortcut(
-        &self,
-        key_event: &KeyEvent,
-        event: &Event<ViewEvent>,
-        focused_path: &DesktopFocusPath,
-        focused_target: &DesktopTarget,
-    ) -> Option<DesktopCommand> {
-        // Cmd+Enter
-
-        if key_event.logical_key == Key::Named(NamedKey::Enter) {
-            if self.zoom_navigation().is_fully_zoomed_in()
-                && focused_target.wants_cmd_enter_when_focused()
-            {
-                return None;
-            }
-            return Some(DesktopCommand::Zoom(Zoom::Enter));
-        }
-
-        let shift = event.device_states().is_shift();
-
-        // Cmd + t
-
-        if supports_instance_start_key(&key_event.logical_key, focused_target) {
-            // `Shift` makes the new instance an assistant: it spawns without the launcher's
-            // configured parameters and carries its own temporary Full Screen Mode (ADR 0014).
-            if let Some(instance) = focused_path.instance() {
-                let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance);
-                // Assistants open plain; primary instances inherit the focused instance's parameters.
-                let parameters = match shift {
-                    false => self
-                        .aggregates
-                        .instances
-                        .get(&instance)
-                        .expect("Focused instance has no presenter")
-                        .parameters()
-                        .clone(),
-                    true => Default::default(),
-                };
-                return Some(DesktopCommand::StartInstance {
-                    launcher: launcher_id,
-                    instance: Uuid::new_v4().into(),
-                    root: None,
-                    parameters,
-                    kind: if shift {
-                        InstanceKind::Assistant
-                    } else {
-                        InstanceKind::Primary
-                    },
-                });
-            }
-        }
-
-        // Cmd + w
-
-        if !shift
-            && let Some(instance) = focused_path.instance()
-            && let Key::Character(c) = &key_event.logical_key
-            && c.as_str() == "w"
-        {
-            // Architecture: Shouldn't this just end the current view, and let the
-            // instance decide then?
-            return Some(DesktopCommand::StopInstance(instance));
-        }
-
-        None
-    }
-}
-
-fn supports_instance_start_key(key: &Key, target: &DesktopTarget) -> bool {
-    match key {
-        Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => {
-            matches!(target, DesktopTarget::Instance(_) | DesktopTarget::View(_))
-        }
-        _ => false,
-    }
 }
 
 fn targets_affected_by_keyboard_focus_change<T>(change: &KeyboardFocusChange<T>) -> Vec<&T> {
@@ -330,38 +188,4 @@ fn targets_affected_by_keyboard_focus_change<T>(change: &KeyboardFocusChange<T>)
         .into_iter()
         .flatten()
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use massive_applications::InstanceId;
-
-    #[test]
-    fn launcher_start_keys_are_delegated_to_the_presenter() {
-        let launcher = DesktopTarget::Launcher(Uuid::new_v4().into());
-        let instance = DesktopTarget::Instance(InstanceId::from(Uuid::new_v4()));
-        let view = DesktopTarget::View(massive_applications::ViewId::new());
-
-        assert!(!supports_instance_start_key(
-            &Key::Named(NamedKey::Enter),
-            &launcher
-        ));
-        assert!(!supports_instance_start_key(
-            &Key::Character("t".into()),
-            &launcher
-        ));
-        assert!(!supports_instance_start_key(
-            &Key::Named(NamedKey::Enter),
-            &instance
-        ));
-        assert!(!supports_instance_start_key(
-            &Key::Named(NamedKey::Enter),
-            &view
-        ));
-        assert!(supports_instance_start_key(
-            &Key::Character("t".into()),
-            &instance
-        ));
-    }
 }

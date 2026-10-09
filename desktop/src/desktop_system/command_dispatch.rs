@@ -18,6 +18,7 @@ use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter,
     MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
 };
+use crate::targeted_event::EventTransition;
 
 use massive_applications::prelude::*;
 use massive_applications::{
@@ -199,6 +200,13 @@ impl DesktopSystem {
                 }
                 Ok(DesktopChange::ToggleWindowFullScreen.into())
             }
+            // Architecture: This was introduced because we wanted to capture keyboard events in the
+            // InstancePresenter. May share the InstanceManager as an Arc<> and let the
+            // InstancePresenter send directly to it?
+            DesktopCommand::ForwardToView { view, event } => Ok(DesktopChange::ForwardEvents(
+                EventTransition::Send(DesktopTarget::View(view), event).into(),
+            )
+            .into()),
         }
     }
 
@@ -768,7 +776,7 @@ impl DesktopSystem {
             Some(location) => location,
             None => self.desktop_presenter.location.clone(),
         };
-        let presenter = ProjectPresenter::new(name, location);
+        let presenter = ProjectPresenter::new(id, name, location);
         self.aggregates.projects.insert(id, presenter)
     }
 
@@ -1198,12 +1206,15 @@ mod tests {
     use massive_geometry::{Rect, RectPx, SizePx};
     use massive_renderer::{FontManager, ShapingEngineKind};
     use massive_scene::{AnyCollector, SceneChange};
+    use winit::event::ElementState;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
 
     use super::*;
     use crate::desktop_environment::DesktopEnvironment;
     use crate::desktop_system::TransactionEffectsMode;
     use crate::desktop_system::change::DesktopSystemEffect;
     use crate::desktop_system::change::Zoom;
+    use crate::desktop_system::{KeyContext, KeyHandler, KeyInput, KeyOutcome};
     use crate::instance_manager::InstanceManager;
     use crate::instance_presenter::{InstanceKind, InstanceTitleBarMetrics};
     use crate::projects::persistence::parse_configuration;
@@ -1319,6 +1330,102 @@ mod tests {
         let changes = system.plan(command)?;
         system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let (mut system, receiver) = system_from(CONFIG);
+            let mut instance_manager = instance_manager(&receiver);
+            for command in crate::projects::to_commands(&system.aggregates.configuration) {
+                let changes = system.plan(DesktopCommand::Project(command))?;
+                system.transact(
+                    changes,
+                    &mut instance_manager,
+                    TransactionEffectsMode::Setup,
+                )?;
+            }
+            let launcher = system
+                .aggregates
+                .configuration
+                .boot_launcher()
+                .expect("the test configuration has a startup launcher");
+            system.transact(
+                set_focus(
+                    Some(DesktopTarget::Launcher(launcher)),
+                    KeyboardFocusReason::InputTransition,
+                ),
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+            )?;
+
+            let cmd_enter = KeyInput::new(
+                Key::Named(NamedKey::Enter),
+                ElementState::Pressed,
+                false,
+                ModifiersState::SUPER,
+            );
+            let first_command = |fully_zoomed_in| {
+                let context = KeyContext {
+                    focused_path: system.focused_path(),
+                    fully_zoomed_in,
+                    hierarchy: &system.aggregates.hierarchy,
+                    configuration: &system.aggregates.configuration,
+                };
+                let handler = system.aggregates.launchers.get(&launcher).unwrap();
+                match handler.handle_key(&cmd_enter, &context) {
+                    KeyOutcome::Consumed(commands) => commands.into_iter().next(),
+                    KeyOutcome::Pass => None,
+                }
+            };
+
+            assert!(matches!(
+                first_command(false),
+                Some(DesktopCommand::Zoom(Zoom::Enter))
+            ));
+            assert!(matches!(
+                first_command(true),
+                Some(DesktopCommand::StartInstance { .. })
+            ));
+
+            drop(frame);
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn key_levels_follow_the_focus_path_from_the_desktop_to_the_instance() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let NestedSiblings {
+                system, instance_a, ..
+            } = nested_siblings()?;
+
+            let focused_path = system.focused_path();
+            let levels = system.key_levels(&focused_path);
+            let targets: Vec<_> = levels.iter().map(|level| level.target.clone()).collect();
+
+            assert_eq!(targets.first(), Some(&DesktopTarget::Desktop));
+            assert_eq!(targets.last(), Some(&DesktopTarget::Instance(instance_a)));
+            assert!(
+                targets
+                    .iter()
+                    .any(|target| matches!(target, DesktopTarget::Launcher(_)))
+            );
+            assert!(targets.iter().all(|target| matches!(
+                target,
+                DesktopTarget::Desktop
+                    | DesktopTarget::Project(_)
+                    | DesktopTarget::Launcher(_)
+                    | DesktopTarget::Instance(_)
+            )));
+
+            drop(frame);
+            Ok(())
+        })
+        .await
     }
 
     #[tokio::test]

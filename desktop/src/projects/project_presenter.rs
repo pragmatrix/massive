@@ -2,7 +2,11 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, SizedTransform, Transform};
 use massive_scene::prelude::*;
 
-use crate::projects::MatrixPlacement;
+use crate::desktop_system::change::Zoom;
+use crate::desktop_system::{
+    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+};
+use crate::projects::{MatrixPlacement, ProjectId};
 
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
@@ -11,6 +15,7 @@ const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
+    id: ProjectId,
     scene_transform: Handle<Transform>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -18,7 +23,7 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
-    pub fn new(name: String, parent_location: Handle<Location>) -> Self {
+    pub fn new(id: ProjectId, name: String, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let mut header = TitleBarPresenter::new(
@@ -33,6 +38,7 @@ impl ProjectPresenter {
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
+            id,
             scene_transform,
             header,
             matrix,
@@ -43,6 +49,25 @@ impl ProjectPresenter {
     pub fn set_layout(&mut self, layout: SizedTransform) {
         let scene_transform = layout.to_origin_space();
         self.scene_transform.update_if_changed(scene_transform);
+    }
+}
+
+/// A project receives no text input, so Enter, with or without Cmd, enters it while it is the
+/// keyboard focus (ADR 0018).
+impl KeyHandler for ProjectPresenter {
+    fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        let enters = matches!(
+            Shortcut::from_input(input),
+            Some(Shortcut::Enter | Shortcut::CommandEnter)
+        ) && context.focused().is_some_and(|focused| {
+            focused.enters_on_plain_enter() && focused.stands_for_project() == Some(self.id)
+        });
+
+        if enters {
+            KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into())
+        } else {
+            KeyOutcome::Pass
+        }
     }
 }
 

@@ -7,6 +7,11 @@ use massive_layout::Placement;
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
 
+use crate::desktop_system::change::Zoom;
+use crate::desktop_system::{
+    DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+};
+
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
 /// Presents desktop-level visuals and scene anchors.
@@ -49,6 +54,27 @@ impl DesktopPresenter {
         self.hover_movement.modify(move |movement, context| {
             movement.set_placement(context, placement);
         });
+    }
+}
+
+/// The desktop is the outermost level of key delivery: it owns the shortcuts that act on the
+/// desktop as a whole. Cmd+Enter on the desktop itself enters the root project, and Cmd with the
+/// arrow keys navigates and, with Ctrl, zooms.
+impl KeyHandler for DesktopPresenter {
+    fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        let command = match Shortcut::from_input(input) {
+            // Projects, launchers, and instances enter themselves; the desktop stands for the
+            // root project.
+            Some(Shortcut::CommandEnter) if context.focused() == Some(&DesktopTarget::Desktop) => {
+                DesktopCommand::Zoom(Zoom::Enter)
+            }
+            Some(Shortcut::Navigate(direction)) => DesktopCommand::Navigate(direction),
+            Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
+            Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
+            _ => return KeyOutcome::Pass,
+        };
+
+        KeyOutcome::Consumed(command.into())
     }
 }
 
