@@ -19,10 +19,11 @@ impl DesktopSystem {
     /// Flips `instance`'s temporary Full Screen Mode. Only assistant instances
     /// carry one; a primary instance always follows its launcher.
     pub(super) fn toggle_assistant_full_screen_mode(&mut self, instance: InstanceId) {
-        let Some(presenter) = self.aggregates.instances.get_mut(&instance) else {
-            panic!("a toggled assistant instance has a presenter");
-        };
-        presenter.toggle_full_screen_mode();
+        self.aggregates
+            .instances
+            .get_mut(&instance)
+            .expect("a toggled assistant instance has a presenter")
+            .toggle_full_screen_mode();
     }
 }
 
