@@ -77,12 +77,16 @@ The target a click at the pointer would select. For now, descendants remain visi
 _Avoid_: keyboard-focused target, camera focus
 
 **Hover outline**:
-The rectangle identifying the pointer's click destination. It is absent while pointer feedback is suppressed; keyboard focus has a separate indication and is never substituted as the hover target.
+The rectangle identifying the pointer's click destination while the pointer drives the interaction. While the input focus is at a desktop level it marks the keyboard-focused target instead; once the input focus reaches the application it is absent.
 _Avoid_: focus rectangle, keyboard-focus indicator
 
 **Pointer event target**:
 The target receiving pointer events. It changes on physical pointer movement or a click, not merely because camera or layout changes move content beneath a stationary pointer.
 _Avoid_: hover target
+
+**Input focus**:
+The deepest target on the keyboard focus path that consumed the most recent key press, so it never lies beyond the keyboard-focused target. It is absent while the pointer drives. While it is a desktop-level target, the user is still working with the desktop and the hover outline marks the keyboard-focused target; once it is the application, the user is working inside the application and the hover outline is gone.
+_Avoid_: key scope, last receiver, focus range
 
 **Keyboard-focused project**:
 The project containing the keyboard-focused target. Project-relative paths and commands use it as their base, regardless of zoom level.
