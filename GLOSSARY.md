@@ -112,6 +112,10 @@ _Avoid_: base instance, default instance
 An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cmd+Enter` starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
 _Avoid_: aux instance, sidecar, secondary instance
 
+**Application**:
+The program an instance runs, such as the Markdown viewer. It runs in its own task and draws into the instance's views. The desktop reaches it only through the instance manager, by sending view events. It cannot report back whether it used an event. A key that no desktop level consumed is forwarded to the application.
+_Avoid_: app
+
 **Instance**:
 A single running application session owned by a launcher. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
 _Avoid_: session, tab, process
