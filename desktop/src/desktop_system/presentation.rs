@@ -178,7 +178,12 @@ impl DesktopSystem {
         let target = self
             .event_router
             .pointer_focus()
-            .or_else(|| self.event_router.keyboard_focus())?
+            .or_else(|| {
+                // An application that received the last key shows its own feedback.
+                self.event_router
+                    .keyboard_focus()
+                    .filter(|focus| !self.input_focus.is_application_at(focus))
+            })?
             .clone();
 
         // Structural project targets use the parent project as their visible hover target.

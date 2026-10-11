@@ -5,7 +5,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::Direction;
-use super::key_delivery::KeyInput;
+use super::key_input::KeyInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Shortcut {

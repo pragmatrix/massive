@@ -11,11 +11,12 @@ use anyhow::{Result, bail};
 use log::{error, warn};
 
 use winit::event::{DeviceId, ElementState, Modifiers};
-use winit::keyboard::{Key, NamedKey};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::{DeviceStates, Event};
+
+use crate::desktop_system::KeyInput;
 
 // Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
@@ -389,16 +390,7 @@ where
                 // are used to alter pointer interaction (for example Cmd to activate hyperlinks).
                 if event.state == ElementState::Pressed
                     && !event.repeat
-                    && !matches!(
-                        event.logical_key,
-                        Key::Named(
-                            NamedKey::Super
-                                | NamedKey::Meta
-                                | NamedKey::Shift
-                                | NamedKey::Control
-                                | NamedKey::Alt
-                        )
-                    )
+                    && !KeyInput::is_modifier_key(&event.logical_key)
                     && let Some(change) = self.set_pointer_focus(None)
                 {
                     steps.push(RouterStep::PointerFocusChanged(change));

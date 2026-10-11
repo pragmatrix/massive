@@ -18,7 +18,6 @@ use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter,
     MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
 };
-use crate::targeted_event::EventTransition;
 
 use massive_applications::prelude::*;
 use massive_applications::{
@@ -200,13 +199,6 @@ impl DesktopSystem {
                 }
                 Ok(DesktopChange::ToggleWindowFullScreen.into())
             }
-            // Architecture: This was introduced because we wanted to capture keyboard events in the
-            // InstancePresenter. May share the InstanceManager as an Arc<> and let the
-            // InstancePresenter send directly to it?
-            DesktopCommand::ForwardToView { view, event } => Ok(DesktopChange::ForwardEvents(
-                EventTransition::Send(DesktopTarget::View(view), event).into(),
-            )
-            .into()),
         }
     }
 
@@ -525,6 +517,9 @@ impl DesktopSystem {
             DesktopChange::SetNavigationAffinity(column_affinity) => {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
+            }
+            DesktopChange::SetInputFocus(input_focus) => {
+                self.input_focus = input_focus;
             }
             DesktopChange::SetZoomLevel(level) => {
                 if self.zoom_level != level {
@@ -1376,7 +1371,7 @@ mod tests {
                 let handler = system.aggregates.launchers.get(&launcher).unwrap();
                 match handler.handle_key(&cmd_enter, &context) {
                     KeyOutcome::Consumed(commands) => commands.into_iter().next(),
-                    KeyOutcome::Pass => None,
+                    KeyOutcome::Pass | KeyOutcome::Forward(_) => None,
                 }
             };
 

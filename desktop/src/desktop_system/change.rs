@@ -2,7 +2,7 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::KeyboardFocusReason;
+use super::{InputFocus, KeyboardFocusReason};
 use crate::DesktopTarget;
 use crate::desktop_system::ZoomLevel;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
@@ -57,6 +57,8 @@ pub enum DesktopChange {
     ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
+    /// Remembers where the last typed key went (ADR 0020).
+    SetInputFocus(InputFocus),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
 }
 

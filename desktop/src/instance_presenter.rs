@@ -17,7 +17,7 @@ use massive_shapes::{self as shapes, Shape};
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
 };
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
@@ -446,9 +446,9 @@ impl InstancePresenter {
     }
 }
 
-/// The instance is the last level of key delivery. Cmd+Enter zooms to it until the camera is
-/// there, Cmd+T starts another instance from it, Cmd+W closes it, and its application receives
-/// every other key.
+/// The instance is the level above the application in key delivery. Cmd+Enter zooms to it until the camera is
+/// there, Cmd+T starts another instance from it, Cmd+W closes it, and every other key passes on to
+/// its application.
 impl KeyHandler for InstancePresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
         match Shortcut::from_input(input) {
@@ -464,18 +464,7 @@ impl KeyHandler for InstancePresenter {
             _ => {}
         }
 
-        // An instance without a view has no application to hand the key to yet.
-        let Some(&DesktopTarget::View(view)) = context.focused() else {
-            return KeyOutcome::Consumed(Commands::Empty);
-        };
-
-        KeyOutcome::Consumed(
-            DesktopCommand::ForwardToView {
-                view,
-                event: input.view_event().clone(),
-            }
-            .into(),
-        )
+        KeyOutcome::Pass
     }
 }
 

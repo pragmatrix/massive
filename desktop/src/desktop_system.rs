@@ -20,6 +20,7 @@ mod focus_path_ext;
 mod fullscreen;
 mod hierarchy_focus;
 mod key_delivery;
+mod key_input;
 mod keyboard_shortcuts;
 mod layout_algorithm;
 mod layout_effects;
@@ -56,7 +57,8 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
 pub(crate) use fullscreen::{fullscreen_scale, view_size};
-pub(crate) use key_delivery::{KeyContext, KeyHandler, KeyInput, KeyOutcome};
+pub(crate) use key_delivery::{InputFocus, KeyContext, KeyHandler, KeyOutcome};
+pub(crate) use key_input::KeyInput;
 pub(crate) use keyboard_shortcuts::Shortcut;
 pub(crate) use layout_algorithm::{instance_extent, place_container_children};
 pub(crate) use massive_applications::SlotShift;
@@ -293,6 +295,8 @@ pub struct DesktopSystem {
     window_state: WindowState,
 
     event_router: EventRouter<DesktopTarget>,
+    /// Where the last typed key went, independent of pointer focus.
+    input_focus: InputFocus,
 
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
@@ -392,6 +396,7 @@ impl DesktopSystem {
             ),
 
             event_router,
+            input_focus: InputFocus::default(),
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
