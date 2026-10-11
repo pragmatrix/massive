@@ -472,7 +472,7 @@ impl KeyHandler for InstancePresenter {
         KeyOutcome::Consumed(
             DesktopCommand::ForwardToView {
                 view,
-                event: input.view_event(),
+                event: input.view_event().clone(),
             }
             .into(),
         )

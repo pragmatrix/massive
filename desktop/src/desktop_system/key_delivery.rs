@@ -84,8 +84,8 @@ impl KeyInput {
     }
 
     /// The event as an application receives it.
-    pub fn view_event(&self) -> ViewEvent {
-        self.view_event.clone()
+    pub fn view_event(&self) -> &ViewEvent {
+        &self.view_event
     }
 }
 
