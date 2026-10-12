@@ -98,7 +98,6 @@ impl DesktopSystem {
             }
         };
 
-        // Modifiers, releases and repeats don't move the input focus.
         if input.is_typed() {
             changes <<= DesktopChange::SetInputFocus(input_focus);
         }

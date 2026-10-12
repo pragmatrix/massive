@@ -1,5 +1,3 @@
-//! A key event reduced to what the key handlers decide on.
-
 use winit::event::ElementState;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 

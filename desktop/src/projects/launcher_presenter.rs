@@ -212,6 +212,7 @@ impl LauncherPresenter {
 
         if !presents_instance && event.detect_click(MouseButton::Left).is_some() {
             let shift = event.keyboard_modifiers().shift_key();
+            // Shift-click opens plain; only Shift-shortcuts create assistants (ADR 0014).
             return Ok(self
                 .start_instance(shift, InstanceKind::Primary, params)
                 .into());

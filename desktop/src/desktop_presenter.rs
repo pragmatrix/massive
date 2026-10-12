@@ -58,8 +58,7 @@ impl DesktopPresenter {
 }
 
 /// The desktop is the outermost level of key delivery: it owns the shortcuts that act on the
-/// desktop as a whole. Cmd+Enter on the desktop itself enters the root project, and Cmd with the
-/// arrow keys navigates and, with Ctrl, zooms.
+/// desktop as a whole.
 impl KeyHandler for DesktopPresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
         let command = match Shortcut::from_input(input) {
