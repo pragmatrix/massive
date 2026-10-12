@@ -1,8 +1,12 @@
 const VERTEX_SHADER_ENTRY: &str = "vs_main";
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 // With LessEqual depth compare, negative constant bias pulls decals toward the camera.
-// -2 flickers in the massive terminal visor rotations.
+// Covers the depth mismatch of coplanar quads from different triangles and transforms; -2
+// flickered under rotation before the slope scale existed, so -3 is kept as margin.
 const DECAL_DEPTH_BIAS_CONSTANT: i32 = -3;
+// Rotated planes produce interpolation errors that grow with the depth slope, which a constant
+// bias cannot cover; zero for camera-facing planes, so pixel-perfect rendering is unaffected.
+const DECAL_DEPTH_BIAS_SLOPE_SCALE: f32 = -2.0;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PipelineVariant {
@@ -104,7 +108,7 @@ fn depth_stencil_state(variant: PipelineVariant) -> wgpu::DepthStencilState {
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState {
                 constant: DECAL_DEPTH_BIAS_CONSTANT,
-                slope_scale: 0.0,
+                slope_scale: DECAL_DEPTH_BIAS_SLOPE_SCALE,
                 clamp: 0.0,
             },
         },
