@@ -8,7 +8,9 @@ use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
 use super::keyboard_focus::{KeyboardFocusChange, WindowFocusRequest};
-use super::{DesktopSystem, DesktopTarget, KeyInput, KeyboardFocusReason, ZoomLevel};
+use super::{
+    DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, ZoomLevel,
+};
 use crate::event_router::RouterStep;
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -43,7 +45,7 @@ impl DesktopSystem {
                     if let Some(request) = self.keyboard_focus.set_window_focus(focused) {
                         let target = match request {
                             WindowFocusRequest::Clear => None,
-                            WindowFocusRequest::Restore(target) => Some(target.into()),
+                            WindowFocusRequest::Restore(target) => Some(target),
                         };
                         changes += set_focus(target, KeyboardFocusReason::InputTransition);
                     }
@@ -89,16 +91,11 @@ impl DesktopSystem {
         Ok(DesktopChange::ForwardEvents(transitions.into()).into())
     }
 
-    pub(super) fn focus<'a>(
+    pub(super) fn focus(
         &mut self,
-        target: impl Into<Option<&'a DesktopTarget>>,
+        target: Option<FocusableTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        let target = target.into().map(|target| {
-            target
-                .as_focusable()
-                .unwrap_or_else(|| panic!("Keyboard focus on an unfocusable target: {target:?}"))
-        });
         let focus_change = self.keyboard_focus.focus(target);
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
@@ -211,8 +208,12 @@ impl DesktopSystem {
             .hierarchy
             .path_contains_target(self.focused_target().as_ref(), target)
         {
-            let parent = self.aggregates.hierarchy.parent(target).cloned();
-            self.focus(parent.as_ref(), instance_manager)?;
+            let parent = self.aggregates.hierarchy.parent(target).map(|parent| {
+                parent.as_focusable().unwrap_or_else(|| {
+                    panic!("Keyboard focus on an unfocusable parent: {parent:?}")
+                })
+            });
+            self.focus(parent, instance_manager)?;
         }
         Ok(())
     }
@@ -220,7 +221,7 @@ impl DesktopSystem {
 
 /// A press focuses what the pressed target selects, and a press on nothing clears the focus.
 pub(super) fn pointer_press_focus(target: Option<DesktopTarget>) -> Changes {
-    let target = target.map(|target| DesktopTarget::from(target.selected_target()));
+    let target = target.map(|target| target.selected_target());
     let mut changes = Changes::Empty;
     // Clicking a target frames it fully in (ADR 0018).
     if target.is_some() {

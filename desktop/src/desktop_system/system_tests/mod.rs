@@ -106,7 +106,7 @@ fn nested_siblings() -> Result<NestedSiblings> {
     let instance_b = start_instance(&mut system, &mut instance_manager, launcher_b, 0)?;
     system.transact(
         set_focus(
-            Some(DesktopTarget::Instance(instance_a)),
+            Some(FocusableTarget::Instance(instance_a)),
             KeyboardFocusReason::InputTransition,
         ),
         &mut instance_manager,
@@ -245,7 +245,7 @@ fn start_instance(
     ]
     .into();
     changes += set_focus(
-        Some(DesktopTarget::Instance(instance)),
+        Some(FocusableTarget::Instance(instance)),
         KeyboardFocusReason::PresentInstance,
     );
     system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;

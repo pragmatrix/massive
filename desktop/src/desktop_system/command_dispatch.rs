@@ -8,8 +8,8 @@ use super::change::{
     TopologyChange,
 };
 use super::{
-    ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason,
-    ProjectCommand, ZoomLevel, view_size,
+    ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusableTarget,
+    KeyboardFocusReason, ProjectCommand, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -157,7 +157,7 @@ impl DesktopSystem {
                 ];
                 changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
                 changes += set_focus(
-                    Some(DesktopTarget::Instance(instance)),
+                    Some(FocusableTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
                 );
 
@@ -178,6 +178,9 @@ impl DesktopSystem {
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
+                    let focus = focus.as_focusable().unwrap_or_else(|| {
+                        panic!("Replacement focus on an unfocusable target: {focus:?}")
+                    });
                     changes += set_focus(Some(focus), KeyboardFocusReason::StopInstanceReplacement);
                 }
                 changes += [
@@ -434,6 +437,9 @@ impl DesktopSystem {
             return Changes::Empty;
         }
         let replacement = self.slot_removal_focus(content);
+        let replacement = replacement.as_focusable().unwrap_or_else(|| {
+            panic!("Slot removal focus on an unfocusable target: {replacement:?}")
+        });
         set_focus(Some(replacement), KeyboardFocusReason::InputTransition)
     }
 
@@ -506,7 +512,7 @@ impl DesktopSystem {
             }
             DesktopChange::SetFocus { target } => {
                 let previous_focus = self.focused_target();
-                self.focus(target.as_ref(), instance_manager)?;
+                self.focus(target, instance_manager)?;
                 let current_focus = self.focused_target();
 
                 let mut output = ChangeOutput::default();
@@ -829,7 +835,7 @@ impl DesktopSystem {
                     && *focused_instance == instance
                 {
                     output.changes += set_focus(
-                        Some(DesktopTarget::View(creation_info.id)),
+                        Some(FocusableTarget::View(creation_info.id)),
                         KeyboardFocusReason::PromotePrimaryView,
                     );
                 }

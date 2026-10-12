@@ -115,6 +115,9 @@ impl<'a> ZoomNavigation<'a> {
         let target = target.into();
         let mut changes = Changes::Empty;
         if self.focused.as_ref() != Some(&target) {
+            let target = target
+                .as_focusable()
+                .unwrap_or_else(|| panic!("Zoom focus on an unfocusable target: {target:?}"));
             changes += set_focus(Some(target), KeyboardFocusReason::Zoom);
         }
         changes += self.set_zoom_level(level);

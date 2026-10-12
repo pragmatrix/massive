@@ -21,7 +21,7 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
             .expect("the test configuration has a startup launcher");
         system.transact(
             set_focus(
-                Some(DesktopTarget::Launcher(launcher)),
+                Some(FocusableTarget::Launcher(launcher)),
                 KeyboardFocusReason::InputTransition,
             ),
             &mut instance_manager,
