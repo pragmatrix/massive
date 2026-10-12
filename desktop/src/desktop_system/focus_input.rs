@@ -195,25 +195,35 @@ impl DesktopSystem {
         Ok(())
     }
 
-    /// Retarget keyboard focus to the parent if the focused path is inside the subtree rooted at
-    /// `target`.
+    /// Retarget keyboard focus, and the focus the window focus restores, to the parent if its path
+    /// is inside the subtree rooted at `target`.
     ///
-    /// A removed subtree can still contain the current keyboard focus; leaving it in place would
-    /// dangle the keyboard focus at a removed node.
+    /// A removed subtree can still contain either focus; leaving it in place would dangle the
+    /// keyboard focus at a removed node, now or when the window regains focus.
     pub(super) fn refocus_to_parent_if_path_contains(
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         if self.focused_path().contains(target) {
-            let parent = self.aggregates.hierarchy.parent(target).map(|parent| {
-                parent.as_focusable().unwrap_or_else(|| {
-                    panic!("Keyboard focus on an unfocusable parent: {parent:?}")
-                })
-            });
+            let parent = self.focusable_parent(target);
             self.focus(parent, instance_manager)?;
         }
+        if let Some(restore) = self.keyboard_focus.window_restore()
+            && self.path_of(&DesktopTarget::from(restore)).contains(target)
+        {
+            let parent = self.focusable_parent(target);
+            self.keyboard_focus.set_window_restore(parent);
+        }
         Ok(())
+    }
+
+    fn focusable_parent(&self, target: &DesktopTarget) -> Option<FocusableTarget> {
+        self.aggregates.hierarchy.parent(target).map(|parent| {
+            parent
+                .as_focusable()
+                .unwrap_or_else(|| panic!("Keyboard focus on an unfocusable parent: {parent:?}"))
+        })
     }
 }
 

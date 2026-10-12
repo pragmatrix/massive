@@ -104,6 +104,22 @@ impl KeyboardFocus {
         }
     }
 
+    /// The focus regaining the window focus restores; `None` while the window is focused.
+    pub fn window_restore(&self) -> Option<FocusableTarget> {
+        match self.window {
+            WindowFocus::Focused => None,
+            WindowFocus::Unfocused { restore } => restore,
+        }
+    }
+
+    /// Retargets the restored focus, so it never refers to a target that left the hierarchy.
+    pub fn set_window_restore(&mut self, target: Option<FocusableTarget>) {
+        let WindowFocus::Unfocused { restore } = &mut self.window else {
+            panic!("The window focus restores a focus only while the window is unfocused");
+        };
+        *restore = target;
+    }
+
     /// Asserts that no focus state refers to a target that leaves the hierarchy.
     pub fn assert_not_referenced(&self, target: &DesktopTarget) {
         let Some(target) = target.as_focusable() else {
