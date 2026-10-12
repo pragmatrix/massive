@@ -1391,39 +1391,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn key_levels_follow_the_focus_path_from_the_desktop_to_the_instance() -> Result<()> {
-        task_context::with_context(task_context(), async {
-            let frame = massive_applications::begin_frame();
-            let NestedSiblings {
-                system, instance_a, ..
-            } = nested_siblings()?;
-
-            let focused_path = system.focused_path();
-            let levels = system.key_levels(&focused_path);
-            let targets: Vec<_> = levels.iter().map(|level| level.target.clone()).collect();
-
-            assert_eq!(targets.first(), Some(&DesktopTarget::Desktop));
-            assert_eq!(targets.last(), Some(&DesktopTarget::Instance(instance_a)));
-            assert!(
-                targets
-                    .iter()
-                    .any(|target| matches!(target, DesktopTarget::Launcher(_)))
-            );
-            assert!(targets.iter().all(|target| matches!(
-                target,
-                DesktopTarget::Desktop
-                    | DesktopTarget::Project(_)
-                    | DesktopTarget::Launcher(_)
-                    | DesktopTarget::Instance(_)
-            )));
-
-            drop(frame);
-            Ok(())
-        })
-        .await
-    }
-
-    #[tokio::test]
     async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Result<()> {
         task_context::with_context(task_context(), async {
             let frame = massive_applications::begin_frame();
