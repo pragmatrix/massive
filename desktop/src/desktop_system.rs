@@ -94,18 +94,20 @@ pub enum DesktopTarget {
 }
 
 impl DesktopTarget {
-    /// An instance's title bar stands for its instance (ADR 0019); every other target stays as it
-    /// is.
-    pub fn title_bar_as_instance(self) -> Self {
+    /// What a click on the target selects: a project's header and matrix select the project, an
+    /// instance's title bar its instance (ADR 0019), and every other target itself.
+    pub fn selected_target(self) -> Self {
         match self {
+            Self::ProjectHeader(project) | Self::ProjectMatrix(project) => Self::Project(project),
             Self::InstanceTitleBar(instance) => Self::Instance(instance),
             target => target,
         }
     }
 
-    /// A title bar only stands for its instance (ADR 0019), so it never holds the keyboard focus.
+    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
+    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
     pub fn is_focusable(&self) -> bool {
-        !matches!(self, Self::InstanceTitleBar(_))
+        self.clone().selected_target() == *self
     }
 
     /// Whether the target is an instance or part of one (title bar, view).
@@ -116,25 +118,16 @@ impl DesktopTarget {
         )
     }
 
-    /// The project a project-level target stands for; `Desktop` stands for the root project.
+    /// The project a focusable target stands for; `Desktop` stands for the root project.
     pub fn stands_for_project(&self) -> Option<ProjectId> {
         match self {
-            Self::Project(project)
-            | Self::ProjectHeader(project)
-            | Self::ProjectMatrix(project) => Some(*project),
+            Self::Project(project) => Some(*project),
             Self::Desktop => Some(ProjectId::ROOT),
-            Self::Launcher(_) | Self::Instance(_) | Self::InstanceTitleBar(_) | Self::View(_) => {
-                None
+            Self::Launcher(_) | Self::Instance(_) | Self::View(_) => None,
+            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => {
+                unreachable!("{self:?} is not focusable")
             }
         }
-    }
-
-    /// A project target receives no text input, so `Enter` without `Cmd` enters it (ADR 0018).
-    pub fn enters_on_plain_enter(&self) -> bool {
-        matches!(
-            self,
-            Self::Project(_) | Self::ProjectHeader(_) | Self::ProjectMatrix(_)
-        )
     }
 }
 

@@ -36,12 +36,7 @@ impl DesktopSystem {
                     changes <<= DesktopChange::ForwardEvents(EventTransition::from(change).into());
                 }
                 RouterStep::RequestKeyboardFocus { target, source } => {
-                    let target = target.map(DesktopTarget::title_bar_as_instance);
-                    // Clicking a target frames it fully in (ADR 0018).
-                    if source == FocusRequestSource::PointerPress && target.is_some() {
-                        changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
-                    }
-                    changes += set_focus(target, KeyboardFocusReason::InputTransition);
+                    changes += keyboard_focus_request(target, source);
                 }
                 RouterStep::DeliverInput {
                     target,
@@ -194,6 +189,21 @@ impl DesktopSystem {
         }
         Ok(())
     }
+}
+
+/// The router requests the hit-tested target; the keyboard focus goes to what it selects.
+pub(super) fn keyboard_focus_request(
+    target: Option<DesktopTarget>,
+    source: FocusRequestSource,
+) -> Changes {
+    let target = target.map(DesktopTarget::selected_target);
+    let mut changes = Changes::Empty;
+    // Clicking a target frames it fully in (ADR 0018).
+    if source == FocusRequestSource::PointerPress && target.is_some() {
+        changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
+    }
+    changes += set_focus(target, KeyboardFocusReason::InputTransition);
+    changes
 }
 
 fn targets_affected_by_keyboard_focus_change<T>(change: &KeyboardFocusChange<T>) -> Vec<&T> {

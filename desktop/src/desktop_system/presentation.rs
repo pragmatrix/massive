@@ -187,14 +187,8 @@ impl DesktopSystem {
             })?
             .clone();
 
-        // Structural project targets use the parent project as their visible hover target.
-        // Design: This is a policy and needs to be encoded somewhere else.
-        Some(match target {
-            DesktopTarget::ProjectHeader(project) | DesktopTarget::ProjectMatrix(project) => {
-                DesktopTarget::Project(project)
-            }
-            // The title bar and the view outline their whole instance (ADR 0019).
-            DesktopTarget::InstanceTitleBar(instance) => DesktopTarget::Instance(instance),
+        // The outline marks what a click selects; a view outlines its whole instance (ADR 0019).
+        Some(match target.selected_target() {
             DesktopTarget::View(view) => self
                 .aggregates
                 .hierarchy

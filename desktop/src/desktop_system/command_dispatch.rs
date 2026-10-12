@@ -1209,7 +1209,9 @@ mod tests {
     use crate::desktop_system::TransactionEffectsMode;
     use crate::desktop_system::change::DesktopSystemEffect;
     use crate::desktop_system::change::Zoom;
+    use crate::desktop_system::focus_input::keyboard_focus_request;
     use crate::desktop_system::{KeyContext, KeyHandler, KeyInput, KeyOutcome};
+    use crate::event_router::FocusRequestSource;
     use crate::instance_manager::InstanceManager;
     use crate::instance_presenter::{InstanceKind, InstanceTitleBarMetrics};
     use crate::projects::persistence::parse_configuration;
@@ -1383,6 +1385,56 @@ mod tests {
                 first_command(true),
                 Some(DesktopCommand::StartInstance { .. })
             ));
+
+            drop(frame);
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues() -> Result<()>
+    {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let NestedSiblings {
+                mut system,
+                mut instance_manager,
+                instance_b,
+                ..
+            } = nested_siblings()?;
+            let project = system
+                .focused_path()
+                .iter()
+                .rev()
+                .find_map(|target| match target {
+                    DesktopTarget::Project(project) => Some(*project),
+                    _ => None,
+                })
+                .expect("the focused instance is inside a project");
+
+            system.transact(
+                keyboard_focus_request(
+                    Some(DesktopTarget::ProjectMatrix(project)),
+                    FocusRequestSource::PointerPress,
+                ),
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+            )?;
+            assert_eq!(
+                system.event_router.keyboard_focus(),
+                Some(&DesktopTarget::Project(project))
+            );
+
+            run(
+                &mut system,
+                &mut instance_manager,
+                DesktopCommand::Navigate(crate::desktop_system::Direction::Right),
+            )?;
+            assert_eq!(
+                system.event_router.keyboard_focus(),
+                Some(&DesktopTarget::Instance(instance_b))
+            );
 
             drop(frame);
             Ok(())

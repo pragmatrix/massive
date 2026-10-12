@@ -254,7 +254,7 @@ fn resolve_navigation_origin(
             let (project, placement) = configuration.slot_of_content(*launcher_id)?;
             Some(NavigationOrigin::MatrixSlot { project, placement })
         }
-        DesktopTarget::Project(project) | DesktopTarget::ProjectHeader(project) => {
+        DesktopTarget::Project(project) => {
             let (parent, placement) = configuration.slot_of_content(*project)?;
             Some(NavigationOrigin::MatrixSlot {
                 project: parent,
@@ -272,7 +272,10 @@ fn resolve_navigation_origin(
             let instance = hierarchy.instance_of_target(from)?;
             resolve_navigation_origin(hierarchy, configuration, &DesktopTarget::Instance(instance))
         }
-        _ => None,
+        DesktopTarget::Desktop => None,
+        DesktopTarget::ProjectHeader(_)
+        | DesktopTarget::ProjectMatrix(_)
+        | DesktopTarget::InstanceTitleBar(_) => unreachable!("{from:?} is not focusable"),
     }
 }
 

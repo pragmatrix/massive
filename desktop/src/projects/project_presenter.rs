@@ -4,7 +4,7 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
 };
 use crate::projects::{MatrixPlacement, ProjectId};
 
@@ -59,9 +59,7 @@ impl KeyHandler for ProjectPresenter {
         let enters = matches!(
             Shortcut::from_input(input),
             Some(Shortcut::Enter | Shortcut::CommandEnter)
-        ) && context.focused().is_some_and(|focused| {
-            focused.enters_on_plain_enter() && focused.stands_for_project() == Some(self.id)
-        });
+        ) && context.focused() == Some(&DesktopTarget::Project(self.id));
 
         if enters {
             KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into())

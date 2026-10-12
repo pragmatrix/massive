@@ -105,13 +105,12 @@ impl DesktopSystem {
     }
 
     /// The handlers of the keyboard focus path, outermost first.
-    ///
-    /// A project's header and matrix stand for their project, which is already a level.
     pub(super) fn key_levels<'s>(&'s self, focused_path: &DesktopFocusPath) -> Vec<KeyLevel<'s>> {
         let aggregates = &self.aggregates;
         focused_path
             .iter()
-            .filter_map(|target| {
+            .filter(|target| target.is_focusable())
+            .map(|target| {
                 let handler: &dyn KeyHandler = match target {
                     DesktopTarget::Desktop => &self.desktop_presenter,
                     DesktopTarget::Project(project) => aggregates
@@ -127,18 +126,12 @@ impl DesktopSystem {
                         .get(instance)
                         .expect("An instance on the focus path has a presenter"),
                     DesktopTarget::View(_) => &ApplicationKeys,
-                    DesktopTarget::ProjectHeader(_) | DesktopTarget::ProjectMatrix(_) => {
-                        return None;
-                    }
-                    // A title bar is a leaf, so it is only on the path as the focus.
-                    DesktopTarget::InstanceTitleBar(_) => {
-                        unreachable!("A title bar is not focusable")
-                    }
+                    target => unreachable!("{target:?} is not focusable"),
                 };
-                Some(KeyLevel {
+                KeyLevel {
                     target: target.clone(),
                     handler,
-                })
+                }
             })
             .collect()
     }
