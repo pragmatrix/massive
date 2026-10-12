@@ -58,11 +58,11 @@ impl DesktopSystem {
     }
 
     fn window_title(&self, terminal_title: String) -> String {
-        let focused = self.event_router.keyboard_focus();
         // Window title suffixes are configuration names, read from the aggregate, not
         // from presenters.
-        let launcher = focused
-            .and_then(|target| self.aggregates.hierarchy.launcher_of_target(target))
+        let launcher = self
+            .focused_target()
+            .and_then(|target| self.aggregates.hierarchy.launcher_of_target(&target))
             .map(|id| {
                 self.aggregates
                     .configuration
@@ -71,8 +71,9 @@ impl DesktopSystem {
                     .name
                     .as_str()
             });
-        let project = focused
-            .map(|target| self.aggregates.hierarchy.project_of_target(target))
+        let project = self
+            .focused_target()
+            .map(|target| self.aggregates.hierarchy.project_of_target(&target))
             .map(|id| {
                 self.aggregates
                     .configuration
@@ -289,7 +290,7 @@ impl DesktopSystem {
     }
 
     pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
-        let focused = self.event_router.keyboard_focus()?;
+        let focused = self.keyboard_focus.focused()?;
         Some(
             self.zoom_geometry()
                 .resolve_camera_for_target(focused, self.zoom_level),

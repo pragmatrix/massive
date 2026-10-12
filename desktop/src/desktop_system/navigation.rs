@@ -85,7 +85,7 @@ impl NavigationControl {
 
 #[derive(Debug, Clone)]
 pub struct NavigationPlan {
-    candidate: DesktopTarget,
+    candidate: FocusableTarget,
     column_affinity: Option<u32>,
 }
 
@@ -110,7 +110,7 @@ impl DesktopSystem {
     pub(super) fn plan_navigate(&self, direction: Direction) -> Result<Changes> {
         // If nothing is focused (i.e. the whole window does not have the focused), we probably
         // don't want to do anything and this is perhaps even an error.
-        let Some(focused) = self.event_router.keyboard_focus() else {
+        let Some(focused) = self.keyboard_focus.focused() else {
             error!("Navigation request without active focus");
             return Ok(Changes::Empty);
         };
@@ -135,7 +135,7 @@ impl DesktopSystem {
 
     /// The focus replacement when slot `content` is removed: the first available
     /// right, left, down, or up neighbor in its matrix, else its hosting project.
-    pub fn slot_removal_focus(&self, content: SlotContent) -> DesktopTarget {
+    pub fn slot_removal_focus(&self, content: SlotContent) -> FocusableTarget {
         let (parent, placement) = self
             .aggregates
             .configuration
@@ -154,14 +154,14 @@ impl DesktopSystem {
             matrix_navigation.navigate_within_matrix(parent, placement, direction, None)
         })
         .map(|replacement| self.focus_targets().slot_focus_target(replacement))
-        .unwrap_or(DesktopTarget::Project(parent))
+        .unwrap_or(FocusableTarget::Project(parent))
     }
 
     pub(super) fn zoom_navigation(&self) -> ZoomNavigation<'_> {
         ZoomNavigation::new(
             self.zoom_geometry(),
             self.focus_targets(),
-            self.event_router.keyboard_focus(),
+            self.keyboard_focus.focused(),
             self.zoom_level,
         )
     }
@@ -195,7 +195,7 @@ fn plan_navigation_candidate(
     launchers: &LauncherMap,
     configuration: &RuntimeConfiguration,
     navigation_control: &NavigationControl,
-    from: &DesktopTarget,
+    from: FocusableTarget,
     direction: Direction,
 ) -> Option<NavigationPlan> {
     let origin = resolve_navigation_origin(hierarchy, configuration, from)?;
@@ -210,7 +210,7 @@ fn plan_navigation_candidate(
         _ => column_affinity,
     };
     let target = match step.target {
-        DesktopTarget::Project(project) => {
+        FocusableTarget::Project(project) => {
             remembered_project_target(projects, configuration, project)
         }
         target => target,
@@ -230,7 +230,7 @@ fn remembered_project_target(
     projects: &ProjectMap,
     configuration: &RuntimeConfiguration,
     project: ProjectId,
-) -> DesktopTarget {
+) -> FocusableTarget {
     let remembered = projects
         .get(&project)
         .and_then(|presenter| presenter.last_focused_placement)
@@ -240,20 +240,17 @@ fn remembered_project_target(
         Some(SlotContent::Project(nested)) => {
             remembered_project_target(projects, configuration, nested)
         }
-        Some(content) => content.target(),
-        None => DesktopTarget::Project(project),
+        Some(content) => content.into(),
+        None => FocusableTarget::Project(project),
     }
 }
 
 fn resolve_navigation_origin(
     hierarchy: &DesktopTopology,
     configuration: &RuntimeConfiguration,
-    from: &DesktopTarget,
+    from: FocusableTarget,
 ) -> Option<NavigationOrigin> {
-    match from
-        .as_focusable()
-        .expect("Navigation starts from the keyboard focus")
-    {
+    match from {
         FocusableTarget::Launcher(launcher_id) => {
             let (project, placement) = configuration.slot_of_content(launcher_id)?;
             Some(NavigationOrigin::MatrixSlot { project, placement })
@@ -272,9 +269,13 @@ fn resolve_navigation_origin(
                 .position(|instance| instance == instance_id)?;
             Some(NavigationOrigin::Child { launcher, index })
         }
-        FocusableTarget::View(_) => {
-            let instance = hierarchy.instance_of_target(from)?;
-            resolve_navigation_origin(hierarchy, configuration, &DesktopTarget::Instance(instance))
+        FocusableTarget::View(view) => {
+            let instance = hierarchy.instance_of_target(&DesktopTarget::View(view))?;
+            resolve_navigation_origin(
+                hierarchy,
+                configuration,
+                FocusableTarget::Instance(instance),
+            )
         }
         FocusableTarget::Desktop => None,
     }
@@ -310,31 +311,30 @@ fn navigate_from_origin(
 /// Normalizes a raw navigation result into a concrete, focusable target.
 ///
 /// Matrix navigation may return a `Launcher` shell. This step converts launcher
-/// targets into concrete child instances when appropriate, then delegates to the
-/// hierarchy to resolve the final focus target (for example, a nested view). A project
+/// targets into concrete child instances when appropriate, and an instance resolves
+/// to its view when it has one. A project
 /// target stays the project (ADR 0018). This is the directional variant of
 /// `DesktopSystem::slot_focus_target`: a band launcher picks its edge instance by direction.
 fn resolve_navigation_focus_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
     configuration: &RuntimeConfiguration,
-    target: DesktopTarget,
+    target: FocusableTarget,
     direction: Direction,
-) -> DesktopTarget {
-    let target = match target {
-        DesktopTarget::Launcher(launcher_id) => {
+) -> FocusableTarget {
+    match target {
+        FocusableTarget::Launcher(launcher_id) => {
             concrete_navigation_target(topology, launchers, configuration, launcher_id, direction)
         }
-        _ => target,
-    };
-
-    topology.resolve_keyboard_focus_target(&target)
+        FocusableTarget::Instance(instance) => topology.instance_focus_target(instance),
+        target => target,
+    }
 }
 
 /// Chooses a concrete focus target for a launcher.
 ///
-/// If the launcher has instances, returns the preferred instance for the current
-/// mode and direction (for example, the visor focus anchor when available).
+/// If the launcher has instances, returns the preferred instance's focus target for the
+/// current mode and direction (for example, the visor focus anchor when available).
 /// Otherwise, it falls back to the launcher itself.
 fn concrete_navigation_target(
     topology: &DesktopTopology,
@@ -342,11 +342,11 @@ fn concrete_navigation_target(
     configuration: &RuntimeConfiguration,
     launcher_id: LaunchProfileId,
     direction: Direction,
-) -> DesktopTarget {
+) -> FocusableTarget {
     // The mode is a configuration question; the anchor is presentation state and stays
     // on the presenter. A launcher absent from either falls back to itself.
     let Some(launcher) = launchers.get(&launcher_id) else {
-        return DesktopTarget::Launcher(launcher_id);
+        return FocusableTarget::Launcher(launcher_id);
     };
     let mode = configuration
         .launcher(launcher_id)
@@ -364,9 +364,9 @@ fn concrete_navigation_target(
     if let Some(target_index) =
         select_concrete_instance_index(instances.len(), direction, preferred_index)
     {
-        DesktopTarget::Instance(instances[target_index])
+        topology.instance_focus_target(instances[target_index])
     } else {
-        DesktopTarget::Launcher(launcher_id)
+        FocusableTarget::Launcher(launcher_id)
     }
 }
 

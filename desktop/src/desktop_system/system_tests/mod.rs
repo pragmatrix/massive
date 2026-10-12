@@ -17,10 +17,9 @@ use super::change::{
     DesktopSystemEffect, InstancePresentation, ToggleFullScreenModeTarget, TopologyChange, Zoom,
     set_focus,
 };
-use super::focus_input::keyboard_focus_request;
+use super::focus_input::pointer_press_focus;
 use super::*;
 use crate::desktop_environment::DesktopEnvironment;
-use crate::event_router::FocusRequestSource;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
 use crate::projects::persistence::parse_configuration;
@@ -107,7 +106,7 @@ fn nested_siblings() -> Result<NestedSiblings> {
     let instance_b = start_instance(&mut system, &mut instance_manager, launcher_b, 0)?;
     system.transact(
         set_focus(
-            Some(DesktopTarget::Instance(instance_a)),
+            Some(FocusableTarget::Instance(instance_a)),
             KeyboardFocusReason::InputTransition,
         ),
         &mut instance_manager,
@@ -246,7 +245,7 @@ fn start_instance(
     ]
     .into();
     changes += set_focus(
-        Some(DesktopTarget::Instance(instance)),
+        Some(FocusableTarget::Instance(instance)),
         KeyboardFocusReason::PresentInstance,
     );
     system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;

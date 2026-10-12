@@ -4,9 +4,8 @@
 use massive_applications::InstanceId;
 
 use super::{HorizontalDirection, VerticalDirection};
-use crate::desktop_system::DesktopTarget;
-use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
+use crate::desktop_system::{Direction, FocusableTarget};
 use crate::projects::{
     LaunchProfileId, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
 };
@@ -20,7 +19,7 @@ pub struct MatrixNavigation<'a> {
 /// The outcome of a navigation lookup.
 #[derive(Debug, Clone)]
 pub struct NavigationStep {
-    pub target: DesktopTarget,
+    pub target: FocusableTarget,
     /// The placement of the slot the search escaped to in an ancestor matrix, if the target was
     /// not found in the origin's own matrix.
     pub escaped_from: Option<MatrixPlacement>,
@@ -61,11 +60,11 @@ impl<'a> MatrixNavigation<'a> {
         let mut escaped_from = None;
 
         loop {
-            if let Some(target) =
+            if let Some(content) =
                 self.navigate_within_matrix(project, placement, direction, preferred_column)
             {
                 return Some(NavigationStep {
-                    target,
+                    target: content.into(),
                     escaped_from,
                 });
             }
@@ -82,10 +81,9 @@ impl<'a> MatrixNavigation<'a> {
         origin_placement: MatrixPlacement,
         direction: Direction,
         preferred_column: Option<u32>,
-    ) -> Option<DesktopTarget> {
+    ) -> Option<SlotContent> {
         let entries = self.create_project_matrix_entries(project_id);
         select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
-            .map(SlotContent::target)
     }
 
     pub fn navigate_from_child(
@@ -102,7 +100,7 @@ impl<'a> MatrixNavigation<'a> {
         if let Some(horizontal) = direction.horizontal() {
             return horizontal_child_neighbor(&instances, index, horizontal)
                 .map(|instance| NavigationStep {
-                    target: DesktopTarget::Instance(instance),
+                    target: FocusableTarget::Instance(instance),
                     escaped_from: None,
                 })
                 .or_else(|| self.navigate_from_slot(launcher_id, direction, preferred_column));
@@ -375,11 +373,11 @@ mod tests {
             )
         }
 
-        fn target_at(&self, project: ProjectId, placement: (u32, u32)) -> DesktopTarget {
+        fn target_at(&self, project: ProjectId, placement: (u32, u32)) -> FocusableTarget {
             self.configuration
                 .content_at(project, placement.into())
                 .unwrap()
-                .target()
+                .into()
         }
     }
 
@@ -441,7 +439,7 @@ mod tests {
             .navigate(fixture.labs, (0, 0), Direction::Down, None)
             .unwrap_or_else(|| panic!("labs (0,0) has `inner` below"));
 
-        assert_eq!(step.target, DesktopTarget::Project(fixture.inner));
+        assert_eq!(step.target, FocusableTarget::Project(fixture.inner));
         assert_eq!(step.escaped_from, None);
     }
 

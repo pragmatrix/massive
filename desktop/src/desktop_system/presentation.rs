@@ -176,16 +176,11 @@ impl DesktopSystem {
     }
 
     fn hover_target(&self) -> Option<DesktopTarget> {
-        let target = self
-            .event_router
-            .pointer_focus()
-            .or_else(|| {
-                // An application that received the last key shows its own feedback.
-                self.event_router
-                    .keyboard_focus()
-                    .filter(|focus| !self.input_focus.is_application_at(focus))
-            })?
-            .clone();
+        let target = self.event_router.pointer_focus().cloned().or_else(|| {
+            self.keyboard_focus
+                .hover_outline_focus()
+                .map(DesktopTarget::from)
+        })?;
 
         // The outline marks what a click selects; a view outlines its whole instance (ADR 0019).
         Some(match target.selected_target() {

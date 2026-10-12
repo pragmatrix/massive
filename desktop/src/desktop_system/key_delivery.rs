@@ -8,7 +8,9 @@ use anyhow::Result;
 use massive_applications::{ViewEvent, ViewId};
 
 use super::change::{Changes, DesktopChange};
-use super::{Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, FocusableTarget, KeyInput};
+use super::{
+    Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, FocusableTarget, InputFocus, KeyInput,
+};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::projects::RuntimeConfiguration;
 use crate::targeted_event::EventTransition;
@@ -44,27 +46,6 @@ enum KeyDelivery {
         view: ViewId,
         event: ViewEvent,
     },
-}
-
-/// Where the last typed key went (ADR 0020). The hover outline marks the keyboard focus only while
-/// the user is at the desktop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum InputFocus {
-    /// A desktop level consumed the key, or it was dropped.
-    #[default]
-    Desktop,
-    Application(ViewId),
-}
-
-impl InputFocus {
-    /// The keyboard focus can move without a key, so the application only holds the input focus
-    /// while it is still the keyboard-focused view.
-    pub fn is_application_at(&self, keyboard_focus: &DesktopTarget) -> bool {
-        matches!(
-            (self, keyboard_focus),
-            (Self::Application(view), DesktopTarget::View(focused)) if view == focused
-        )
-    }
 }
 
 impl DesktopSystem {

@@ -2,7 +2,7 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::{InputFocus, KeyboardFocusReason};
+use super::{FocusableTarget, InputFocus, KeyboardFocusReason};
 use crate::DesktopTarget;
 use crate::desktop_system::ZoomLevel;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
@@ -38,7 +38,7 @@ pub enum DesktopChange {
     },
     SetFocus {
         // None: Completely removes the focus from the application.
-        target: Option<DesktopTarget>,
+        target: Option<FocusableTarget>,
     },
     /// Sets the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
@@ -129,7 +129,7 @@ pub enum ConfigurationChange {
 /// Emits `SetFocus`, and — when the focus reason resets navigation affinity — a sibling
 /// `SetNavigationAffinity(None)` so the reset flows through change application rather than being
 /// applied inline in `focus()`.
-pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
+pub fn set_focus(target: Option<FocusableTarget>, reason: KeyboardFocusReason) -> Changes {
     let mut changes: Changes = DesktopChange::SetFocus { target }.into();
     if reason.resets_navigation_affinity() {
         changes <<= DesktopChange::SetNavigationAffinity(None);

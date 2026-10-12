@@ -2,7 +2,7 @@ use massive_applications::ViewEvent;
 use massive_util::CollectingVec;
 use winit::event::{DeviceId, Modifiers};
 
-use crate::event_router::{KeyboardFocusChange, PointerFocusChange};
+use crate::event_router::PointerFocusChange;
 use crate::focus_path::{FocusTransition, PathResolver};
 
 #[derive(Debug)]
@@ -19,15 +19,6 @@ pub enum EventTransition<T> {
 }
 
 pub type EventTransitions<T> = CollectingVec<EventTransition<T>>;
-
-impl<T> From<KeyboardFocusChange<T>> for EventTransition<T> {
-    fn from(change: KeyboardFocusChange<T>) -> Self {
-        Self::ChangeKeyboardFocus {
-            from: change.from,
-            to: change.to,
-        }
-    }
-}
 
 impl<T> From<PointerFocusChange<T>> for EventTransition<T> {
     fn from(change: PointerFocusChange<T>) -> Self {

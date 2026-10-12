@@ -7,8 +7,11 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::{DesktopSystem, DesktopTarget, KeyInput, KeyboardFocusReason, ZoomLevel};
-use crate::event_router::{FocusRequestSource, KeyboardFocusChange, RouterStep};
+use super::keyboard_focus::{KeyboardFocusChange, WindowFocusRequest};
+use super::{
+    DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, ZoomLevel,
+};
+use crate::event_router::RouterStep;
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
 use crate::projects::{LaunchProfileId, launcher_mode};
@@ -35,45 +38,68 @@ impl DesktopSystem {
                 RouterStep::PointerFocusChanged(change) => {
                     changes <<= DesktopChange::ForwardEvents(EventTransition::from(change).into());
                 }
-                RouterStep::RequestKeyboardFocus { target, source } => {
-                    changes += keyboard_focus_request(target, source);
+                RouterStep::PointerPressed(target) => {
+                    changes += pointer_press_focus(target);
+                }
+                RouterStep::WindowFocusChanged(focused) => {
+                    // Robustness: What about pointer focus?
+                    if let Some(request) = self.keyboard_focus.set_window_focus(focused) {
+                        let target = match request {
+                            WindowFocusRequest::Clear => None,
+                            WindowFocusRequest::Restore(target) => Some(target),
+                        };
+                        changes += set_focus(target, KeyboardFocusReason::InputTransition);
+                    }
+                }
+                RouterStep::KeyboardInput(delivered) => {
+                    changes += self.deliver_keyboard_input(delivered, event)?;
                 }
                 RouterStep::DeliverInput {
                     target,
                     event: delivered,
-                } => match KeyInput::from_view_event(&delivered, event.keyboard_modifiers()) {
-                    Some(input) => {
-                        // The walk starts from the keyboard focus, not from `target`.
-                        assert_eq!(
-                            Some(&target),
-                            self.event_router.keyboard_focus(),
-                            "A key is routed to the keyboard focus"
-                        );
-                        changes += self.deliver_key_along_focus_path(&input)?;
-                    }
-                    None => {
-                        changes <<= DesktopChange::ForwardEvents(
-                            EventTransition::Send(target, delivered).into(),
-                        );
-                    }
-                },
+                } => {
+                    changes <<= DesktopChange::ForwardEvents(
+                        EventTransition::Send(target, delivered).into(),
+                    );
+                }
             }
         }
 
         Ok(changes)
     }
 
-    pub(super) fn focus<'a>(
+    /// Keys walk the keyboard focus path (ADR 0020); IME input and modifier changes go to the
+    /// keyboard focus.
+    fn deliver_keyboard_input(
+        &self,
+        delivered: ViewEvent,
+        event: &Event<ViewEvent>,
+    ) -> Result<Changes> {
+        let Some(focused) = self.focused_target() else {
+            return Ok(Changes::Empty);
+        };
+        if let Some(input) = KeyInput::from_view_event(&delivered, event.keyboard_modifiers()) {
+            return self.deliver_key_along_focus_path(&input);
+        }
+
+        let mut transitions = vec![EventTransition::Send(focused.clone(), delivered.clone())];
+        // Modifiers alter pointer interaction (Cmd activates hyperlinks), so a pointed-at target
+        // other than the keyboard focus needs them too.
+        if matches!(delivered, ViewEvent::ModifiersChanged(_))
+            && let Some(pointer_focus) = self.event_router.pointer_focus()
+            && *pointer_focus != focused
+        {
+            transitions.push(EventTransition::Send(pointer_focus.clone(), delivered));
+        }
+        Ok(DesktopChange::ForwardEvents(transitions.into()).into())
+    }
+
+    pub(super) fn focus(
         &mut self,
-        target: impl Into<Option<&'a DesktopTarget>>,
+        target: Option<FocusableTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        let target = target.into();
-        assert!(
-            target.is_none_or(DesktopTarget::is_focusable),
-            "Keyboard focus on an unfocusable target: {target:?}"
-        );
-        let focus_change = self.event_router.focus(target);
+        let focus_change = self.keyboard_focus.focus(target);
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
         // measures now and let `transact` drain them once buttons are released. The camera move
@@ -101,11 +127,12 @@ impl DesktopSystem {
     /// affected targets. The camera move itself follows from `transact` observing the focus change.
     fn launcher_measures_for_focus_change(
         &self,
-        change: &KeyboardFocusChange<DesktopTarget>,
+        change: &KeyboardFocusChange,
     ) -> HashSet<LaunchProfileId> {
-        targets_affected_by_keyboard_focus_change(change)
-            .iter()
-            .filter_map(|target| self.focus_target_launcher_for_layout(target))
+        [change.from, change.to]
+            .into_iter()
+            .flatten()
+            .filter_map(|target| self.focus_target_launcher_for_layout(&target.into()))
             .collect()
     }
 
@@ -169,46 +196,46 @@ impl DesktopSystem {
         Ok(())
     }
 
-    /// Retarget keyboard focus to the parent if the focused path is inside the subtree rooted at
-    /// `target`.
+    /// Retarget keyboard focus, and the focus the window focus restores, to the parent if its path
+    /// is inside the subtree rooted at `target`.
     ///
-    /// A removed subtree can still contain the current keyboard focus; leaving it in place would
-    /// dangle the router's `keyboard_focus` at a removed node.
+    /// A removed subtree can still contain either focus; leaving it in place would dangle the
+    /// keyboard focus at a removed node, now or when the window regains focus.
     pub(super) fn refocus_to_parent_if_path_contains(
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        if self
-            .aggregates
-            .hierarchy
-            .path_contains_target(self.event_router.keyboard_focus(), target)
+        if self.focused_path().contains(target) {
+            let parent = self.focusable_parent(target);
+            self.focus(parent, instance_manager)?;
+        }
+        if let Some(restore) = self.keyboard_focus.window_restore()
+            && self.path_of(&DesktopTarget::from(restore)).contains(target)
         {
-            let parent = self.aggregates.hierarchy.parent(target).cloned();
-            self.focus(parent.as_ref(), instance_manager)?;
+            let parent = self.focusable_parent(target);
+            self.keyboard_focus.set_window_restore(parent);
         }
         Ok(())
     }
+
+    fn focusable_parent(&self, target: &DesktopTarget) -> Option<FocusableTarget> {
+        self.aggregates.hierarchy.parent(target).map(|parent| {
+            parent
+                .as_focusable()
+                .unwrap_or_else(|| panic!("Keyboard focus on an unfocusable parent: {parent:?}"))
+        })
+    }
 }
 
-/// The router requests the hit-tested target; the keyboard focus goes to what it selects.
-pub(super) fn keyboard_focus_request(
-    target: Option<DesktopTarget>,
-    source: FocusRequestSource,
-) -> Changes {
-    let target = target.map(|target| target.selected_target().into());
+/// A press focuses what the pressed target selects, and a press on nothing clears the focus.
+pub(super) fn pointer_press_focus(target: Option<DesktopTarget>) -> Changes {
+    let target = target.map(|target| target.selected_target());
     let mut changes = Changes::Empty;
     // Clicking a target frames it fully in (ADR 0018).
-    if source == FocusRequestSource::PointerPress && target.is_some() {
+    if target.is_some() {
         changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
     }
     changes += set_focus(target, KeyboardFocusReason::InputTransition);
     changes
-}
-
-fn targets_affected_by_keyboard_focus_change<T>(change: &KeyboardFocusChange<T>) -> Vec<&T> {
-    [change.from.as_ref(), change.to.as_ref()]
-        .into_iter()
-        .flatten()
-        .collect()
 }
