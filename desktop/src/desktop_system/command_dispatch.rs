@@ -170,17 +170,14 @@ impl DesktopSystem {
                 //
                 // Detail: This causes an unfocus event sent to the instance's view which may
                 // unexpected while tear down.
-                let replacement_focus = self.focused_target().as_ref().and_then(|focused| {
+                let replacement_focus = self.focused_target().and_then(|focused| {
                     self.aggregates
                         .hierarchy
-                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
+                        .resolve_replacement_focus_for_stopping_instance(&focused, instance)
                 });
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
-                    let focus = focus.as_focusable().unwrap_or_else(|| {
-                        panic!("Replacement focus on an unfocusable target: {focus:?}")
-                    });
                     changes += set_focus(Some(focus), KeyboardFocusReason::StopInstanceReplacement);
                 }
                 changes += [
@@ -426,20 +423,10 @@ impl DesktopSystem {
     /// not leave the router pointing at a target about to leave the topology: the
     /// removed content gets a neighbouring replacement instead of its parent.
     fn clear_slot_focus(&self, content: SlotContent) -> Changes {
-        let Some(focused) = self.focused_target() else {
-            return Changes::Empty;
-        };
-        if !self
-            .aggregates
-            .hierarchy
-            .path_contains_target(Some(&focused), &content.target())
-        {
+        if !self.focused_path().contains(&content.target()) {
             return Changes::Empty;
         }
         let replacement = self.slot_removal_focus(content);
-        let replacement = replacement.as_focusable().unwrap_or_else(|| {
-            panic!("Slot removal focus on an unfocusable target: {replacement:?}")
-        });
         set_focus(Some(replacement), KeyboardFocusReason::InputTransition)
     }
 

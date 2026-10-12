@@ -76,6 +76,7 @@ use crate::instance_presenter::{InstancePresenter, InstanceTitleBarMetrics, View
 use crate::projects::FullScreenMode;
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
+    SlotContent,
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
@@ -109,25 +110,6 @@ pub enum FocusableTarget {
 }
 
 impl DesktopTarget {
-    /// Whether the target is an instance or part of one (title bar, view).
-    pub fn is_instance_target(&self) -> bool {
-        matches!(
-            self,
-            Self::Instance(_) | Self::InstanceTitleBar(_) | Self::View(_)
-        )
-    }
-
-    /// The project a focusable target stands for; `Desktop` stands for the root project.
-    pub fn stands_for_project(&self) -> Option<ProjectId> {
-        match self.as_focusable()? {
-            FocusableTarget::Project(project) => Some(project),
-            FocusableTarget::Desktop => Some(ProjectId::ROOT),
-            FocusableTarget::Launcher(_)
-            | FocusableTarget::Instance(_)
-            | FocusableTarget::View(_) => None,
-        }
-    }
-
     /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
     /// a part that selects another leaves both to its parent on the same path (ADR 0019).
     pub fn as_focusable(&self) -> Option<FocusableTarget> {
@@ -157,6 +139,37 @@ pub enum Direction {
     Right,
     Up,
     Down,
+}
+
+impl FocusableTarget {
+    /// Whether the target is an instance or its view.
+    pub fn is_instance_target(&self) -> bool {
+        matches!(self, Self::Instance(_) | Self::View(_))
+    }
+
+    /// The project the target stands for; `Desktop` stands for the root project.
+    pub fn stands_for_project(&self) -> Option<ProjectId> {
+        match *self {
+            Self::Project(project) => Some(project),
+            Self::Desktop => Some(ProjectId::ROOT),
+            Self::Launcher(_) | Self::Instance(_) | Self::View(_) => None,
+        }
+    }
+}
+
+impl From<ProjectId> for FocusableTarget {
+    fn from(project: ProjectId) -> Self {
+        Self::Project(project)
+    }
+}
+
+impl From<SlotContent> for FocusableTarget {
+    fn from(content: SlotContent) -> Self {
+        match content {
+            SlotContent::Launcher(launcher) => Self::Launcher(launcher),
+            SlotContent::Project(project) => Self::Project(project),
+        }
+    }
 }
 
 impl From<FocusableTarget> for DesktopTarget {

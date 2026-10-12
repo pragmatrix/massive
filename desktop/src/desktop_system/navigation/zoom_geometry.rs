@@ -11,7 +11,7 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::layout_state::DesktopLayoutState;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::desktop_system::{DesktopTarget, ZoomLevel};
+use crate::desktop_system::{DesktopTarget, FocusableTarget, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::projects::{
     LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
@@ -52,19 +52,19 @@ impl<'a> ZoomGeometry<'a> {
 
     /// The project whose matrix holds `target`'s slot. A project target is a slot of its parent;
     /// the root project, which no matrix hosts, is its own zoom project.
-    pub fn project_of(&self, target: &DesktopTarget) -> ProjectId {
+    pub fn project_of(&self, target: FocusableTarget) -> ProjectId {
         match target.stands_for_project() {
             Some(project) => self.hierarchy.parent_project_of(project).unwrap_or(project),
-            None => self.hierarchy.project_of_target(target),
+            None => self.hierarchy.project_of_target(&target.into()),
         }
     }
 
     pub fn slot_in_project(
         &self,
         project: ProjectId,
-        target: &DesktopTarget,
+        target: FocusableTarget,
     ) -> Option<(SlotContent, MatrixPlacement)> {
-        let target_path = self.hierarchy.resolve_path(Some(target));
+        let target_path = self.hierarchy.resolve_path(Some(&target.into()));
         self.configuration
             .slots_ordered(project)
             .find_map(|(placement, content)| {
@@ -76,7 +76,7 @@ impl<'a> ZoomGeometry<'a> {
 
     pub fn resolve_camera_for_target(
         &self,
-        target: &DesktopTarget,
+        target: FocusableTarget,
         level: ZoomLevel,
     ) -> PixelCamera {
         let project = self.project_of(target);
@@ -88,7 +88,7 @@ impl<'a> ZoomGeometry<'a> {
             ZoomLevel::Focus if target.is_instance_target() => {
                 let instance = self
                     .hierarchy
-                    .instance_of_target(target)
+                    .instance_of_target(&target.into())
                     .expect("an instance target belongs to an instance");
                 self.instance_camera(instance)
             }

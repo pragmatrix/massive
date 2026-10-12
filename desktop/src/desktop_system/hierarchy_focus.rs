@@ -1,6 +1,6 @@
 use massive_applications::InstanceId;
 
-use super::DesktopTarget;
+use super::{DesktopTarget, FocusableTarget};
 use crate::focus_path::PathResolver;
 use crate::{DirectionBias, OrderedHierarchy};
 
@@ -9,43 +9,48 @@ impl OrderedHierarchy<DesktopTarget> {
         &self,
         focused: &DesktopTarget,
         instance: InstanceId,
-    ) -> Option<DesktopTarget> {
+    ) -> Option<FocusableTarget> {
         if !self.path_contains_target(Some(focused), &DesktopTarget::Instance(instance)) {
             return None;
         }
 
         if let Some(neighbor) = self.resolve_neighbor_for_stopping_instance(focused, instance) {
-            return Some(self.resolve_keyboard_focus_target(&neighbor));
+            return Some(self.instance_focus_target(neighbor));
         }
 
-        Some(DesktopTarget::Launcher(self.launcher_of_instance(instance)))
+        Some(FocusableTarget::Launcher(
+            self.launcher_of_instance(instance),
+        ))
     }
 
     fn resolve_neighbor_for_stopping_instance(
         &self,
         focused: &DesktopTarget,
         instance: InstanceId,
-    ) -> Option<DesktopTarget> {
+    ) -> Option<InstanceId> {
         if self.resolve_path(Some(focused)).instance() != Some(instance) {
             return None;
         }
-        self.entry(&DesktopTarget::Instance(instance))
+        let neighbor = self
+            .entry(&DesktopTarget::Instance(instance))
             .neighbor(DirectionBias::Begin)
-            .cloned()
+            .cloned()?;
+        let DesktopTarget::Instance(neighbor) = neighbor else {
+            panic!("A launcher nests only instances, found {neighbor:?}");
+        };
+        Some(neighbor)
     }
 
     /// Resolves an instance to its sole view when present, so keyboard focus reaches the view;
-    /// otherwise, preserves the original target.
-    pub(super) fn resolve_keyboard_focus_target(&self, target: &DesktopTarget) -> DesktopTarget {
-        match target {
-            DesktopTarget::Instance(_) => self
-                .get_nested(target)
-                .iter()
-                .find(|nested| matches!(nested, DesktopTarget::View(_)))
-                .unwrap_or(target)
-                .clone(),
-            _ => target.clone(),
-        }
+    /// otherwise, the instance itself.
+    pub(super) fn instance_focus_target(&self, instance: InstanceId) -> FocusableTarget {
+        self.get_nested(&DesktopTarget::Instance(instance))
+            .iter()
+            .find_map(|nested| match nested {
+                DesktopTarget::View(view) => Some(FocusableTarget::View(*view)),
+                _ => None,
+            })
+            .unwrap_or(FocusableTarget::Instance(instance))
     }
 
     pub(super) fn path_contains_target(
@@ -131,7 +136,7 @@ mod tests {
         let focused = DesktopTarget::Instance(first);
         let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
-        assert_eq!(neighbor, Some(DesktopTarget::Instance(second)));
+        assert_eq!(neighbor, Some(second));
     }
 
     #[test]
@@ -163,7 +168,7 @@ mod tests {
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
-        assert_eq!(replacement, Some(DesktopTarget::View(view)));
+        assert_eq!(replacement, Some(FocusableTarget::View(view)));
     }
 
     #[test]
@@ -191,7 +196,7 @@ mod tests {
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
-        assert_eq!(replacement, Some(DesktopTarget::View(second_view)));
+        assert_eq!(replacement, Some(FocusableTarget::View(second_view)));
     }
 
     #[test]
@@ -203,11 +208,11 @@ mod tests {
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, instance);
 
-        assert_eq!(replacement, Some(DesktopTarget::Launcher(launcher)));
+        assert_eq!(replacement, Some(FocusableTarget::Launcher(launcher)));
     }
 
     #[test]
-    fn resolve_keyboard_focus_target_prefers_single_view_of_instance() {
+    fn instance_focus_target_prefers_single_view_of_instance() {
         let instance = instance_id();
         let view = view_id();
         let (mut hierarchy, _launcher) = hierarchy_with_instances(&[instance]);
@@ -216,28 +221,16 @@ mod tests {
             .add(DesktopTarget::Instance(instance), DesktopTarget::View(view))
             .unwrap();
 
-        let focus_target =
-            hierarchy.resolve_keyboard_focus_target(&DesktopTarget::Instance(instance));
-        assert_eq!(focus_target, DesktopTarget::View(view));
+        let focus_target = hierarchy.instance_focus_target(instance);
+        assert_eq!(focus_target, FocusableTarget::View(view));
     }
 
     #[test]
-    fn resolve_keyboard_focus_target_keeps_instance_without_view() {
+    fn instance_focus_target_keeps_instance_without_view() {
         let instance = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[instance]);
 
-        let focus_target =
-            hierarchy.resolve_keyboard_focus_target(&DesktopTarget::Instance(instance));
-        assert_eq!(focus_target, DesktopTarget::Instance(instance));
-    }
-
-    #[test]
-    fn resolve_keyboard_focus_target_keeps_non_instance_target() {
-        let launcher = launcher_id();
-        let hierarchy = OrderedHierarchy::default();
-
-        let focus_target =
-            hierarchy.resolve_keyboard_focus_target(&DesktopTarget::Launcher(launcher));
-        assert_eq!(focus_target, DesktopTarget::Launcher(launcher));
+        let focus_target = hierarchy.instance_focus_target(instance);
+        assert_eq!(focus_target, FocusableTarget::Instance(instance));
     }
 }

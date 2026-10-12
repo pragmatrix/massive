@@ -290,10 +290,10 @@ impl DesktopSystem {
     }
 
     pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
-        let focused = self.focused_target()?;
+        let focused = self.keyboard_focus.focused()?;
         Some(
             self.zoom_geometry()
-                .resolve_camera_for_target(&focused, self.zoom_level),
+                .resolve_camera_for_target(focused, self.zoom_level),
         )
     }
 }

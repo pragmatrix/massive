@@ -4,7 +4,7 @@
 use super::focus_targets::FocusTargets;
 use super::zoom_geometry::ZoomGeometry;
 use crate::desktop_system::change::{Changes, DesktopChange, Zoom, set_focus};
-use crate::desktop_system::{DesktopTarget, KeyboardFocusReason, ZoomLevel};
+use crate::desktop_system::{FocusableTarget, KeyboardFocusReason, ZoomLevel};
 use crate::projects::ProjectId;
 
 /// Plans zoom commands and resolves the zoom camera for the keyboard-focused target (ADR 0018).
@@ -12,7 +12,7 @@ use crate::projects::ProjectId;
 pub struct ZoomNavigation<'a> {
     geometry: ZoomGeometry<'a>,
     focus_targets: FocusTargets<'a>,
-    focused: Option<DesktopTarget>,
+    focused: Option<FocusableTarget>,
     zoom_level: ZoomLevel,
 }
 
@@ -20,7 +20,7 @@ impl<'a> ZoomNavigation<'a> {
     pub fn new(
         geometry: ZoomGeometry<'a>,
         focus_targets: FocusTargets<'a>,
-        focused: Option<DesktopTarget>,
+        focused: Option<FocusableTarget>,
         zoom_level: ZoomLevel,
     ) -> Self {
         Self {
@@ -34,7 +34,7 @@ impl<'a> ZoomNavigation<'a> {
     /// Plans a zoom command (ADR 0018): steps the zoom level, and moves focus where the step
     /// crosses a project boundary.
     pub fn plan_zoom(&self, zoom: Zoom) -> Changes {
-        let Some(focused) = &self.focused else {
+        let Some(focused) = self.focused else {
             return Changes::Empty;
         };
         let instance_target = focused.is_instance_target();
@@ -66,7 +66,7 @@ impl<'a> ZoomNavigation<'a> {
             Zoom::Enter => {
                 let target = match focused.stands_for_project() {
                     Some(entered) => self.focus_targets.focus_target_for_project(entered),
-                    None => focused.clone(),
+                    None => focused,
                 };
                 self.focus_at_zoom_level(target, ZoomLevel::Focus)
             }
@@ -75,7 +75,7 @@ impl<'a> ZoomNavigation<'a> {
 
     /// Whether the camera points at the focused target itself at the zoom level.
     pub fn is_fully_zoomed_in(&self) -> bool {
-        self.focused.as_ref().is_some_and(|focused| {
+        self.focused.is_some_and(|focused| {
             self.zoom_level.normalized(focused.is_instance_target()) == ZoomLevel::Focus
         })
     }
@@ -85,7 +85,7 @@ impl<'a> ZoomNavigation<'a> {
     /// `Focus` on a target other than an instance points at its slot and reads as `Slot`; a target
     /// without a slot points at its project.
     pub fn focused_zoom_level(&self) -> Option<(ZoomLevel, usize)> {
-        self.focused.as_ref().map(|focused| {
+        self.focused.map(|focused| {
             let project = self.geometry.project_of(focused);
             let level = match self.zoom_level.normalized(focused.is_instance_target()) {
                 _ if self.geometry.slot_in_project(project, focused).is_none() => {
@@ -106,18 +106,15 @@ impl<'a> ZoomNavigation<'a> {
         // Enter at Row so one zoom step reveals the project's contents before narrowing to a
         // slot or instance. Restore the last focused slot to preserve the user's position.
         self.focus_at_zoom_level(
-            self.focus_targets.slot_focus_target(content.target()),
+            self.focus_targets.slot_focus_target(content),
             ZoomLevel::Row,
         )
     }
 
-    fn focus_at_zoom_level(&self, target: impl Into<DesktopTarget>, level: ZoomLevel) -> Changes {
+    fn focus_at_zoom_level(&self, target: impl Into<FocusableTarget>, level: ZoomLevel) -> Changes {
         let target = target.into();
         let mut changes = Changes::Empty;
-        if self.focused.as_ref() != Some(&target) {
-            let target = target
-                .as_focusable()
-                .unwrap_or_else(|| panic!("Zoom focus on an unfocusable target: {target:?}"));
+        if self.focused != Some(target) {
             changes += set_focus(Some(target), KeyboardFocusReason::Zoom);
         }
         changes += self.set_zoom_level(level);
