@@ -77,18 +77,19 @@ impl KeyboardFocus {
         self.input_focus = input_focus;
     }
 
-    /// Records the window focus and returns the keyboard focus it asks for; `None` if the window
-    /// focus did not change.
+    /// Records the window focus and returns the keyboard focus it asks for; `None` if it asks for
+    /// no change.
     pub fn set_window_focus(&mut self, focused: bool) -> Option<WindowFocusRequest> {
         match (&self.window, focused) {
             (WindowFocus::Unfocused { restore }, true) => {
-                // Restore only if nothing got focused while the window was unfocused.
+                // A focus set while the window was unfocused is newer than the one it lost.
                 let request = match (self.focused, *restore) {
-                    (None, Some(target)) => WindowFocusRequest::Restore(target),
-                    _ => WindowFocusRequest::Clear,
+                    (Some(_), _) => None,
+                    (None, Some(target)) => Some(WindowFocusRequest::Restore(target)),
+                    (None, None) => Some(WindowFocusRequest::Clear),
                 };
                 self.window = WindowFocus::Focused;
-                Some(request)
+                request
             }
             (WindowFocus::Focused, false) => {
                 self.window = WindowFocus::Unfocused {
@@ -140,5 +141,46 @@ impl From<KeyboardFocusChange> for EventTransition<DesktopTarget> {
             from: change.from.map(Into::into),
             to: change.to.map(Into::into),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regaining_the_window_focus_restores_the_lost_focus_unless_a_newer_one_is_set() {
+        let mut focus = focused_on(FocusableTarget::Desktop);
+        focus.set_window_focus(false);
+        focus.focus(None);
+        assert_eq!(
+            focus.set_window_focus(true),
+            Some(WindowFocusRequest::Restore(FocusableTarget::Desktop))
+        );
+
+        let view = FocusableTarget::View(ViewId::new());
+        let mut focus = focused_on(FocusableTarget::Desktop);
+        focus.set_window_focus(false);
+        focus.focus(Some(view));
+        assert_eq!(focus.set_window_focus(true), None);
+        assert_eq!(focus.focused(), Some(view));
+    }
+
+    #[test]
+    fn only_the_application_at_the_focused_view_hides_the_outline() {
+        let view = ViewId::new();
+        let mut focus = focused_on(FocusableTarget::View(view));
+
+        focus.set_input_focus(InputFocus::Application(ViewId::new()));
+        assert_eq!(focus.outlined(), Some(FocusableTarget::View(view)));
+
+        focus.set_input_focus(InputFocus::Application(view));
+        assert_eq!(focus.outlined(), None);
+    }
+
+    fn focused_on(target: FocusableTarget) -> KeyboardFocus {
+        let mut focus = KeyboardFocus::default();
+        focus.focus(Some(target));
+        focus
     }
 }
