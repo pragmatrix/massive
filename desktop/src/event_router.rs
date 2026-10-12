@@ -31,30 +31,8 @@ pub struct EventRouter<T> {
     /// If _any_ button is pressed while moving the cursor, its focus stays on the previous target.
     pointer_focus: Option<PointerFocusTarget<T>>,
 
-    /// The keyboard focus decides to which view and instance the keyboard events are delivered.
-    keyboard_focus: Option<T>,
-
-    /// The current state of the outer focus state (perhaps the Window).
-    ///
-    /// This is used to remember the previously focused path, because we do unfocus everything in
-    /// the focus tree.
-    ///
-    /// Architecture: May be the focus tree should do that?
-    ///
-    /// Architecture: This points so some kind of self similarity, if we would see all the targets
-    /// as individuals in their role as containers or leaves, it may be possible to avoid managing a
-    /// focus tree here and just manage the focus of the immediate descendants.
-    outer_focus: OuterFocusState<T>,
-
     /// Most recent [`DeviceStates`]. This way we can re-hit the pointer anytime.
     device_states: DeviceStates,
-}
-
-/// The previous and next keyboard-focus targets.
-#[derive(Debug)]
-pub struct KeyboardFocusChange<T> {
-    pub from: Option<T>,
-    pub to: Option<T>,
 }
 
 /// Ordered routing decisions for one input event.
@@ -63,24 +41,18 @@ pub struct RouterOutput<T> {
     pub steps: Vec<RouterStep<T>>,
 }
 
-/// What asked for a keyboard focus change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusRequestSource {
-    /// The window gained or lost focus.
-    Window,
-    /// A pointer button was pressed.
-    PointerPress,
-}
-
 /// One routing decision; the output order preserves focus and delivery ordering.
+///
+/// The keyboard focus is kept beside the router (ADR 0021), so steps for it carry no target.
 #[derive(Debug)]
 pub enum RouterStep<T> {
     PointerFocusChanged(PointerFocusChange<T>),
-    RequestKeyboardFocus {
-        /// `None` requests that keyboard focus be cleared.
-        target: Option<T>,
-        source: FocusRequestSource,
-    },
+    /// A pointer button was pressed on the pointer focus; `None` when the press has no target.
+    PointerPressed(Option<T>),
+    /// The window gained or lost focus.
+    WindowFocusChanged(bool),
+    /// Keys, IME input, and modifier changes, addressed to the keyboard focus.
+    KeyboardInput(ViewEvent),
     DeliverInput {
         target: T,
         event: ViewEvent,
@@ -115,33 +87,16 @@ where
         Self {
             // Shouldn't we wait until the pointer actually move here (should this be optional).
             pointer_focus: None,
-            keyboard_focus: None,
-            // For now, we assume that _we_ are focused by default but nothing below us.
-            outer_focus: OuterFocusState::Focused,
             device_states: Default::default(),
         }
     }
 
     /// Internal function to check if there are dangling references.
     pub fn notify_removed(&self, target: &T) -> Result<()> {
-        if self.keyboard_focus.as_ref() == Some(target) {
-            bail!("Removed target {target:?}, but it had keyboard focus");
-        }
         if self.pointer_focus() == Some(target) {
             bail!("Removed target {target:?}, but it hat pointer focus");
         }
-
-        if let OuterFocusState::Unfocused { focused_previously } = &self.outer_focus
-            && focused_previously.as_ref() == Some(target)
-        {
-            bail!("Removed target {target:?}, but it had captured in the outer focus");
-        }
-
         Ok(())
-    }
-
-    pub fn keyboard_focus(&self) -> Option<&T> {
-        self.keyboard_focus.as_ref()
     }
 
     pub fn pointer_focus(&self) -> Option<&T> {
@@ -162,14 +117,6 @@ where
         self.device_states.any_buttons_pressed()
     }
 
-    /// Change focus to the given target.
-    pub fn focus<'a>(&mut self, focus: impl Into<Option<&'a T>>) -> Option<KeyboardFocusChange<T>>
-    where
-        T: 'a,
-    {
-        self.set_keyboard_focus(focus.into().cloned())
-    }
-
     pub fn process(
         &mut self,
         input_event: &Event<ViewEvent>,
@@ -181,12 +128,7 @@ where
 
         match view_event {
             ViewEvent::Focused(focused) => {
-                if let Some(target) = self.set_outer_focus(*focused) {
-                    steps.push(RouterStep::RequestKeyboardFocus {
-                        target,
-                        source: FocusRequestSource::Window,
-                    });
-                }
+                steps.push(RouterStep::WindowFocusChanged(*focused));
             }
 
             ViewEvent::CursorMoved {
@@ -318,10 +260,7 @@ where
                     .as_ref()
                     .filter(|focus| focus.device_id == *device_id)
                     .map(|focus| focus.target.clone());
-                steps.push(RouterStep::RequestKeyboardFocus {
-                    target: pressed_target.clone(),
-                    source: FocusRequestSource::PointerPress,
-                });
+                steps.push(RouterStep::PointerPressed(pressed_target.clone()));
                 if let Some(target) = pressed_target {
                     steps.push(RouterStep::DeliverInput {
                         target,
@@ -379,12 +318,7 @@ where
 
             // Keyboard focus
             ViewEvent::KeyboardInput { event, .. } => {
-                if let Some(keyboard_focus) = &self.keyboard_focus {
-                    steps.push(RouterStep::DeliverInput {
-                        target: keyboard_focus.clone(),
-                        event: view_event.clone(),
-                    });
-                }
+                steps.push(RouterStep::KeyboardInput(view_event.clone()));
 
                 // Unfocus the cursor when a key is newly pressed. Modifier keys are excluded, they
                 // are used to alter pointer interaction (for example Cmd to activate hyperlinks).
@@ -397,32 +331,8 @@ where
                 }
             }
 
-            ViewEvent::Ime(..) => {
-                if let Some(keyboard_focus) = &self.keyboard_focus {
-                    steps.push(RouterStep::DeliverInput {
-                        target: keyboard_focus.clone(),
-                        event: view_event.clone(),
-                    });
-                }
-            }
-
-            ViewEvent::ModifiersChanged(_) => {
-                // Robustness: Not sure if this is the right call, we send modifiers changed to
-                // both, the keyboard focused _and_ if different from the keyboard focus, to the
-                if let Some(keyboard_focus) = &self.keyboard_focus {
-                    steps.push(RouterStep::DeliverInput {
-                        target: keyboard_focus.clone(),
-                        event: view_event.clone(),
-                    });
-                }
-                if let Some(pointer_focus) = &self.pointer_focus
-                    && Some(&pointer_focus.target) != self.keyboard_focus.as_ref()
-                {
-                    steps.push(RouterStep::DeliverInput {
-                        target: pointer_focus.target.clone(),
-                        event: view_event.clone(),
-                    });
-                }
+            ViewEvent::Ime(..) | ViewEvent::ModifiersChanged(_) => {
+                steps.push(RouterStep::KeyboardInput(view_event.clone()));
             }
 
             ViewEvent::HoveredFileCancelled => {}
@@ -479,54 +389,6 @@ where
         self.set_pointer_focus(None)
     }
 
-    /// Updates outer (window-level) focus state and returns an optional keyboard-focus request.
-    ///
-    /// Return value meaning:
-    /// - `None`: no keyboard-focus request is needed (redundant outer-focus event).
-    /// - `Some(None)`: clear keyboard focus.
-    /// - `Some(Some(target))`: focus the given target.
-    fn set_outer_focus(&mut self, focused: bool) -> Option<Option<T>> {
-        match (&self.outer_focus, focused) {
-            (OuterFocusState::Unfocused { focused_previously }, true) => {
-                // Restore focus if nothing is focused.
-                //
-                // Detail: Focus does not change while the Window is unfocused, see set_foreground.
-                let focus_target = if self.keyboard_focus.is_none() {
-                    focused_previously.clone()
-                } else {
-                    None
-                };
-
-                // Robustness: We may need to check if instances / views are valid here at
-                // the latest, or event better while the Unfocused state is active.
-
-                self.outer_focus = OuterFocusState::Focused;
-                Some(focus_target)
-            }
-            (OuterFocusState::Focused, false) => {
-                // Save and unfocus.
-                self.outer_focus = OuterFocusState::Unfocused {
-                    focused_previously: self.keyboard_focus.clone(),
-                };
-                // Robustness: What about pointer focus?
-                Some(None)
-            }
-            _ => {
-                warn!("Redundant Window focus change");
-                None
-            }
-        }
-    }
-
-    fn set_keyboard_focus(&mut self, new: Option<T>) -> Option<KeyboardFocusChange<T>> {
-        if self.keyboard_focus == new {
-            return None;
-        }
-
-        let from = mem::replace(&mut self.keyboard_focus, new.clone());
-        Some(KeyboardFocusChange { from, to: new })
-    }
-
     fn set_pointer_focus(
         &mut self,
         new_focus: Option<PointerFocusTarget<T>>,
@@ -549,10 +411,4 @@ pub trait HitTester<Target> {
     ///
     /// If target is set, returns the hit inside the specific Target's coordinate system only.
     fn hit_test(&self, screen_pos: Point, target: Option<&Target>) -> Option<(Target, Vector3)>;
-}
-
-#[derive(Debug)]
-enum OuterFocusState<T> {
-    Unfocused { focused_previously: Option<T> },
-    Focused,
 }

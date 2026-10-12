@@ -110,7 +110,7 @@ impl DesktopSystem {
     pub(super) fn plan_navigate(&self, direction: Direction) -> Result<Changes> {
         // If nothing is focused (i.e. the whole window does not have the focused), we probably
         // don't want to do anything and this is perhaps even an error.
-        let Some(focused) = self.event_router.keyboard_focus() else {
+        let Some(focused) = self.focused_target() else {
             error!("Navigation request without active focus");
             return Ok(Changes::Empty);
         };
@@ -121,7 +121,7 @@ impl DesktopSystem {
             &self.aggregates.launchers,
             &self.aggregates.configuration,
             &self.navigation_control,
-            focused,
+            &focused,
             direction,
         ) else {
             return Ok(Changes::Empty);
@@ -161,7 +161,7 @@ impl DesktopSystem {
         ZoomNavigation::new(
             self.zoom_geometry(),
             self.focus_targets(),
-            self.event_router.keyboard_focus(),
+            self.focused_target(),
             self.zoom_level,
         )
     }

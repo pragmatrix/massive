@@ -84,15 +84,12 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
             .expect("the focused instance is inside a project");
 
         system.transact(
-            keyboard_focus_request(
-                Some(DesktopTarget::ProjectMatrix(project)),
-                FocusRequestSource::PointerPress,
-            ),
+            pointer_press_focus(Some(DesktopTarget::ProjectMatrix(project))),
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
         assert_eq!(
-            system.event_router.keyboard_focus(),
+            system.focused_target().as_ref(),
             Some(&DesktopTarget::Project(project))
         );
 
@@ -102,7 +99,7 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
             DesktopCommand::Navigate(crate::desktop_system::Direction::Right),
         )?;
         assert_eq!(
-            system.event_router.keyboard_focus(),
+            system.focused_target().as_ref(),
             Some(&DesktopTarget::Instance(instance_b))
         );
 

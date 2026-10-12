@@ -21,6 +21,7 @@ mod fullscreen;
 mod hierarchy_focus;
 mod key_delivery;
 mod key_input;
+mod keyboard_focus;
 mod keyboard_shortcuts;
 mod layout_algorithm;
 mod layout_effects;
@@ -51,6 +52,7 @@ use massive_util::CollectingVec;
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
+use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
@@ -59,8 +61,9 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
 pub(crate) use fullscreen::{fullscreen_scale, view_size};
-pub(crate) use key_delivery::{InputFocus, KeyContext, KeyHandler, KeyOutcome};
+pub(crate) use key_delivery::{KeyContext, KeyHandler, KeyOutcome};
 pub(crate) use key_input::KeyInput;
+pub(crate) use keyboard_focus::InputFocus;
 pub(crate) use keyboard_shortcuts::Shortcut;
 pub(crate) use layout_algorithm::{instance_extent, place_container_children};
 pub(crate) use massive_applications::SlotShift;
@@ -114,12 +117,6 @@ impl DesktopTarget {
         )
     }
 
-    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
-    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
-    pub fn is_focusable(&self) -> bool {
-        self.as_focusable().is_some()
-    }
-
     /// The project a focusable target stands for; `Desktop` stands for the root project.
     pub fn stands_for_project(&self) -> Option<ProjectId> {
         match self.as_focusable()? {
@@ -131,7 +128,8 @@ impl DesktopTarget {
         }
     }
 
-    /// `None` for a part that selects another target.
+    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
+    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
     pub fn as_focusable(&self) -> Option<FocusableTarget> {
         let selected = self.selected_target();
         (DesktopTarget::from(selected) == *self).then_some(selected)
@@ -251,7 +249,7 @@ impl ZoomLevel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ZoomLevelState {
     zoom_level: ZoomLevel,
-    keyboard_focus: Option<DesktopTarget>,
+    keyboard_focus: Option<FocusableTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,8 +325,7 @@ pub struct DesktopSystem {
     window_state: WindowState,
 
     event_router: EventRouter<DesktopTarget>,
-    /// Where the last typed key went, independent of pointer focus.
-    input_focus: InputFocus,
+    keyboard_focus: KeyboardFocus,
 
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
@@ -428,7 +425,7 @@ impl DesktopSystem {
             ),
 
             event_router,
-            input_focus: InputFocus::default(),
+            keyboard_focus: KeyboardFocus::default(),
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
@@ -571,7 +568,7 @@ impl DesktopSystem {
     fn zoom_level_state(&self) -> ZoomLevelState {
         ZoomLevelState {
             zoom_level: self.zoom_level,
-            keyboard_focus: self.event_router.keyboard_focus().cloned(),
+            keyboard_focus: self.keyboard_focus.focused(),
         }
     }
 
@@ -631,12 +628,7 @@ impl DesktopSystem {
     }
 
     pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {
-        let Some(focused) = self.event_router.keyboard_focus() else {
-            return Ok(None);
-        };
-
-        let focused_path = self.path_of(Some(focused));
-        let Some(instance) = focused_path.instance() else {
+        let Some(instance) = self.focused_path().instance() else {
             return Ok(None);
         };
         let Some(instance_presenter) = self.aggregates.instances.get(&instance) else {
@@ -655,6 +647,7 @@ impl DesktopSystem {
     fn remove_target(&mut self, target: &DesktopTarget) -> Result<DesktopTarget> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
+        self.keyboard_focus.assert_not_referenced(target);
 
         let parent = self
             .aggregates
@@ -683,7 +676,12 @@ impl DesktopSystem {
     }
 
     pub(super) fn focused_path(&self) -> DesktopFocusPath {
-        self.path_of(self.event_router.keyboard_focus())
+        self.path_of(self.focused_target().as_ref())
+    }
+
+    /// The keyboard focus as a hierarchy target.
+    pub(super) fn focused_target(&self) -> Option<DesktopTarget> {
+        self.keyboard_focus.focused().map(DesktopTarget::from)
     }
 
     pub(super) fn path_of<'a>(

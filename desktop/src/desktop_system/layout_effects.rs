@@ -58,7 +58,8 @@ impl DesktopSystem {
     }
 
     fn window_title(&self, terminal_title: String) -> String {
-        let focused = self.event_router.keyboard_focus();
+        let focused = self.focused_target();
+        let focused = focused.as_ref();
         // Window title suffixes are configuration names, read from the aggregate, not
         // from presenters.
         let launcher = focused
@@ -289,10 +290,10 @@ impl DesktopSystem {
     }
 
     pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
-        let focused = self.event_router.keyboard_focus()?;
+        let focused = self.focused_target()?;
         Some(
             self.zoom_geometry()
-                .resolve_camera_for_target(focused, self.zoom_level),
+                .resolve_camera_for_target(&focused, self.zoom_level),
         )
     }
 }

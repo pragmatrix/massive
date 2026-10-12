@@ -179,13 +179,8 @@ impl DesktopSystem {
         let target = self
             .event_router
             .pointer_focus()
-            .or_else(|| {
-                // An application that received the last key shows its own feedback.
-                self.event_router
-                    .keyboard_focus()
-                    .filter(|focus| !self.input_focus.is_application_at(focus))
-            })?
-            .clone();
+            .cloned()
+            .or_else(|| self.keyboard_focus.outlined().map(DesktopTarget::from))?;
 
         // The outline marks what a click selects; a view outlines its whole instance (ADR 0019).
         Some(match target.selected_target() {

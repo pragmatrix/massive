@@ -1,6 +1,6 @@
 # Keyboard focus state lives beside the event router, not in it
 
-## Status: proposed
+## Status: accepted
 
 The event router holds the keyboard focus next to the pointer focus, as one generic target type. It also saves and restores the focus when the window loses and regains focus, and it addresses keys to the focused target. ADR 0020 already states that the router keeps only pointer focus, and key delivery walks the focus path without using the router's target. The keyboard focus can only hold a target that selects itself (ADR 0019), while the pointer focus must hold any hit surface. One type parameter cannot express both.
 

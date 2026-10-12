@@ -170,7 +170,7 @@ impl DesktopSystem {
                 //
                 // Detail: This causes an unfocus event sent to the instance's view which may
                 // unexpected while tear down.
-                let replacement_focus = self.event_router.keyboard_focus().and_then(|focused| {
+                let replacement_focus = self.focused_target().as_ref().and_then(|focused| {
                     self.aggregates
                         .hierarchy
                         .resolve_replacement_focus_for_stopping_instance(focused, instance)
@@ -208,7 +208,7 @@ impl DesktopSystem {
     fn plan_toggle_full_screen_mode(&self) -> Result<Changes> {
         let mut changes: Changes = Changes::Empty;
 
-        match self.event_router.keyboard_focus() {
+        match self.focused_target().as_ref() {
             Some(DesktopTarget::Launcher(launcher))
                 if self
                     .aggregates
@@ -423,13 +423,13 @@ impl DesktopSystem {
     /// not leave the router pointing at a target about to leave the topology: the
     /// removed content gets a neighbouring replacement instead of its parent.
     fn clear_slot_focus(&self, content: SlotContent) -> Changes {
-        let Some(focused) = self.event_router.keyboard_focus() else {
+        let Some(focused) = self.focused_target() else {
             return Changes::Empty;
         };
         if !self
             .aggregates
             .hierarchy
-            .path_contains_target(Some(focused), &content.target())
+            .path_contains_target(Some(&focused), &content.target())
         {
             return Changes::Empty;
         }
@@ -505,9 +505,9 @@ impl DesktopSystem {
                 self.hide_instance(launcher, instance)?;
             }
             DesktopChange::SetFocus { target } => {
-                let previous_focus = self.event_router.keyboard_focus().cloned();
+                let previous_focus = self.focused_target();
                 self.focus(target.as_ref(), instance_manager)?;
-                let current_focus = self.event_router.keyboard_focus().cloned();
+                let current_focus = self.focused_target();
 
                 let mut output = ChangeOutput::default();
                 output.focus_changed(previous_focus, current_focus);
@@ -519,14 +519,14 @@ impl DesktopSystem {
                     .commit_column_affinity(column_affinity);
             }
             DesktopChange::SetInputFocus(input_focus) => {
-                self.input_focus = input_focus;
+                self.keyboard_focus.set_input_focus(input_focus);
             }
             DesktopChange::SetZoomLevel(level) => {
                 if self.zoom_level != level {
                     self.zoom_level = level;
 
                     let mut output = ChangeOutput::default();
-                    if let Some(focused) = self.event_router.keyboard_focus() {
+                    if let Some(focused) = self.focused_target().as_ref() {
                         output.measure(focused.clone());
                     }
                     return Ok(output);
@@ -601,12 +601,12 @@ impl DesktopSystem {
                 return Ok(ChangeOutput::measures(DesktopTarget::Desktop));
             }
             DesktopChange::Topology(change) => {
-                let previous_focus = self.event_router.keyboard_focus().cloned();
+                let previous_focus = self.focused_target();
                 // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
                 let measure_target = self.apply_topology_change(change, instance_manager)?;
-                let current_focus = self.event_router.keyboard_focus().cloned();
+                let current_focus = self.focused_target();
 
                 let mut output = ChangeOutput::measures(measure_target);
                 output.focus_changed(previous_focus, current_focus);
@@ -825,7 +825,7 @@ impl DesktopSystem {
                 // focus transition (and its navigation-affinity reset) flows through change
                 // application like every other focus change.
                 if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
-                    (self.event_router.keyboard_focus(), &creation_info.role)
+                    (self.focused_target().as_ref(), &creation_info.role)
                     && *focused_instance == instance
                 {
                     output.changes += set_focus(
@@ -1136,8 +1136,8 @@ impl DesktopSystem {
     }
 
     fn focused_project(&self) -> Option<ProjectId> {
-        let focused = self.event_router.keyboard_focus()?;
-        let project = self.aggregates.hierarchy.project_of_target(focused);
+        let focused = self.focused_target()?;
+        let project = self.aggregates.hierarchy.project_of_target(&focused);
         self.aggregates
             .configuration
             .project(project)
@@ -1145,8 +1145,8 @@ impl DesktopSystem {
     }
 
     fn focused_launcher(&self) -> Option<LaunchProfileId> {
-        let focused = self.event_router.keyboard_focus()?;
-        let launcher = self.aggregates.hierarchy.launcher_of_target(focused)?;
+        let focused = self.focused_target()?;
+        let launcher = self.aggregates.hierarchy.launcher_of_target(&focused)?;
         self.aggregates
             .configuration
             .launcher(launcher)

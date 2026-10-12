@@ -226,7 +226,7 @@ async fn native_fullscreen_resize_keeps_the_presented_camera_on_the_focused_inst
         let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
         let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
         deliver_view(&mut system, &mut instance_manager, instance)?;
-        let focused = system.event_router.keyboard_focus().cloned();
+        let focused = system.focused_target();
 
         for window_state in [
             WindowState::new(SizePx::new(1000, 864), false),
@@ -237,7 +237,7 @@ async fn native_fullscreen_resize_keeps_the_presented_camera_on_the_focused_inst
                 &mut instance_manager,
                 Option::<TransactionEffectsMode>::None,
             )?;
-            assert_eq!(system.event_router.keyboard_focus(), focused.as_ref());
+            assert_eq!(system.focused_target().as_ref(), focused.as_ref());
             assert_eq!(system.zoom_level, ZoomLevel::Focus);
             let desired = system
                 .resolve_desired_camera()

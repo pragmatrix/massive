@@ -101,7 +101,7 @@ An explicit keyboard-focus change to a named target (or to nothing, which only r
 _Avoid_: set focus, click focus
 
 **Focus suggestion**:
-The event router's proposal that keyboard focus should change, surfaced from input processing instead of being applied directly. It is lowered into a navigate-to-target command, which owns the actual focus change, focus-driven relayout, and anchor sync.
+A proposal from input processing that keyboard focus should change, instead of applying it directly: a pointer press reported by the event router, or the target a window focus change restores, decided by the keyboard focus beside the router (ADR 0021). It is lowered into a navigate-to-target command, which owns the actual focus change, focus-driven relayout, and anchor sync.
 _Avoid_: pending focus, focus request
 
 **Launcher**:

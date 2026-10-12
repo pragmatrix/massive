@@ -17,10 +17,9 @@ use super::change::{
     DesktopSystemEffect, InstancePresentation, ToggleFullScreenModeTarget, TopologyChange, Zoom,
     set_focus,
 };
-use super::focus_input::keyboard_focus_request;
+use super::focus_input::pointer_press_focus;
 use super::*;
 use crate::desktop_environment::DesktopEnvironment;
-use crate::event_router::FocusRequestSource;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
 use crate::projects::persistence::parse_configuration;
