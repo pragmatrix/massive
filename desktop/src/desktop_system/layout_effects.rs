@@ -58,12 +58,11 @@ impl DesktopSystem {
     }
 
     fn window_title(&self, terminal_title: String) -> String {
-        let focused = self.focused_target();
-        let focused = focused.as_ref();
         // Window title suffixes are configuration names, read from the aggregate, not
         // from presenters.
-        let launcher = focused
-            .and_then(|target| self.aggregates.hierarchy.launcher_of_target(target))
+        let launcher = self
+            .focused_target()
+            .and_then(|target| self.aggregates.hierarchy.launcher_of_target(&target))
             .map(|id| {
                 self.aggregates
                     .configuration
@@ -72,8 +71,9 @@ impl DesktopSystem {
                     .name
                     .as_str()
             });
-        let project = focused
-            .map(|target| self.aggregates.hierarchy.project_of_target(target))
+        let project = self
+            .focused_target()
+            .map(|target| self.aggregates.hierarchy.project_of_target(&target))
             .map(|id| {
                 self.aggregates
                     .configuration

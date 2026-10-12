@@ -36,8 +36,8 @@ async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Resu
             crate::desktop_system::Direction::Right,
         )?;
         assert_eq!(
-            system.focused_target().as_ref(),
-            Some(&DesktopTarget::Instance(instance_b))
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_b))
         );
         assert_eq!(
             system
@@ -53,8 +53,8 @@ async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Resu
             crate::desktop_system::Direction::Left,
         )?;
         assert_eq!(
-            system.focused_target().as_ref(),
-            Some(&DesktopTarget::Instance(instance_a))
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
         );
 
         drop(frame.submission::<SceneChange>());
@@ -94,8 +94,8 @@ async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
                 Some((expected, 0))
             );
             assert_eq!(
-                system.focused_target().as_ref(),
-                Some(&DesktopTarget::Instance(instance))
+                system.keyboard_focus.focused(),
+                Some(FocusableTarget::Instance(instance))
             );
         }
         assert!(system.plan(DesktopCommand::Zoom(Zoom::Out))?.is_empty());

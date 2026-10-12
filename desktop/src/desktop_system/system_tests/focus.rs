@@ -89,8 +89,8 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
             TransactionEffectsMode::Setup,
         )?;
         assert_eq!(
-            system.focused_target().as_ref(),
-            Some(&DesktopTarget::Project(project))
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Project(project))
         );
 
         run(
@@ -99,8 +99,8 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
             DesktopCommand::Navigate(crate::desktop_system::Direction::Right),
         )?;
         assert_eq!(
-            system.focused_target().as_ref(),
-            Some(&DesktopTarget::Instance(instance_b))
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_b))
         );
 
         drop(frame);

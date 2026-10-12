@@ -208,23 +208,26 @@ impl DesktopSystem {
     fn plan_toggle_full_screen_mode(&self) -> Result<Changes> {
         let mut changes: Changes = Changes::Empty;
 
-        match self.focused_target().as_ref() {
-            Some(DesktopTarget::Launcher(launcher))
+        match self.keyboard_focus.focused() {
+            Some(FocusableTarget::Launcher(launcher))
                 if self
                     .aggregates
                     .hierarchy
-                    .launcher_instances(*launcher)
+                    .launcher_instances(launcher)
                     .next()
                     .is_some() =>
             {
                 changes <<= DesktopChange::ToggleFullScreenMode(
-                    ToggleFullScreenModeTarget::Launcher(*launcher),
+                    ToggleFullScreenModeTarget::Launcher(launcher),
                 );
             }
-            Some(target @ (DesktopTarget::Instance(_) | DesktopTarget::View(_))) => {
+            Some(target @ (FocusableTarget::Instance(_) | FocusableTarget::View(_))) => {
                 let instance = match target {
-                    DesktopTarget::Instance(instance) => Some(*instance),
-                    DesktopTarget::View(_) => self.aggregates.hierarchy.instance_of_target(target),
+                    FocusableTarget::Instance(instance) => Some(instance),
+                    FocusableTarget::View(view) => self
+                        .aggregates
+                        .hierarchy
+                        .instance_of_target(&DesktopTarget::View(view)),
                     _ => None,
                 };
                 let toggle = instance.map(|instance| {
@@ -519,8 +522,8 @@ impl DesktopSystem {
                     self.zoom_level = level;
 
                     let mut output = ChangeOutput::default();
-                    if let Some(focused) = self.focused_target().as_ref() {
-                        output.measure(focused.clone());
+                    if let Some(focused) = self.focused_target() {
+                        output.measure(focused);
                     }
                     return Ok(output);
                 }
@@ -817,9 +820,9 @@ impl DesktopSystem {
                 // foreground so that the view is focused. Emitted as a follow-up change so the
                 // focus transition (and its navigation-affinity reset) flows through change
                 // application like every other focus change.
-                if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
-                    (self.focused_target().as_ref(), &creation_info.role)
-                    && *focused_instance == instance
+                if let (Some(FocusableTarget::Instance(focused_instance)), ViewRole::Primary) =
+                    (self.keyboard_focus.focused(), &creation_info.role)
+                    && focused_instance == instance
                 {
                     output.changes += set_focus(
                         Some(FocusableTarget::View(creation_info.id)),

@@ -205,11 +205,7 @@ impl DesktopSystem {
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        if self
-            .aggregates
-            .hierarchy
-            .path_contains_target(self.focused_target().as_ref(), target)
-        {
+        if self.focused_path().contains(target) {
             let parent = self.aggregates.hierarchy.parent(target).map(|parent| {
                 parent.as_focusable().unwrap_or_else(|| {
                     panic!("Keyboard focus on an unfocusable parent: {parent:?}")
