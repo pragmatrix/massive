@@ -30,7 +30,7 @@ pub(crate) enum KeyOutcome {
 
 #[derive(Debug)]
 pub(crate) struct KeyLevel<'a> {
-    pub target: DesktopTarget,
+    pub target: FocusableTarget,
     pub handler: &'a dyn KeyHandler,
 }
 
@@ -109,9 +109,9 @@ impl DesktopSystem {
         let aggregates = &self.aggregates;
         focused_path
             .iter()
-            .filter(|target| target.is_focusable())
+            .filter_map(DesktopTarget::as_focusable)
             .map(|target| {
-                let handler: &dyn KeyHandler = match target.as_focusable() {
+                let handler: &dyn KeyHandler = match target {
                     FocusableTarget::Desktop => &self.desktop_presenter,
                     FocusableTarget::Project(project) => aggregates
                         .projects
@@ -127,10 +127,7 @@ impl DesktopSystem {
                         .expect("An instance on the focus path has a presenter"),
                     FocusableTarget::View(_) => &ApplicationKeys,
                 };
-                KeyLevel {
-                    target: target.clone(),
-                    handler,
-                }
+                KeyLevel { target, handler }
             })
             .collect()
     }
@@ -147,7 +144,7 @@ fn offer_key_to_levels(
             KeyOutcome::Pass => {}
             KeyOutcome::Consumed(commands) => return KeyDelivery::Consumed(commands),
             KeyOutcome::Forward(event) => {
-                let DesktopTarget::View(view) = level.target else {
+                let FocusableTarget::View(view) = level.target else {
                     unreachable!("Only the application's view level forwards a key");
                 };
                 return KeyDelivery::Forwarded { view, event };

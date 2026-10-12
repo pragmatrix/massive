@@ -250,7 +250,10 @@ fn resolve_navigation_origin(
     configuration: &RuntimeConfiguration,
     from: &DesktopTarget,
 ) -> Option<NavigationOrigin> {
-    match from.as_focusable() {
+    match from
+        .as_focusable()
+        .expect("Navigation starts from the keyboard focus")
+    {
         FocusableTarget::Launcher(launcher_id) => {
             let (project, placement) = configuration.slot_of_content(launcher_id)?;
             Some(NavigationOrigin::MatrixSlot { project, placement })

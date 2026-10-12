@@ -117,20 +117,18 @@ impl DesktopTarget {
     /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
     /// a part that selects another leaves both to its parent on the same path (ADR 0019).
     pub fn is_focusable(&self) -> bool {
-        self.clone().selected_target() == *self
+        self.as_focusable().is_some()
     }
 
-    /// Panics on a part that selects another target: the keyboard focus never holds one.
-    pub fn as_focusable(&self) -> FocusableTarget {
+    /// `None` for a part that selects another target.
+    pub fn as_focusable(&self) -> Option<FocusableTarget> {
         match *self {
-            Self::Desktop => FocusableTarget::Desktop,
-            Self::Project(project) => FocusableTarget::Project(project),
-            Self::Launcher(launcher) => FocusableTarget::Launcher(launcher),
-            Self::Instance(instance) => FocusableTarget::Instance(instance),
-            Self::View(view) => FocusableTarget::View(view),
-            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => {
-                unreachable!("{self:?} is not focusable")
-            }
+            Self::Desktop => Some(FocusableTarget::Desktop),
+            Self::Project(project) => Some(FocusableTarget::Project(project)),
+            Self::Launcher(launcher) => Some(FocusableTarget::Launcher(launcher)),
+            Self::Instance(instance) => Some(FocusableTarget::Instance(instance)),
+            Self::View(view) => Some(FocusableTarget::View(view)),
+            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => None,
         }
     }
 
@@ -144,7 +142,10 @@ impl DesktopTarget {
 
     /// The project a focusable target stands for; `Desktop` stands for the root project.
     pub fn stands_for_project(&self) -> Option<ProjectId> {
-        match self.as_focusable() {
+        match self
+            .as_focusable()
+            .expect("Only the keyboard focus stands for a project")
+        {
             FocusableTarget::Project(project) => Some(project),
             FocusableTarget::Desktop => Some(ProjectId::ROOT),
             FocusableTarget::Launcher(_)
