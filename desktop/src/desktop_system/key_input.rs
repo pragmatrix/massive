@@ -4,7 +4,6 @@ use winit::event::ElementState;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 use massive_applications::ViewEvent;
-use massive_input::Event;
 
 /// A key event reduced to what key handlers decide on, plus the event to hand to an application.
 #[derive(Debug)]
@@ -34,11 +33,11 @@ impl KeyInput {
         }
     }
 
-    /// `None` if `event` is not a key event.
-    pub fn from_event(event: &Event<'_, ViewEvent>) -> Option<Self> {
+    /// `None` if `view_event` is not a key event.
+    pub fn from_view_event(view_event: &ViewEvent, modifiers: ModifiersState) -> Option<Self> {
         let ViewEvent::KeyboardInput {
             event: key_event, ..
-        } = event.event()
+        } = view_event
         else {
             return None;
         };
@@ -47,8 +46,8 @@ impl KeyInput {
             logical_key: key_event.logical_key.clone(),
             state: key_event.state,
             repeat: key_event.repeat,
-            modifiers: event.keyboard_modifiers(),
-            view_event: event.event().clone(),
+            modifiers,
+            view_event: view_event.clone(),
         })
     }
 

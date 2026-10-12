@@ -46,8 +46,16 @@ impl DesktopSystem {
                 RouterStep::DeliverInput {
                     target,
                     event: delivered,
-                } => match KeyInput::from_event(event) {
-                    Some(input) => changes += self.deliver_key_along_focus_path(&input)?,
+                } => match KeyInput::from_view_event(&delivered, event.keyboard_modifiers()) {
+                    Some(input) => {
+                        // The walk starts from the keyboard focus, not from `target`.
+                        assert_eq!(
+                            Some(&target),
+                            self.event_router.keyboard_focus(),
+                            "A key is routed to the keyboard focus"
+                        );
+                        changes += self.deliver_key_along_focus_path(&input)?;
+                    }
                     None => {
                         changes <<= DesktopChange::ForwardEvents(
                             EventTransition::Send(target, delivered).into(),
