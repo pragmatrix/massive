@@ -183,7 +183,7 @@ pub(crate) struct KeyContext<'a> {
     /// Whether the camera frames the keyboard-focused target itself (zoom level `Focus`). Cmd+Enter
     /// zooms there first and acts only when already there; presenters cannot read the zoom state.
     pub fully_zoomed_in: bool,
-    /// Cmd+T on an instance starts the new instance under the launcher of the focused instance.
+    /// Cmd+T on an instance starts the new instance under that instance's launcher.
     pub hierarchy: &'a DesktopTopology,
     /// A launcher starts its instances with the parameters configured for it.
     pub configuration: &'a RuntimeConfiguration,

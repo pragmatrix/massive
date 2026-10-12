@@ -54,6 +54,7 @@ impl DesktopSystem {
         // An assistant owns a temporary Full Screen Mode, starting regular; a
         // primary instance is `None` and follows its launcher's mode (ADR 0014).
         let presenter = InstancePresenter::new(
+            instance,
             initial_center_translation,
             render_instance_background,
             root,

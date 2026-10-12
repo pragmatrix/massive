@@ -105,6 +105,7 @@ const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
 
 #[derive(Debug)]
 pub struct InstancePresenter {
+    id: InstanceId,
     state: InstancePresenterState,
     parameters: InstanceParameters,
     /// The instance's Full Screen presentation (ADR 0014).
@@ -165,6 +166,7 @@ pub struct ViewWindowState {
 impl InstancePresenter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        id: InstanceId,
         initial_center_translation: Option<Vector3>,
         show_background: bool,
         root: InstanceRoot,
@@ -221,6 +223,7 @@ impl InstancePresenter {
         );
 
         Self {
+            id,
             state: InstancePresenterState::WaitingForPrimaryView,
             parameters,
             movement,
@@ -459,7 +462,7 @@ impl KeyHandler for InstancePresenter {
                 return KeyOutcome::Consumed(self.start_instance(input, context).into());
             }
             Some(Shortcut::CloseInstance) => {
-                return KeyOutcome::Consumed(Self::stop_instance(context).into());
+                return KeyOutcome::Consumed(self.stop_instance().into());
             }
             _ => {}
         }
@@ -473,7 +476,6 @@ impl InstancePresenter {
     /// spawns without the launcher's configured parameters and carries its own temporary Full
     /// Screen Mode (ADR 0014). A primary instance inherits the parameters of this one.
     fn start_instance(&self, input: &KeyInput, context: &KeyContext<'_>) -> DesktopCommand {
-        let instance = Self::focused_instance(context);
         let (parameters, kind) = if input.is_shift() {
             (InstanceParameters::default(), InstanceKind::Assistant)
         } else {
@@ -481,7 +483,7 @@ impl InstancePresenter {
         };
 
         DesktopCommand::StartInstance {
-            launcher: context.hierarchy.launcher_of_instance(instance),
+            launcher: context.hierarchy.launcher_of_instance(self.id),
             instance: Uuid::new_v4().into(),
             root: None,
             parameters,
@@ -489,17 +491,10 @@ impl InstancePresenter {
         }
     }
 
-    fn stop_instance(context: &KeyContext<'_>) -> DesktopCommand {
+    fn stop_instance(&self) -> DesktopCommand {
         // Architecture: Shouldn't this just end the current view, and let the
         // instance decide then?
-        DesktopCommand::StopInstance(Self::focused_instance(context))
-    }
-
-    fn focused_instance(context: &KeyContext<'_>) -> InstanceId {
-        context
-            .focused_path
-            .instance()
-            .expect("An instance level is only on a focus path that contains the instance")
+        DesktopCommand::StopInstance(self.id)
     }
 }
 
