@@ -43,6 +43,10 @@ pub enum WindowFocusRequest {
 }
 
 /// The window focus; everything below the window is unfocused while it is unfocused.
+///
+/// Architecture: This points to some kind of self similarity. If we would see all the targets as
+/// individuals in their role as containers or leaves, it may be possible to avoid managing a focus
+/// tree and just manage the focus of the immediate descendants.
 #[derive(Debug, Default)]
 enum WindowFocus {
     // The window is assumed to start focused.

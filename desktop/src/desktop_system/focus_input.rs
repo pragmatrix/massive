@@ -42,6 +42,7 @@ impl DesktopSystem {
                     changes += pointer_press_focus(target);
                 }
                 RouterStep::WindowFocusChanged(focused) => {
+                    // Robustness: What about pointer focus?
                     if let Some(request) = self.keyboard_focus.set_window_focus(focused) {
                         let target = match request {
                             WindowFocusRequest::Clear => None,
