@@ -8,7 +8,7 @@ use anyhow::Result;
 use massive_applications::{ViewEvent, ViewId};
 
 use super::change::{Changes, DesktopChange};
-use super::{Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, KeyInput};
+use super::{Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, FocusableTarget, KeyInput};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::projects::RuntimeConfiguration;
 use crate::targeted_event::EventTransition;
@@ -111,22 +111,21 @@ impl DesktopSystem {
             .iter()
             .filter(|target| target.is_focusable())
             .map(|target| {
-                let handler: &dyn KeyHandler = match target {
-                    DesktopTarget::Desktop => &self.desktop_presenter,
-                    DesktopTarget::Project(project) => aggregates
+                let handler: &dyn KeyHandler = match target.as_focusable() {
+                    FocusableTarget::Desktop => &self.desktop_presenter,
+                    FocusableTarget::Project(project) => aggregates
                         .projects
-                        .get(project)
+                        .get(&project)
                         .expect("A project on the focus path has a presenter"),
-                    DesktopTarget::Launcher(launcher) => aggregates
+                    FocusableTarget::Launcher(launcher) => aggregates
                         .launchers
-                        .get(launcher)
+                        .get(&launcher)
                         .expect("A launcher on the focus path has a presenter"),
-                    DesktopTarget::Instance(instance) => aggregates
+                    FocusableTarget::Instance(instance) => aggregates
                         .instances
-                        .get(instance)
+                        .get(&instance)
                         .expect("An instance on the focus path has a presenter"),
-                    DesktopTarget::View(_) => &ApplicationKeys,
-                    target => unreachable!("{target:?} is not focusable"),
+                    FocusableTarget::View(_) => &ApplicationKeys,
                 };
                 KeyLevel {
                     target: target.clone(),

@@ -93,6 +93,16 @@ pub enum DesktopTarget {
     View(ViewId),
 }
 
+/// The targets that hold the keyboard focus, so decisions about the focus match exhaustively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusableTarget {
+    Desktop,
+    Project(ProjectId),
+    Launcher(LaunchProfileId),
+    Instance(InstanceId),
+    View(ViewId),
+}
+
 impl DesktopTarget {
     /// What a click on the target selects: a project's header and matrix select the project, an
     /// instance's title bar its instance (ADR 0019), and every other target itself.
@@ -110,6 +120,20 @@ impl DesktopTarget {
         self.clone().selected_target() == *self
     }
 
+    /// Panics on a part that selects another target: the keyboard focus never holds one.
+    pub fn as_focusable(&self) -> FocusableTarget {
+        match *self {
+            Self::Desktop => FocusableTarget::Desktop,
+            Self::Project(project) => FocusableTarget::Project(project),
+            Self::Launcher(launcher) => FocusableTarget::Launcher(launcher),
+            Self::Instance(instance) => FocusableTarget::Instance(instance),
+            Self::View(view) => FocusableTarget::View(view),
+            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => {
+                unreachable!("{self:?} is not focusable")
+            }
+        }
+    }
+
     /// Whether the target is an instance or part of one (title bar, view).
     pub fn is_instance_target(&self) -> bool {
         matches!(
@@ -120,13 +144,12 @@ impl DesktopTarget {
 
     /// The project a focusable target stands for; `Desktop` stands for the root project.
     pub fn stands_for_project(&self) -> Option<ProjectId> {
-        match self {
-            Self::Project(project) => Some(*project),
-            Self::Desktop => Some(ProjectId::ROOT),
-            Self::Launcher(_) | Self::Instance(_) | Self::View(_) => None,
-            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => {
-                unreachable!("{self:?} is not focusable")
-            }
+        match self.as_focusable() {
+            FocusableTarget::Project(project) => Some(project),
+            FocusableTarget::Desktop => Some(ProjectId::ROOT),
+            FocusableTarget::Launcher(_)
+            | FocusableTarget::Instance(_)
+            | FocusableTarget::View(_) => None,
         }
     }
 }
