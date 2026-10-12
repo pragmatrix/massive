@@ -114,30 +114,18 @@ impl DesktopTarget {
         }
     }
 
-    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
-    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
-    pub fn is_focusable(&self) -> bool {
-        self.as_focusable().is_some()
-    }
-
-    /// `None` for a part that selects another target.
-    pub fn as_focusable(&self) -> Option<FocusableTarget> {
-        match *self {
-            Self::Desktop => Some(FocusableTarget::Desktop),
-            Self::Project(project) => Some(FocusableTarget::Project(project)),
-            Self::Launcher(launcher) => Some(FocusableTarget::Launcher(launcher)),
-            Self::Instance(instance) => Some(FocusableTarget::Instance(instance)),
-            Self::View(view) => Some(FocusableTarget::View(view)),
-            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => None,
-        }
-    }
-
     /// Whether the target is an instance or part of one (title bar, view).
     pub fn is_instance_target(&self) -> bool {
         matches!(
             self,
             Self::Instance(_) | Self::InstanceTitleBar(_) | Self::View(_)
         )
+    }
+
+    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
+    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
+    pub fn is_focusable(&self) -> bool {
+        self.as_focusable().is_some()
     }
 
     /// The project a focusable target stands for; `Desktop` stands for the root project.
@@ -151,6 +139,18 @@ impl DesktopTarget {
             FocusableTarget::Launcher(_)
             | FocusableTarget::Instance(_)
             | FocusableTarget::View(_) => None,
+        }
+    }
+
+    /// `None` for a part that selects another target.
+    pub fn as_focusable(&self) -> Option<FocusableTarget> {
+        match *self {
+            Self::Desktop => Some(FocusableTarget::Desktop),
+            Self::Project(project) => Some(FocusableTarget::Project(project)),
+            Self::Launcher(launcher) => Some(FocusableTarget::Launcher(launcher)),
+            Self::Instance(instance) => Some(FocusableTarget::Instance(instance)),
+            Self::View(view) => Some(FocusableTarget::View(view)),
+            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => None,
         }
     }
 }
