@@ -67,8 +67,8 @@ impl DesktopSystem {
         Ok(changes)
     }
 
-    /// Keys walk the keyboard focus path (ADR 0020); IME input goes to the keyboard focus, and
-    /// modifier changes also reach a different pointer focus, which they alter.
+    /// Keys walk the keyboard focus path (ADR 0020); IME input and modifier changes go to the
+    /// keyboard focus.
     fn deliver_keyboard_input(
         &self,
         delivered: ViewEvent,
@@ -82,6 +82,8 @@ impl DesktopSystem {
         }
 
         let mut transitions = vec![EventTransition::Send(focused.clone(), delivered.clone())];
+        // Modifiers alter pointer interaction (Cmd activates hyperlinks), so the pointed-at target
+        // needs them too, even without the keyboard focus.
         if matches!(delivered, ViewEvent::ModifiersChanged(_))
             && let Some(pointer_focus) = self.event_router.pointer_focus()
             && *pointer_focus != focused
