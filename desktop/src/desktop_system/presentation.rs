@@ -6,9 +6,9 @@ use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_geometry::{Transform, Vector3};
 use massive_layout::Placement;
 
-use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
+use super::{DesktopTarget, FocusableTarget};
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, launcher_mode};
@@ -189,12 +189,12 @@ impl DesktopSystem {
 
         // The outline marks what a click selects; a view outlines its whole instance (ADR 0019).
         Some(match target.selected_target() {
-            DesktopTarget::View(view) => self
+            FocusableTarget::View(view) => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(&DesktopTarget::View(view))
                 .map_or(DesktopTarget::View(view), DesktopTarget::Instance),
-            target => target,
+            target => target.into(),
         })
     }
 }

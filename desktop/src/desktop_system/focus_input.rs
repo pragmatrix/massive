@@ -196,7 +196,7 @@ pub(super) fn keyboard_focus_request(
     target: Option<DesktopTarget>,
     source: FocusRequestSource,
 ) -> Changes {
-    let target = target.map(DesktopTarget::selected_target);
+    let target = target.map(|target| target.selected_target().into());
     let mut changes = Changes::Empty;
     // Clicking a target frames it fully in (ADR 0018).
     if source == FocusRequestSource::PointerPress && target.is_some() {

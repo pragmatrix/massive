@@ -104,16 +104,6 @@ pub enum FocusableTarget {
 }
 
 impl DesktopTarget {
-    /// What a click on the target selects: a project's header and matrix select the project, an
-    /// instance's title bar its instance (ADR 0019), and every other target itself.
-    pub fn selected_target(self) -> Self {
-        match self {
-            Self::ProjectHeader(project) | Self::ProjectMatrix(project) => Self::Project(project),
-            Self::InstanceTitleBar(instance) => Self::Instance(instance),
-            target => target,
-        }
-    }
-
     /// Whether the target is an instance or part of one (title bar, view).
     pub fn is_instance_target(&self) -> bool {
         matches!(
@@ -132,7 +122,7 @@ impl DesktopTarget {
     pub fn stands_for_project(&self) -> Option<ProjectId> {
         match self
             .as_focusable()
-            .expect("Only the keyboard focus stands for a project")
+            .expect("A part that selects another target stands for no project")
         {
             FocusableTarget::Project(project) => Some(project),
             FocusableTarget::Desktop => Some(ProjectId::ROOT),
@@ -144,13 +134,22 @@ impl DesktopTarget {
 
     /// `None` for a part that selects another target.
     pub fn as_focusable(&self) -> Option<FocusableTarget> {
+        let selected = self.selected_target();
+        (DesktopTarget::from(selected) == *self).then_some(selected)
+    }
+
+    /// What a click on the target selects; a part selects the target it belongs to (ADR 0019).
+    pub fn selected_target(&self) -> FocusableTarget {
         match *self {
-            Self::Desktop => Some(FocusableTarget::Desktop),
-            Self::Project(project) => Some(FocusableTarget::Project(project)),
-            Self::Launcher(launcher) => Some(FocusableTarget::Launcher(launcher)),
-            Self::Instance(instance) => Some(FocusableTarget::Instance(instance)),
-            Self::View(view) => Some(FocusableTarget::View(view)),
-            Self::ProjectHeader(_) | Self::ProjectMatrix(_) | Self::InstanceTitleBar(_) => None,
+            Self::Desktop => FocusableTarget::Desktop,
+            Self::Project(project)
+            | Self::ProjectHeader(project)
+            | Self::ProjectMatrix(project) => FocusableTarget::Project(project),
+            Self::Launcher(launcher) => FocusableTarget::Launcher(launcher),
+            Self::Instance(instance) | Self::InstanceTitleBar(instance) => {
+                FocusableTarget::Instance(instance)
+            }
+            Self::View(view) => FocusableTarget::View(view),
         }
     }
 }
@@ -161,6 +160,18 @@ pub enum Direction {
     Right,
     Up,
     Down,
+}
+
+impl From<FocusableTarget> for DesktopTarget {
+    fn from(target: FocusableTarget) -> Self {
+        match target {
+            FocusableTarget::Desktop => Self::Desktop,
+            FocusableTarget::Project(project) => Self::Project(project),
+            FocusableTarget::Launcher(launcher) => Self::Launcher(launcher),
+            FocusableTarget::Instance(instance) => Self::Instance(instance),
+            FocusableTarget::View(view) => Self::View(view),
+        }
+    }
 }
 
 impl From<ProjectId> for DesktopTarget {
