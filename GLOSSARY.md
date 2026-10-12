@@ -113,7 +113,7 @@ An instance a launcher starts with the launcher's configured parameters — thro
 _Avoid_: base instance, default instance
 
 **Assistant instance**:
-An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cmd+Enter` starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
+An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cmd+Enter`, or a Shift-click on a launcher, starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
 _Avoid_: aux instance, sidecar, secondary instance
 
 **Application**:

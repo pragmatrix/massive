@@ -4,6 +4,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 
 use uuid::Uuid;
+use winit::keyboard::ModifiersState;
 use winit::window::CursorIcon;
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
@@ -32,6 +33,15 @@ pub enum InstanceKind {
 }
 
 impl InstanceKind {
+    /// Shift starts an assistant (ADR 0014).
+    pub fn from_modifiers(modifiers: ModifiersState) -> Self {
+        if modifiers.shift_key() {
+            Self::Assistant
+        } else {
+            Self::Primary
+        }
+    }
+
     /// The Full Screen Mode a new instance of this kind starts in: an
     /// assistant's temporary mode starts regular; a primary instance presents in
     /// the launcher's mode.
@@ -475,10 +485,10 @@ impl InstancePresenter {
     /// spawns without the launcher's configured parameters and carries its own temporary Full
     /// Screen Mode (ADR 0014). A primary instance inherits the parameters of this one.
     fn start_instance(&self, input: &KeyInput, context: &KeyContext<'_>) -> DesktopCommand {
-        let (parameters, kind) = if input.is_shift() {
-            (InstanceParameters::default(), InstanceKind::Assistant)
-        } else {
-            (self.parameters().clone(), InstanceKind::Primary)
+        let kind = InstanceKind::from_modifiers(input.modifiers);
+        let parameters = match kind {
+            InstanceKind::Primary => self.parameters().clone(),
+            InstanceKind::Assistant => InstanceParameters::default(),
         };
 
         DesktopCommand::StartInstance {

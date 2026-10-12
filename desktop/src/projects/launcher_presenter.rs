@@ -211,11 +211,8 @@ impl LauncherPresenter {
         };
 
         if !presents_instance && event.detect_click(MouseButton::Left).is_some() {
-            let shift = event.keyboard_modifiers().shift_key();
-            // Shift-click opens plain; only Shift-shortcuts create assistants (ADR 0014).
-            return Ok(self
-                .start_instance(shift, InstanceKind::Primary, params)
-                .into());
+            let kind = InstanceKind::from_modifiers(event.keyboard_modifiers());
+            return Ok(self.start_instance(kind, params).into());
         }
 
         Ok(Commands::Empty)
@@ -225,12 +222,11 @@ impl LauncherPresenter {
         self.presents_instance
     }
 
-    /// Shift opens the instance plain, without the launcher's configured parameters.
-    fn start_instance(&self, shift: bool, kind: InstanceKind, params: &Params) -> DesktopCommand {
-        let parameters = if shift {
-            InstanceParameters::new()
-        } else {
-            params.clone()
+    /// An assistant starts plain, without the launcher's configured parameters (ADR 0014).
+    fn start_instance(&self, kind: InstanceKind, params: &Params) -> DesktopCommand {
+        let parameters = match kind {
+            InstanceKind::Primary => params.clone(),
+            InstanceKind::Assistant => InstanceParameters::new(),
         };
 
         // Usability: Should pass this rectangle?
@@ -293,15 +289,9 @@ impl KeyHandler for LauncherPresenter {
             _ => return KeyOutcome::Pass,
         }
 
-        // Shift-shortcuts create assistants (ADR 0014).
-        let shift = input.is_shift();
-        let kind = if shift {
-            InstanceKind::Assistant
-        } else {
-            InstanceKind::Primary
-        };
+        let kind = InstanceKind::from_modifiers(input.modifiers);
         let params = &context.configuration[self.id].params;
-        KeyOutcome::Consumed(self.start_instance(shift, kind, params).into())
+        KeyOutcome::Consumed(self.start_instance(kind, params).into())
     }
 }
 
