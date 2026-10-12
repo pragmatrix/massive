@@ -19,11 +19,16 @@ mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
 mod hierarchy_focus;
+mod key_delivery;
+mod key_input;
+mod keyboard_shortcuts;
 mod layout_algorithm;
 mod layout_effects;
 mod layout_state;
 mod navigation;
 mod presentation;
+#[cfg(test)]
+mod system_tests;
 mod topology;
 mod zoom_level_indicator;
 
@@ -54,6 +59,9 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
 pub(crate) use fullscreen::{fullscreen_scale, view_size};
+pub(crate) use key_delivery::{InputFocus, KeyContext, KeyHandler, KeyOutcome};
+pub(crate) use key_input::KeyInput;
+pub(crate) use keyboard_shortcuts::Shortcut;
 pub(crate) use layout_algorithm::{instance_extent, place_container_children};
 pub(crate) use massive_applications::SlotShift;
 
@@ -87,20 +95,17 @@ pub enum DesktopTarget {
     View(ViewId),
 }
 
+/// The targets that hold the keyboard focus, so decisions about the focus match exhaustively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusableTarget {
+    Desktop,
+    Project(ProjectId),
+    Launcher(LaunchProfileId),
+    Instance(InstanceId),
+    View(ViewId),
+}
+
 impl DesktopTarget {
-    pub fn wants_cmd_enter_when_focused(&self) -> bool {
-        matches!(self, Self::Launcher(_))
-    }
-
-    /// An instance's title bar stands for its instance (ADR 0019); every other target stays as it
-    /// is.
-    pub fn title_bar_as_instance(self) -> Self {
-        match self {
-            Self::InstanceTitleBar(instance) => Self::Instance(instance),
-            target => target,
-        }
-    }
-
     /// Whether the target is an instance or part of one (title bar, view).
     pub fn is_instance_target(&self) -> bool {
         matches!(
@@ -109,25 +114,42 @@ impl DesktopTarget {
         )
     }
 
-    /// The project a project-level target stands for; `Desktop` stands for the root project.
+    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
+    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
+    pub fn is_focusable(&self) -> bool {
+        self.as_focusable().is_some()
+    }
+
+    /// The project a focusable target stands for; `Desktop` stands for the root project.
     pub fn stands_for_project(&self) -> Option<ProjectId> {
-        match self {
-            Self::Project(project)
-            | Self::ProjectHeader(project)
-            | Self::ProjectMatrix(project) => Some(*project),
-            Self::Desktop => Some(ProjectId::ROOT),
-            Self::Launcher(_) | Self::Instance(_) | Self::InstanceTitleBar(_) | Self::View(_) => {
-                None
-            }
+        match self.as_focusable()? {
+            FocusableTarget::Project(project) => Some(project),
+            FocusableTarget::Desktop => Some(ProjectId::ROOT),
+            FocusableTarget::Launcher(_)
+            | FocusableTarget::Instance(_)
+            | FocusableTarget::View(_) => None,
         }
     }
 
-    /// A project target receives no text input, so `Enter` without `Cmd` enters it (ADR 0018).
-    pub fn enters_on_plain_enter(&self) -> bool {
-        matches!(
-            self,
-            Self::Project(_) | Self::ProjectHeader(_) | Self::ProjectMatrix(_)
-        )
+    /// `None` for a part that selects another target.
+    pub fn as_focusable(&self) -> Option<FocusableTarget> {
+        let selected = self.selected_target();
+        (DesktopTarget::from(selected) == *self).then_some(selected)
+    }
+
+    /// What a click on the target selects; a part selects the target it belongs to (ADR 0019).
+    pub fn selected_target(&self) -> FocusableTarget {
+        match *self {
+            Self::Desktop => FocusableTarget::Desktop,
+            Self::Project(project)
+            | Self::ProjectHeader(project)
+            | Self::ProjectMatrix(project) => FocusableTarget::Project(project),
+            Self::Launcher(launcher) => FocusableTarget::Launcher(launcher),
+            Self::Instance(instance) | Self::InstanceTitleBar(instance) => {
+                FocusableTarget::Instance(instance)
+            }
+            Self::View(view) => FocusableTarget::View(view),
+        }
     }
 }
 
@@ -137,6 +159,18 @@ pub enum Direction {
     Right,
     Up,
     Down,
+}
+
+impl From<FocusableTarget> for DesktopTarget {
+    fn from(target: FocusableTarget) -> Self {
+        match target {
+            FocusableTarget::Desktop => Self::Desktop,
+            FocusableTarget::Project(project) => Self::Project(project),
+            FocusableTarget::Launcher(launcher) => Self::Launcher(launcher),
+            FocusableTarget::Instance(instance) => Self::Instance(instance),
+            FocusableTarget::View(view) => Self::View(view),
+        }
+    }
 }
 
 impl From<ProjectId> for DesktopTarget {
@@ -293,6 +327,8 @@ pub struct DesktopSystem {
     window_state: WindowState,
 
     event_router: EventRouter<DesktopTarget>,
+    /// Where the last typed key went, independent of pointer focus.
+    input_focus: InputFocus,
 
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
@@ -392,6 +428,7 @@ impl DesktopSystem {
             ),
 
             event_router,
+            input_focus: InputFocus::default(),
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),

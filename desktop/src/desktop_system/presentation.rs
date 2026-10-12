@@ -6,9 +6,9 @@ use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_geometry::{Transform, Vector3};
 use massive_layout::Placement;
 
-use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
+use super::{DesktopTarget, FocusableTarget};
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, launcher_mode};
@@ -54,6 +54,7 @@ impl DesktopSystem {
         // An assistant owns a temporary Full Screen Mode, starting regular; a
         // primary instance is `None` and follows its launcher's mode (ADR 0014).
         let presenter = InstancePresenter::new(
+            instance,
             initial_center_translation,
             render_instance_background,
             root,
@@ -178,23 +179,22 @@ impl DesktopSystem {
         let target = self
             .event_router
             .pointer_focus()
-            .or_else(|| self.event_router.keyboard_focus())?
+            .or_else(|| {
+                // An application that received the last key shows its own feedback.
+                self.event_router
+                    .keyboard_focus()
+                    .filter(|focus| !self.input_focus.is_application_at(focus))
+            })?
             .clone();
 
-        // Structural project targets use the parent project as their visible hover target.
-        // Design: This is a policy and needs to be encoded somewhere else.
-        Some(match target {
-            DesktopTarget::ProjectHeader(project) | DesktopTarget::ProjectMatrix(project) => {
-                DesktopTarget::Project(project)
-            }
-            // The title bar and the view outline their whole instance (ADR 0019).
-            DesktopTarget::InstanceTitleBar(instance) => DesktopTarget::Instance(instance),
-            DesktopTarget::View(view) => self
+        // The outline marks what a click selects; a view outlines its whole instance (ADR 0019).
+        Some(match target.selected_target() {
+            FocusableTarget::View(view) => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(&DesktopTarget::View(view))
                 .map_or(DesktopTarget::View(view), DesktopTarget::Instance),
-            target => target,
+            target => target.into(),
         })
     }
 }

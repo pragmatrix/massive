@@ -14,7 +14,7 @@ use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{DesktopTarget, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::projects::{
-    LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
+    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
 };
 
 /// Resolves where the camera points for a zoom level, from the placed layout.
@@ -85,9 +85,13 @@ impl<'a> ZoomGeometry<'a> {
         };
 
         match level.normalized(target.is_instance_target()) {
-            ZoomLevel::Focus if target.is_instance_target() => self
-                .camera_for_target(target)
-                .expect("an instance focus target must have a camera"),
+            ZoomLevel::Focus if target.is_instance_target() => {
+                let instance = self
+                    .hierarchy
+                    .instance_of_target(target)
+                    .expect("an instance target belongs to an instance");
+                self.instance_camera(instance)
+            }
             ZoomLevel::Focus | ZoomLevel::Slot => self
                 .camera_for_slot(content)
                 .expect("a configured project slot must have a camera"),
@@ -107,46 +111,29 @@ impl<'a> ZoomGeometry<'a> {
             .expect("a live project must have camera bounds")
     }
 
-    fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
-        match focus {
-            DesktopTarget::Desktop => {
-                // The desktop node has no presenter to frame; its child (the root
-                // project) carries the camera.
-                self.camera_for_target(self.hierarchy.parent(focus)?)
-            }
-            DesktopTarget::Project(_)
-            | DesktopTarget::ProjectHeader(_)
-            | DesktopTarget::ProjectMatrix(_)
-            | DesktopTarget::Launcher(_) => {
-                let transform = self.placement(focus).transform;
-                Some(Self::camera_from_placement(transform))
-            }
-            DesktopTarget::Instance(instance_id) => {
-                let transform = self
-                    .placement(&DesktopTarget::Instance(*instance_id))
-                    .transform;
-                // The camera frames the instance at its content scale, the scale the layout gives
-                // the instance's children: 1 at regular size, and in Full Screen Mode (ADR 0014)
-                // the factor that fits their window-resolution content into the instance extent.
-                // Dollying by it maps that content 1:1 onto the screen.
-                //
-                // The title bar is the source because it exists with the instance (ADR 0019), so a
-                // view-less fullscreen instance already frames fullscreen and the camera does not
-                // zoom out and back in when the view arrives.
-                let content_scale = self
-                    .placement(&DesktopTarget::InstanceTitleBar(*instance_id))
-                    .transform
-                    .scale;
-                Some(Self::camera_from_placement(Transform::new(
-                    transform.translate,
-                    transform.rotate,
-                    content_scale,
-                )))
-            }
-            DesktopTarget::InstanceTitleBar(_) | DesktopTarget::View(_) => {
-                self.camera_for_target(self.hierarchy.parent(focus)?)
-            }
-        }
+    fn instance_camera(&self, instance: InstanceId) -> PixelCamera {
+        let transform = self.placement(&DesktopTarget::Instance(instance)).transform;
+        // The camera frames the instance at its content scale, the scale the layout gives the
+        // instance's children: 1 at regular size, and in Full Screen Mode (ADR 0014) the factor
+        // that fits their window-resolution content into the instance extent. Dollying by it maps
+        // that content 1:1 onto the screen.
+        //
+        // The title bar is the source because it exists with the instance (ADR 0019), so a
+        // view-less fullscreen instance already frames fullscreen and the camera does not zoom out
+        // and back in when the view arrives.
+        let content_scale = self
+            .placement(&DesktopTarget::InstanceTitleBar(instance))
+            .transform
+            .scale;
+        Self::camera_from_placement(Transform::new(
+            transform.translate,
+            transform.rotate,
+            content_scale,
+        ))
+    }
+
+    fn launcher_camera(&self, launcher: LaunchProfileId) -> PixelCamera {
+        Self::camera_from_placement(self.placement(&DesktopTarget::Launcher(launcher)).transform)
     }
 
     fn camera_for_slot(&self, content: SlotContent) -> Option<PixelCamera> {
@@ -167,7 +154,7 @@ impl<'a> ZoomGeometry<'a> {
         let instances: Vec<_> = self.hierarchy.launcher_instances(launcher_id).collect();
         if instances.len() <= 1 {
             // A launcher with zero or one visor has no arc to union — frame the launcher itself.
-            return self.camera_for_target(&DesktopTarget::Launcher(launcher_id));
+            return Some(self.launcher_camera(launcher_id));
         }
 
         // The band/visor camera split follows the configuration's mode; a launcher

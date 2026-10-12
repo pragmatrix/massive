@@ -14,8 +14,10 @@ than of the camera or the Focus Depths:
   by all of its *primary instances*. It rides the `Launcher` → `LaunchProfile` →
   `PersistedLauncher` chain and survives sessions in `desktop.json`.
 - **Per assistant instance, temporary.** An *assistant instance* (started with
-  `Shift+Cmd+T`, without the launcher's configured parameters) owns its own
-  Full Screen Mode that never persists.
+  `Shift`: `Shift+Cmd+T`, `Shift+Enter` or a Shift-click on a launcher, without
+  the launcher's configured parameters) owns its own Full Screen Mode that never
+  persists. The instance kind alone decides the parameters, so `Shift` means the
+  same on every start path.
 
 Full Screen Mode is *only* a content scale — analogous to the nested-project
 slot scale: the launcher presenter and visor layout are untouched, placements
@@ -52,4 +54,5 @@ starting an instance.
   resizing the window leave focus depth unchanged.
 - Zoom remains `Ctrl+Cmd+↑/↓`; starting instances is `Cmd+T` / `Cmd+Enter`,
   with `Shift` starting an assistant. Both keyboard shortcuts work on a focused
-  launcher to start its first instance; the launcher presenter keeps click-to-start.
+  launcher to start its first instance; the launcher presenter keeps click-to-start,
+  where a Shift-click starts an assistant too.

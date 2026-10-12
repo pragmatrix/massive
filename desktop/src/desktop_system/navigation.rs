@@ -4,7 +4,8 @@ use log::error;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
 use super::{
-    DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap, ProjectMap,
+    DesktopSystem, DesktopTarget, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap,
+    ProjectMap,
 };
 use crate::projects::{
     LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
@@ -249,30 +250,33 @@ fn resolve_navigation_origin(
     configuration: &RuntimeConfiguration,
     from: &DesktopTarget,
 ) -> Option<NavigationOrigin> {
-    match from {
-        DesktopTarget::Launcher(launcher_id) => {
-            let (project, placement) = configuration.slot_of_content(*launcher_id)?;
+    match from
+        .as_focusable()
+        .expect("Navigation starts from the keyboard focus")
+    {
+        FocusableTarget::Launcher(launcher_id) => {
+            let (project, placement) = configuration.slot_of_content(launcher_id)?;
             Some(NavigationOrigin::MatrixSlot { project, placement })
         }
-        DesktopTarget::Project(project) | DesktopTarget::ProjectHeader(project) => {
-            let (parent, placement) = configuration.slot_of_content(*project)?;
+        FocusableTarget::Project(project) => {
+            let (parent, placement) = configuration.slot_of_content(project)?;
             Some(NavigationOrigin::MatrixSlot {
                 project: parent,
                 placement,
             })
         }
-        DesktopTarget::Instance(instance_id) => {
-            let launcher = hierarchy.launcher_of_instance(*instance_id);
+        FocusableTarget::Instance(instance_id) => {
+            let launcher = hierarchy.launcher_of_instance(instance_id);
             let index = hierarchy
                 .launcher_instances(launcher)
-                .position(|instance| instance == *instance_id)?;
+                .position(|instance| instance == instance_id)?;
             Some(NavigationOrigin::Child { launcher, index })
         }
-        DesktopTarget::View(_) => {
+        FocusableTarget::View(_) => {
             let instance = hierarchy.instance_of_target(from)?;
             resolve_navigation_origin(hierarchy, configuration, &DesktopTarget::Instance(instance))
         }
-        _ => None,
+        FocusableTarget::Desktop => None,
     }
 }
 

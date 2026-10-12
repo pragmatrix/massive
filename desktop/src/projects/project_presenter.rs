@@ -2,6 +2,10 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, SizedTransform, Transform};
 use massive_scene::prelude::*;
 
+use crate::desktop_system::change::Zoom;
+use crate::desktop_system::{
+    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+};
 use crate::projects::MatrixPlacement;
 
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
@@ -43,6 +47,23 @@ impl ProjectPresenter {
     pub fn set_layout(&mut self, layout: SizedTransform) {
         let scene_transform = layout.to_origin_space();
         self.scene_transform.update_if_changed(scene_transform);
+    }
+}
+
+/// A project receives no text input, so Enter, with or without Cmd, enters it while it is the
+/// keyboard focus (ADR 0018).
+impl KeyHandler for ProjectPresenter {
+    fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        let enters = matches!(
+            Shortcut::from_input(input),
+            Some(Shortcut::Enter | Shortcut::CommandEnter)
+        ) && context.is_focused;
+
+        if enters {
+            KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into())
+        } else {
+            KeyOutcome::Pass
+        }
     }
 }
 

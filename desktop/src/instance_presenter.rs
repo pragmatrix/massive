@@ -3,17 +3,23 @@ use std::time::Duration;
 
 use anyhow::{Result, bail};
 
+use uuid::Uuid;
+use winit::keyboard::ModifiersState;
 use winit::window::CursorIcon;
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
-use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
+use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
+use crate::desktop_system::change::Zoom;
+use crate::desktop_system::{
+    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+};
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
 /// What an instance was started as (ADR 0014). A `Primary` instance presents in
@@ -27,6 +33,15 @@ pub enum InstanceKind {
 }
 
 impl InstanceKind {
+    /// Shift starts an assistant (ADR 0014).
+    pub fn from_modifiers(modifiers: ModifiersState) -> Self {
+        if modifiers.shift_key() {
+            Self::Assistant
+        } else {
+            Self::Primary
+        }
+    }
+
     /// The Full Screen Mode a new instance of this kind starts in: an
     /// assistant's temporary mode starts regular; a primary instance presents in
     /// the launcher's mode.
@@ -100,6 +115,7 @@ const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
 
 #[derive(Debug)]
 pub struct InstancePresenter {
+    id: InstanceId,
     state: InstancePresenterState,
     parameters: InstanceParameters,
     /// The instance's Full Screen presentation (ADR 0014).
@@ -160,6 +176,7 @@ pub struct ViewWindowState {
 impl InstancePresenter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        id: InstanceId,
         initial_center_translation: Option<Vector3>,
         show_background: bool,
         root: InstanceRoot,
@@ -216,6 +233,7 @@ impl InstancePresenter {
         );
 
         Self {
+            id,
             state: InstancePresenterState::WaitingForPrimaryView,
             parameters,
             movement,
@@ -438,6 +456,54 @@ impl InstancePresenter {
         }
 
         Ok(view)
+    }
+}
+
+/// The level above the application: instance shortcuts stop here, every other key reaches the
+/// application.
+impl KeyHandler for InstancePresenter {
+    fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        match Shortcut::from_input(input) {
+            Some(Shortcut::CommandEnter) if !context.fully_zoomed_in => {
+                return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+            }
+            Some(Shortcut::StartInstance) => {
+                return KeyOutcome::Consumed(self.start_instance(input, context).into());
+            }
+            Some(Shortcut::CloseInstance) => {
+                return KeyOutcome::Consumed(self.stop_instance().into());
+            }
+            _ => {}
+        }
+
+        KeyOutcome::Pass
+    }
+}
+
+impl InstancePresenter {
+    /// Starts an instance under the launcher of this one. `Shift` makes it an assistant: it
+    /// spawns without the launcher's configured parameters and carries its own temporary Full
+    /// Screen Mode (ADR 0014). A primary instance inherits the parameters of this one.
+    fn start_instance(&self, input: &KeyInput, context: &KeyContext<'_>) -> DesktopCommand {
+        let kind = InstanceKind::from_modifiers(input.modifiers);
+        let parameters = match kind {
+            InstanceKind::Primary => self.parameters().clone(),
+            InstanceKind::Assistant => InstanceParameters::default(),
+        };
+
+        DesktopCommand::StartInstance {
+            launcher: context.hierarchy.launcher_of_instance(self.id),
+            instance: Uuid::new_v4().into(),
+            root: None,
+            parameters,
+            kind,
+        }
+    }
+
+    fn stop_instance(&self) -> DesktopCommand {
+        // Architecture: Shouldn't this just end the current view, and let the
+        // instance decide then?
+        DesktopCommand::StopInstance(self.id)
     }
 }
 
