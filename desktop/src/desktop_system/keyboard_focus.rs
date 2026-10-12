@@ -60,7 +60,7 @@ impl KeyboardFocus {
 
     /// The keyboard focus the hover outline marks: an application that received the last key shows
     /// its own feedback.
-    pub fn outlined(&self) -> Option<FocusableTarget> {
+    pub fn hover_outline_focus(&self) -> Option<FocusableTarget> {
         self.focused
             .filter(|focused| !self.input_focus.is_application_at(*focused))
     }
@@ -172,10 +172,13 @@ mod tests {
         let mut focus = focused_on(FocusableTarget::View(view));
 
         focus.set_input_focus(InputFocus::Application(ViewId::new()));
-        assert_eq!(focus.outlined(), Some(FocusableTarget::View(view)));
+        assert_eq!(
+            focus.hover_outline_focus(),
+            Some(FocusableTarget::View(view))
+        );
 
         focus.set_input_focus(InputFocus::Application(view));
-        assert_eq!(focus.outlined(), None);
+        assert_eq!(focus.hover_outline_focus(), None);
     }
 
     fn focused_on(target: FocusableTarget) -> KeyboardFocus {
