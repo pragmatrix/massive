@@ -16,8 +16,8 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome,
-    Shortcut, place_container_children,
+    Commands, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    place_container_children,
 };
 use crate::instance_presenter::InstanceKind;
 use crate::projects::LaunchProfileId;
@@ -277,7 +277,7 @@ impl LauncherPresenter {
 /// Cmd+Enter zooms to the launcher first and starts only once the camera is there.
 impl KeyHandler for LauncherPresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
-        if context.focused() != Some(&DesktopTarget::Launcher(self.id)) {
+        if !context.is_focused {
             return KeyOutcome::Pass;
         }
 

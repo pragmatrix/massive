@@ -771,7 +771,7 @@ impl DesktopSystem {
             Some(location) => location,
             None => self.desktop_presenter.location.clone(),
         };
-        let presenter = ProjectPresenter::new(id, name, location);
+        let presenter = ProjectPresenter::new(name, location);
         self.aggregates.projects.insert(id, presenter)
     }
 

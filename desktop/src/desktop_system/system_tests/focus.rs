@@ -36,7 +36,7 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
         );
         let first_command = |fully_zoomed_in| {
             let context = KeyContext {
-                focused_path: system.focused_path(),
+                is_focused: true,
                 fully_zoomed_in,
                 hierarchy: &system.aggregates.hierarchy,
                 configuration: &system.aggregates.configuration,

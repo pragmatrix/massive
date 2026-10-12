@@ -4,9 +4,9 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
 };
-use crate::projects::{MatrixPlacement, ProjectId};
+use crate::projects::MatrixPlacement;
 
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
@@ -15,7 +15,6 @@ const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
-    id: ProjectId,
     scene_transform: Handle<Transform>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -23,7 +22,7 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
-    pub fn new(id: ProjectId, name: String, parent_location: Handle<Location>) -> Self {
+    pub fn new(name: String, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let mut header = TitleBarPresenter::new(
@@ -38,7 +37,6 @@ impl ProjectPresenter {
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
-            id,
             scene_transform,
             header,
             matrix,
@@ -59,7 +57,7 @@ impl KeyHandler for ProjectPresenter {
         let enters = matches!(
             Shortcut::from_input(input),
             Some(Shortcut::Enter | Shortcut::CommandEnter)
-        ) && context.focused() == Some(&DesktopTarget::Project(self.id));
+        ) && context.is_focused;
 
         if enters {
             KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into())

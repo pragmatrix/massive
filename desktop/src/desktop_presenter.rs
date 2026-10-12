@@ -9,7 +9,7 @@ use massive_shapes::{IntoShape, Shape, StrokeRect};
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
 };
 
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
@@ -64,9 +64,7 @@ impl KeyHandler for DesktopPresenter {
         let command = match Shortcut::from_input(input) {
             // Projects, launchers, and instances enter themselves; the desktop stands for the
             // root project.
-            Some(Shortcut::CommandEnter) if context.focused() == Some(&DesktopTarget::Desktop) => {
-                DesktopCommand::Zoom(Zoom::Enter)
-            }
+            Some(Shortcut::CommandEnter) if context.is_focused => DesktopCommand::Zoom(Zoom::Enter),
             Some(Shortcut::Navigate(direction)) => DesktopCommand::Navigate(direction),
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),

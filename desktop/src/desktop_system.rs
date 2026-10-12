@@ -122,10 +122,7 @@ impl DesktopTarget {
 
     /// The project a focusable target stands for; `Desktop` stands for the root project.
     pub fn stands_for_project(&self) -> Option<ProjectId> {
-        match self
-            .as_focusable()
-            .expect("A part that selects another target stands for no project")
-        {
+        match self.as_focusable()? {
             FocusableTarget::Project(project) => Some(project),
             FocusableTarget::Desktop => Some(ProjectId::ROOT),
             FocusableTarget::Launcher(_)

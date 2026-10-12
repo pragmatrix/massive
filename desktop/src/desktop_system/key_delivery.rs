@@ -72,13 +72,13 @@ impl DesktopSystem {
     pub(super) fn deliver_key_along_focus_path(&self, input: &KeyInput) -> Result<Changes> {
         let delivery = {
             let context = KeyContext {
-                focused_path: self.focused_path(),
+                is_focused: false,
                 fully_zoomed_in: self.zoom_navigation().is_fully_zoomed_in(),
                 hierarchy: &self.aggregates.hierarchy,
                 configuration: &self.aggregates.configuration,
             };
-            let levels = self.key_levels(&context.focused_path);
-            offer_key_to_levels(&levels, input, &context)
+            let levels = self.key_levels(&self.focused_path());
+            offer_key_to_levels(&levels, input, context)
         };
 
         let mut changes = Changes::Empty;
@@ -137,10 +137,15 @@ impl DesktopSystem {
 fn offer_key_to_levels(
     levels: &[KeyLevel<'_>],
     input: &KeyInput,
-    context: &KeyContext<'_>,
+    context: KeyContext<'_>,
 ) -> KeyDelivery {
-    for level in levels {
-        match level.handler.handle_key(input, context) {
+    for (index, level) in levels.iter().enumerate() {
+        // The focus ends the path and is always focusable, so it is the last level.
+        let context = KeyContext {
+            is_focused: index + 1 == levels.len(),
+            ..context
+        };
+        match level.handler.handle_key(input, &context) {
             KeyOutcome::Pass => {}
             KeyOutcome::Consumed(commands) => return KeyDelivery::Consumed(commands),
             KeyOutcome::Forward(event) => {
@@ -166,11 +171,11 @@ impl KeyHandler for ApplicationKeys {
 }
 
 /// What the desktop's key handlers read while deciding.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct KeyContext<'a> {
-    /// The keyboard focus path. A level checks whether the focus is on itself, because keys also
-    /// pass through it.
-    pub focused_path: DesktopFocusPath,
+    /// Whether the receiving level is the keyboard focus itself; keys also pass through the levels
+    /// above it.
+    pub is_focused: bool,
     /// Whether the camera frames the keyboard-focused target itself (zoom level `Focus`). Cmd+Enter
     /// zooms there first and acts only when already there; presenters cannot read the zoom state.
     pub fully_zoomed_in: bool,
@@ -178,10 +183,4 @@ pub(crate) struct KeyContext<'a> {
     pub hierarchy: &'a DesktopTopology,
     /// A launcher starts its instances with the parameters configured for it.
     pub configuration: &'a RuntimeConfiguration,
-}
-
-impl KeyContext<'_> {
-    pub fn focused(&self) -> Option<&DesktopTarget> {
-        self.focused_path.focused()
-    }
 }
