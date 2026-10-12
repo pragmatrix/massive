@@ -27,6 +27,8 @@ mod layout_effects;
 mod layout_state;
 mod navigation;
 mod presentation;
+#[cfg(test)]
+mod system_tests;
 mod topology;
 mod zoom_level_indicator;
 

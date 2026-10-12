@@ -1,0 +1,107 @@
+use super::*;
+
+#[tokio::test]
+async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let frame = massive_applications::begin_frame();
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            instance_b,
+            ..
+        } = nested_siblings()?;
+
+        for _ in 0..2 {
+            run(
+                &mut system,
+                &mut instance_manager,
+                DesktopCommand::Zoom(Zoom::Out),
+            )?;
+        }
+        assert_eq!(
+            system.zoom_navigation().focused_zoom_level(),
+            Some((ZoomLevel::Row, 1))
+        );
+
+        // `labs-a` holds a single slot, so there is nothing to its right inside it: the
+        // navigation escapes to the sibling project, which was visited and so is re-entered
+        // at its focus leaf. Navigating back restores the original focus.
+        let navigate = |system: &mut DesktopSystem, manager: &mut InstanceManager, direction| {
+            run(system, manager, DesktopCommand::Navigate(direction))
+        };
+        navigate(
+            &mut system,
+            &mut instance_manager,
+            crate::desktop_system::Direction::Right,
+        )?;
+        assert_eq!(
+            system.event_router.keyboard_focus(),
+            Some(&DesktopTarget::Instance(instance_b))
+        );
+        assert_eq!(
+            system
+                .zoom_navigation()
+                .focused_zoom_level()
+                .map(|(level, _)| level),
+            Some(ZoomLevel::Row)
+        );
+
+        navigate(
+            &mut system,
+            &mut instance_manager,
+            crate::desktop_system::Direction::Left,
+        )?;
+        assert_eq!(
+            system.event_router.keyboard_focus(),
+            Some(&DesktopTarget::Instance(instance_a))
+        );
+
+        drop(frame.submission::<SceneChange>());
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let frame = massive_applications::begin_frame();
+        let (mut system, receiver) = system();
+        let mut instance_manager = instance_manager(&receiver);
+        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+            run(
+                &mut system,
+                &mut instance_manager,
+                DesktopCommand::Project(command),
+            )?;
+        }
+        let launcher = system
+            .aggregates
+            .configuration
+            .boot_launcher()
+            .expect("the test configuration has a startup launcher");
+        let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+
+        for expected in [ZoomLevel::Slot, ZoomLevel::Row, ZoomLevel::Project] {
+            run(
+                &mut system,
+                &mut instance_manager,
+                DesktopCommand::Zoom(Zoom::Out),
+            )?;
+            assert_eq!(
+                system.zoom_navigation().focused_zoom_level(),
+                Some((expected, 0))
+            );
+            assert_eq!(
+                system.event_router.keyboard_focus(),
+                Some(&DesktopTarget::Instance(instance))
+            );
+        }
+        assert!(system.plan(DesktopCommand::Zoom(Zoom::Out))?.is_empty());
+
+        drop(frame.submission::<SceneChange>());
+        Ok(())
+    })
+    .await
+}
