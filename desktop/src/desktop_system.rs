@@ -103,6 +103,11 @@ impl DesktopTarget {
         }
     }
 
+    /// A title bar only stands for its instance (ADR 0019), so it never holds the keyboard focus.
+    pub fn is_focusable(&self) -> bool {
+        !matches!(self, Self::InstanceTitleBar(_))
+    }
+
     /// Whether the target is an instance or part of one (title bar, view).
     pub fn is_instance_target(&self) -> bool {
         matches!(

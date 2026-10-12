@@ -107,8 +107,7 @@ impl DesktopSystem {
 
     /// The handlers of the keyboard focus path, outermost first.
     ///
-    /// Structural targets stand for the level that hosts them: a project's header and matrix are
-    /// its project, and an instance's title bar is its instance.
+    /// A project's header and matrix stand for their project, which is already a level.
     pub(super) fn key_levels<'s>(&'s self, focused_path: &DesktopFocusPath) -> Vec<KeyLevel<'s>> {
         let aggregates = &self.aggregates;
         focused_path
@@ -129,9 +128,13 @@ impl DesktopSystem {
                         .get(instance)
                         .expect("An instance on the focus path has a presenter"),
                     DesktopTarget::View(_) => &ApplicationKeys,
-                    DesktopTarget::ProjectHeader(_)
-                    | DesktopTarget::ProjectMatrix(_)
-                    | DesktopTarget::InstanceTitleBar(_) => return None,
+                    DesktopTarget::ProjectHeader(_) | DesktopTarget::ProjectMatrix(_) => {
+                        return None;
+                    }
+                    // A title bar is a leaf, so it is only on the path as the focus.
+                    DesktopTarget::InstanceTitleBar(_) => {
+                        unreachable!("A title bar is not focusable")
+                    }
                 };
                 Some(KeyLevel {
                     target: target.clone(),

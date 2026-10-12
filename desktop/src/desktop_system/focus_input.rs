@@ -73,7 +73,12 @@ impl DesktopSystem {
         target: impl Into<Option<&'a DesktopTarget>>,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        let focus_change = self.event_router.focus(target.into());
+        let target = target.into();
+        assert!(
+            target.is_none_or(DesktopTarget::is_focusable),
+            "Keyboard focus on an unfocusable target: {target:?}"
+        );
+        let focus_change = self.event_router.focus(target);
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
         // measures now and let `transact` drain them once buttons are released. The camera move
