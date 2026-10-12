@@ -446,9 +446,9 @@ impl InstancePresenter {
     }
 }
 
-/// The instance is the level above the application in key delivery. Cmd+Enter zooms to it until the camera is
-/// there, Cmd+T starts another instance from it, Cmd+W closes it, and every other key passes on to
-/// its application.
+/// The instance is the level above the application in key delivery. Cmd+Enter zooms to it until the
+/// camera is there, Cmd+T starts another instance from it, Cmd+W closes it, and every other key
+/// passes on to its application.
 impl KeyHandler for InstancePresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
         match Shortcut::from_input(input) {
