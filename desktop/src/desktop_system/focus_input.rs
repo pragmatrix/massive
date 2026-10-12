@@ -82,8 +82,8 @@ impl DesktopSystem {
         }
 
         let mut transitions = vec![EventTransition::Send(focused.clone(), delivered.clone())];
-        // Modifiers alter pointer interaction (Cmd activates hyperlinks), so the pointed-at target
-        // needs them too, even without the keyboard focus.
+        // Modifiers alter pointer interaction (Cmd activates hyperlinks), so a pointed-at target
+        // other than the keyboard focus needs them too.
         if matches!(delivered, ViewEvent::ModifiersChanged(_))
             && let Some(pointer_focus) = self.event_router.pointer_focus()
             && *pointer_focus != focused
