@@ -542,7 +542,12 @@ pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> Size
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::OrderedHierarchy;
+    use crate::instance_presenter::InstanceTitleBarMetrics;
+    use crate::projects::persistence::parse_configuration;
 
     #[test]
     fn presentation_scale_fits_width_without_enlarging() {
@@ -554,5 +559,82 @@ mod tests {
     #[test]
     fn presentation_scale_of_an_empty_scene_is_one() {
         assert_eq!(presentation_scale(300, 0), 1.0);
+    }
+
+    /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
+    /// vertically, so the first instance takes the top of the cell (ADR 0019).
+    #[test]
+    fn launchers_measure_with_the_instance_extent() {
+        let configuration = parse_configuration(
+            Path::new("/config/desktop.json"),
+            r#"{
+                "startup": "/busy",
+                "slots": [
+                    { "at": [0, 0], "launcher": { "name": "empty", "mode": "visor" } },
+                    { "at": [1, 0], "launcher": { "name": "busy", "mode": "visor" } }
+                ]
+            }"#,
+        )
+        .unwrap();
+        let launcher_named = |name| {
+            DesktopTarget::Launcher(
+                configuration
+                    .launchers()
+                    .find(|launcher| launcher.name == name)
+                    .unwrap()
+                    .id,
+            )
+        };
+        let (empty, busy) = (launcher_named("empty"), launcher_named("busy"));
+        let mut hierarchy = OrderedHierarchy::default();
+        hierarchy
+            .add(
+                busy.clone(),
+                DesktopTarget::Instance(uuid::Uuid::new_v4().into()),
+            )
+            .unwrap();
+        let aggregates = Aggregates::new(
+            hierarchy,
+            configuration,
+            InstanceTitleBarMetrics::from_scale_factor(1.0),
+        );
+        let algorithm = DesktopLayoutAlgorithm {
+            aggregates: &aggregates,
+            default_panel_size: SizePx::new(800, 600),
+            focused_instance: None,
+            window_size: SizePx::new(800, 600),
+        };
+        let instance_extent: Size<2> = algorithm.instance_extent().into();
+        assert!(
+            instance_extent.0[1] > 600,
+            "the extent includes the title bar"
+        );
+
+        let empty = algorithm.measure(&empty, &[]);
+        assert_eq!(empty.size, instance_extent);
+        assert_eq!(empty.expandable_axes, [false, true]);
+
+        let busy = algorithm.measure(&busy, &[instance_extent.into()]);
+        assert_eq!(busy.size, instance_extent);
+        assert_eq!(busy.expandable_axes, [false, false]);
+    }
+
+    #[test]
+    fn only_vertically_expandable_slots_stretch_to_their_row() {
+        let layout_size = Size([100, 50]);
+        let slot = MatrixSlot {
+            layout_size,
+            size: layout_size,
+            scale: 1.0,
+            placement: MatrixPlacement { column: 0, row: 1 },
+        };
+        let rows = [400, 300];
+
+        let expandable = MeasuredLayout::new(layout_size, [false, true]);
+        assert_eq!(expand_to_row(&slot, &expandable, &rows), Size([100, 300]));
+        assert_eq!(
+            expand_to_row(&slot, &layout_size.into(), &rows),
+            layout_size
+        );
     }
 }
