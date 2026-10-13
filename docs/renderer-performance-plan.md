@@ -53,19 +53,38 @@ Suspected costs, from reading the code:
    - a bind group and a vertex buffer bind.
    - 10 terminals × ~120 visuals ≈ 1,200+ draws per frame before desktop chrome. The
      code already flags the repeated matrix work (`Architecture:` comment in
-     `render_pipeline_batches`).
+     `render_batch`).
+   - Every opaque and decal pass walks all visuals again and looks up each alpha to
+     filter opaque from translucent, so the alpha lookups scale with visuals × pipelines.
+   - wgpu (29.0.4) does not skip redundant state changes: `set_pipeline`
+     (`wgpu-core/src/command/render.rs`) always calls the backend and rebinds the
+     pipeline layout, and `set_bind_group` (`wgpu-core/src/command/pass.rs`) always
+     revalidates and merges its usage into the tracker. Any skipping is up to the
+     renderer.
 
 Existing measurement tooling:
 
 - `MeasureSeries` (`renderer/src/stats.rs`) logs mean, min, and max render time when
   `RendererConfig::measure` is set. It waits for the GPU after submit, which distorts
-  the frame pacing it measures.
+  the frame pacing it measures. Nothing in `mt` calls `with_measurements()`
+  (`shell/src/window_renderer_builder.rs`), so it is never on.
 - With the `metrics` feature, `massive_window_max_time_to_render` records the time
   from the oldest scene change to present (`shell/src/window_renderer.rs`), and is
   pushed to a Prometheus push gateway via `MASSIVE_METRICS_PUSHGATEWAY`
   (`shell/src/shell.rs`).
 - `mt` has criterion benches for shaping and counting benches with committed
-  baselines (`benches/`), but no renderer bench.
+  baselines (`benches/`), but no renderer bench. They cover shaping only and stop
+  before the renderer; `scene/benches/push_cost.rs` covers scene change pushes.
+
+Already done (2026-10-13, unmeasured):
+
+- `RenderBatches` keeps one `Id → RenderVisual` map plus a decal-order index, instead
+  of a separate normal map, per-order maps, and a mirrored `Id → decal order` map
+  (`renderer/src/render_batches.rs`).
+- The translucent pass (`render_translucent_surfaces`) must render visual by visual in
+  back to front order, so it switches pipelines per visual. It now skips the switch
+  when the pipeline is already bound. Translucent visuals only exist while a surface
+  fades, so this pass is small.
 
 ### PR #44 "Instanced rendering"
 
@@ -156,6 +175,14 @@ enough.
   - One map from `RasterizedGlyphKey` to `{ Sdf(rect, placement) | Color(rect,
     placement) | Empty }` replaces the two atlas probes and the empty-glyph set.
   - Color glyphs drop to one lookup; misses rasterize and insert once.
+- **O6. Partition visuals once per frame.**
+  - Collect opaque and translucent visuals (normal and per decal order) in one walk
+    before the pass, so each pipeline pass iterates a prepared list instead of
+    refiltering all visuals with an alpha lookup.
+- **O7. Skip redundant bind group sets.**
+  - Track the bound `fs_bind_group` in the pass and set it only when it changes
+    (the `Performance:` comment in `render_batch`). It only pays off with O1, because
+    today every batch owns its own bind group.
 
 ## Phase 3: instanced glyph quads (PR #44 design, reimplemented)
 
@@ -197,7 +224,7 @@ enough.
 ## Sequencing
 
 1. Phase 1 instrumentation, scenarios, and the renderer bench; record the baseline.
-2. Phase 2 (O1, O2) if their costs show up. O1 also lands if the atlas retention is
+2. Phase 2 (O1, O2, O6, O7) if their costs show up. O1 also lands if the atlas retention is
    confirmed, regardless of timing, because it is a memory leak in practice.
 3. Phase 3, with pixel-identical validation; close PR #44.
 4. Re-measure, then decide on phase 4 and phase 5 from the new numbers.
@@ -219,6 +246,11 @@ enough.
 - Is `TIMESTAMP_QUERY` available on the target adapters (Metal on M-series, Vulkan on
   Linux)? Without it, GPU time comes only from the blocking-wait measurement in the
   bench, not from the live scenarios.
+
+- Translucent surfaces apply alpha per batch, so a fading surface's own background
+  shows through its text. Correct group alpha needs the surface rendered opaque
+  offscreen and composited once, which would also make the translucent pass a single
+  pipeline. Is that a renderer correctness fix of its own, or part of ADR 0022?
 
 ## Not part of this plan
 
