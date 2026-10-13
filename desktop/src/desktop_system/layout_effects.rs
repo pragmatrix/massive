@@ -7,7 +7,10 @@ use massive_layout::LayoutTopology;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
+use super::{
+    DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart, ProjectPart,
+    TransactionEffectsMode,
+};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::TITLE_SEPARATOR;
 use crate::window_state::WindowPresentationState;
@@ -225,28 +228,28 @@ impl DesktopSystem {
             // The desktop node has no presenter, its layout state is only the
             // placement bookkeeping the children read through `absolute_placement`.
             DesktopTarget::Desktop => {}
-            DesktopTarget::Instance(instance_id) => {
+            DesktopTarget::Instance(instance_id, InstancePart::Instance) => {
                 self.aggregates
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
                     .set_layout(layout, visible, animate);
             }
-            DesktopTarget::InstanceTitleBar(instance_id) => {
+            DesktopTarget::Instance(instance_id, InstancePart::TitleBar) => {
                 self.aggregates
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
                     .set_title_bar_layout(layout, animate);
             }
-            DesktopTarget::Project(project_id) => {
+            DesktopTarget::Project(project_id, ProjectPart::Project) => {
                 self.aggregates
                     .projects
                     .get_mut(&project_id)
                     .expect("Missing project")
                     .set_layout(layout);
             }
-            DesktopTarget::ProjectHeader(project_id) => {
+            DesktopTarget::Project(project_id, ProjectPart::Header) => {
                 self.aggregates
                     .projects
                     .get_mut(&project_id)
@@ -254,7 +257,7 @@ impl DesktopSystem {
                     .header
                     .set_layout(layout, animate);
             }
-            DesktopTarget::ProjectMatrix(project_id) => {
+            DesktopTarget::Project(project_id, ProjectPart::Matrix) => {
                 self.aggregates
                     .projects
                     .get_mut(&project_id)
@@ -269,11 +272,7 @@ impl DesktopSystem {
                     .expect("Launcher missing")
                     .set_layout(layout, animate);
             }
-            DesktopTarget::View(view_id) => {
-                let Some(instance_id) = self.aggregates.hierarchy.instance_of_target(&target)
-                else {
-                    return Ok(());
-                };
+            DesktopTarget::Instance(instance_id, InstancePart::View(view_id)) => {
                 if let Some(instance) = self.aggregates.instances.get_mut(&instance_id)
                     && let Some(resized) = instance.set_view_layout(view_id, layout)?
                     && let Err(e) = instance_manager

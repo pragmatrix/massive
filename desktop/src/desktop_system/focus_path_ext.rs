@@ -1,11 +1,11 @@
 use massive_applications::InstanceId;
 
-use super::{DesktopFocusPath, DesktopTarget};
+use super::{DesktopFocusPath, DesktopTarget, InstancePart};
 
 impl DesktopFocusPath {
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| match t {
-            DesktopTarget::Instance(id) => Some(*id),
+            DesktopTarget::Instance(id, InstancePart::Instance) => Some(*id),
             _ => None,
         })
     }
@@ -20,16 +20,13 @@ impl DesktopFocusPath {
                 // Pre-fractal: the desktop node cannot parent instances.
                 DesktopTarget::Desktop => None,
                 DesktopTarget::Project(..) => None,
-                DesktopTarget::ProjectHeader(..) => None,
-                DesktopTarget::ProjectMatrix(..) => None,
                 DesktopTarget::Launcher(..) => Some(i + 1),
-                DesktopTarget::Instance(..) => Some(i),
-                DesktopTarget::InstanceTitleBar(..) => {
-                    assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
-                    Some(i - 1)
-                }
-                DesktopTarget::View(..) => {
-                    assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
+                DesktopTarget::Instance(_, InstancePart::Instance) => Some(i),
+                DesktopTarget::Instance(_, InstancePart::TitleBar | InstancePart::View(_)) => {
+                    assert!(matches!(
+                        self[i - 1],
+                        DesktopTarget::Instance(_, InstancePart::Instance)
+                    ));
                     Some(i - 1)
                 }
             })

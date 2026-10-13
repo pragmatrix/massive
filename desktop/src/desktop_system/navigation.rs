@@ -4,8 +4,7 @@ use log::error;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
 use super::{
-    DesktopSystem, DesktopTarget, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap,
-    ProjectMap,
+    DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap, ProjectMap,
 };
 use crate::projects::{
     LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
@@ -269,14 +268,11 @@ fn resolve_navigation_origin(
                 .position(|instance| instance == instance_id)?;
             Some(NavigationOrigin::Child { launcher, index })
         }
-        FocusableTarget::View(view) => {
-            let instance = hierarchy.instance_of_target(&DesktopTarget::View(view))?;
-            resolve_navigation_origin(
-                hierarchy,
-                configuration,
-                FocusableTarget::Instance(instance),
-            )
-        }
+        FocusableTarget::View(instance, _) => resolve_navigation_origin(
+            hierarchy,
+            configuration,
+            FocusableTarget::Instance(instance),
+        ),
         FocusableTarget::Desktop => None,
     }
 }

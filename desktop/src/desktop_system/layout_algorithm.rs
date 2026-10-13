@@ -9,7 +9,7 @@ use massive_layout::{
     Thickness,
 };
 
-use super::{Aggregates, DesktopTarget, fullscreen_scale, view_size};
+use super::{Aggregates, DesktopTarget, InstancePart, ProjectPart, fullscreen_scale, view_size};
 use crate::layout::{ContainerBuilder, ToContainer};
 use crate::projects::{
     FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotContent,
@@ -90,10 +90,10 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.
             DesktopTarget::Launcher(_) => self.place_launcher_children(id, child_measurements),
-            DesktopTarget::ProjectMatrix(project_id) => {
+            DesktopTarget::Project(project_id, ProjectPart::Matrix) => {
                 self.place_project_matrix_children(*project_id, child_measurements)
             }
-            DesktopTarget::Instance(instance_id) => {
+            DesktopTarget::Instance(instance_id, InstancePart::Instance) => {
                 self.place_instance_children(*instance_id, parent_size, child_measurements)
             }
             _ => self.place_standard_children(id, parent_size, child_measurements),
@@ -123,22 +123,24 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
                     .map(Into::into)
                     .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into())
             }
-            DesktopTarget::ProjectHeader(project_id) => self.project_header_size(*project_id),
-            DesktopTarget::ProjectMatrix(project_id) => self
+            DesktopTarget::Project(project_id, ProjectPart::Header) => {
+                self.project_header_size(*project_id)
+            }
+            DesktopTarget::Project(project_id, ProjectPart::Matrix) => self
                 .measure_project_matrix(*project_id, &child_sizes)
                 .into(),
-            DesktopTarget::Instance(_) => {
+            DesktopTarget::Instance(_, InstancePart::Instance) => {
                 let size: Size<2> = self.instance_extent().into();
                 size.into()
             }
-            DesktopTarget::InstanceTitleBar(_) => {
+            DesktopTarget::Instance(_, InstancePart::TitleBar) => {
                 // In Full Screen Mode the bar is laid out at window resolution like the view and
                 // scaled with it, so it keeps its regular height on screen (ADR 0019).
                 let height = self.aggregates.instance_title_bar_metrics.height;
                 let size: Size<2> = SizePx::new(self.view_size_of(id).width, height).into();
                 size.into()
             }
-            DesktopTarget::View(_) => {
+            DesktopTarget::Instance(_, InstancePart::View(_)) => {
                 let size: Size<2> = self.view_size_of(id).into();
                 size.into()
             }
@@ -397,20 +399,20 @@ impl DesktopLayoutAlgorithm<'_> {
             // The desktop node lays out everything it contains vertically; the
             // root project is its only child.
             DesktopTarget::Desktop => LayoutAxis::VERTICAL.to_container().into(),
-            DesktopTarget::Project(_) => LayoutAxis::VERTICAL
+            DesktopTarget::Project(_, ProjectPart::Project) => LayoutAxis::VERTICAL
                 .to_container()
                 .spacing(PROJECT_HEADER_SPACING)
                 .padding((PROJECT_PADDING, PROJECT_PADDING))
                 .into(),
             // These targets are measured and placed by their own rules, never by a layout spec.
-            DesktopTarget::ProjectHeader(_)
-            | DesktopTarget::ProjectMatrix(_)
-            | DesktopTarget::InstanceTitleBar(_) => {
+            DesktopTarget::Project(_, ProjectPart::Header)
+            | DesktopTarget::Project(_, ProjectPart::Matrix)
+            | DesktopTarget::Instance(_, InstancePart::TitleBar) => {
                 panic!("{target:?} has no layout spec")
             }
             DesktopTarget::Launcher(_) => LayoutAxis::HORIZONTAL.into(),
-            DesktopTarget::Instance(_) => self.instance_extent().into(),
-            DesktopTarget::View(_) => self.default_panel_size.into(),
+            DesktopTarget::Instance(_, InstancePart::Instance) => self.instance_extent().into(),
+            DesktopTarget::Instance(_, InstancePart::View(_)) => self.default_panel_size.into(),
         }
     }
 }
@@ -590,7 +592,7 @@ mod tests {
         hierarchy
             .add(
                 busy.clone(),
-                DesktopTarget::Instance(uuid::Uuid::new_v4().into()),
+                DesktopTarget::Instance(uuid::Uuid::new_v4().into(), InstancePart::Instance),
             )
             .unwrap();
         let aggregates = Aggregates::new(

@@ -136,14 +136,8 @@ impl<'a> AggregateHitTester<'a> {
             .size
             .to_rect()
             .contains(Point::new(local_pos.x, local_pos.y));
-        let include_children = is_inside_root
-            || allow_overflow_children
-            || matches!(
-                root,
-                DesktopTarget::Desktop
-                    | DesktopTarget::Project(..)
-                    | DesktopTarget::ProjectMatrix(..)
-            );
+        let include_children =
+            is_inside_root || allow_overflow_children || root.children_may_overflow();
 
         if include_children {
             let mut nearest_nested_hit: Option<HitTestResult> = None;

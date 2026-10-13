@@ -78,13 +78,13 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
             .iter()
             .rev()
             .find_map(|target| match target {
-                DesktopTarget::Project(project) => Some(*project),
+                DesktopTarget::Project(project, ProjectPart::Project) => Some(*project),
                 _ => None,
             })
             .expect("the focused instance is inside a project");
 
         system.transact(
-            pointer_press_focus(Some(DesktopTarget::ProjectMatrix(project))),
+            pointer_press_focus(Some(DesktopTarget::Project(project, ProjectPart::Matrix))),
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
@@ -147,7 +147,7 @@ async fn a_view_destroyed_while_the_window_is_unfocused_is_not_restored() -> Res
         let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
         let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
         deliver_view(&mut system, &mut instance_manager, instance)?;
-        let Some(FocusableTarget::View(view)) = system.keyboard_focus.focused() else {
+        let Some(FocusableTarget::View(_, view)) = system.keyboard_focus.focused() else {
             panic!("the delivered primary view is focused");
         };
 

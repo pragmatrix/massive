@@ -1107,7 +1107,7 @@ impl SlotContent {
     pub fn target(self) -> DesktopTarget {
         match self {
             SlotContent::Launcher(launcher) => DesktopTarget::Launcher(launcher),
-            SlotContent::Project(project) => DesktopTarget::Project(project),
+            SlotContent::Project(project) => project.into(),
         }
     }
 }

@@ -1,8 +1,8 @@
 use log::error;
 
 use massive_applications::InstanceId;
-use massive_layout::LayoutTopology;
 
+use crate::desktop_system::{InstancePart, ProjectPart};
 use crate::projects::{LaunchProfileId, ProjectId, SlotContent};
 use crate::{DesktopTarget, OrderedHierarchy};
 
@@ -15,24 +15,24 @@ impl OrderedHierarchy<DesktopTarget> {
     /// that reaches no launcher is either not in the topology or the tree lost
     /// its shape — an invariant violation.
     pub fn launcher_of_instance(&self, instance_id: InstanceId) -> LaunchProfileId {
-        self.parent_chain(&DesktopTarget::Instance(instance_id))
-            .find_map(|target| match target {
-                DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),
-                _ => None,
-            })
-            .unwrap_or_else(|| {
-                panic!("instance {instance_id:?} must be nested under a launcher, or not exist")
-            })
+        self.parent_chain(&DesktopTarget::Instance(
+            instance_id,
+            InstancePart::Instance,
+        ))
+        .find_map(|target| match target {
+            DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!("instance {instance_id:?} must be nested under a launcher, or not exist")
+        })
     }
 
-    /// The instance a target descends from, walking the parent chain: `Some` for
-    /// instance and view targets, `None` for targets that are not instances.
+    /// The instance a target belongs to: `Some` for an instance and its parts, `None` otherwise.
     pub fn instance_of_target(&self, target: &DesktopTarget) -> Option<InstanceId> {
         match target {
-            DesktopTarget::Instance(instance_id) => Some(*instance_id),
-            _ => self
-                .parent_of(target)
-                .and_then(|parent| self.instance_of_target(parent)),
+            DesktopTarget::Instance(instance_id, _) => Some(*instance_id),
+            _ => None,
         }
     }
 
@@ -57,7 +57,7 @@ impl OrderedHierarchy<DesktopTarget> {
             _ => self
                 .parent_chain(target)
                 .find_map(|target| match target {
-                    DesktopTarget::Project(project_id) => Some(*project_id),
+                    DesktopTarget::Project(project_id, ProjectPart::Project) => Some(*project_id),
                     _ => None,
                 })
                 .unwrap_or_else(|| panic!("target {target:?} must belong to a project")),
@@ -66,9 +66,9 @@ impl OrderedHierarchy<DesktopTarget> {
 
     /// The project whose matrix hosts `project`, or `None` for the root.
     pub fn parent_project_of(&self, project: ProjectId) -> Option<ProjectId> {
-        self.parent_chain(&DesktopTarget::Project(project))
+        self.parent_chain(&project.into())
             .find_map(|target| match target {
-                DesktopTarget::ProjectMatrix(parent) => Some(*parent),
+                DesktopTarget::Project(parent, ProjectPart::Matrix) => Some(*parent),
                 _ => None,
             })
     }
@@ -76,8 +76,8 @@ impl OrderedHierarchy<DesktopTarget> {
     /// How many projects enclose `project`, root = 0: every enclosing project hosts the path in
     /// its matrix, and the root hangs under `Desktop`.
     pub fn project_nesting_depth(&self, project: ProjectId) -> usize {
-        self.parent_chain(&DesktopTarget::Project(project))
-            .filter(|target| matches!(target, DesktopTarget::ProjectMatrix(_)))
+        self.parent_chain(&project.into())
+            .filter(|target| matches!(target, DesktopTarget::Project(_, ProjectPart::Matrix)))
             .count()
     }
 
@@ -89,7 +89,7 @@ impl OrderedHierarchy<DesktopTarget> {
         self.get_nested(&DesktopTarget::Launcher(launcher_id))
             .iter()
             .filter_map(|target| match target {
-                DesktopTarget::Instance(instance_id) => Some(*instance_id),
+                DesktopTarget::Instance(instance_id, InstancePart::Instance) => Some(*instance_id),
                 _ => None,
             })
     }
@@ -105,11 +105,13 @@ impl OrderedHierarchy<DesktopTarget> {
     /// The *placement* of each slot is configuration data, not topology state; see
     /// `DesktopConfiguration::placement_of_content`.
     pub fn matrix_slots(&self, project: ProjectId) -> Vec<SlotContent> {
-        self.get_nested(&DesktopTarget::ProjectMatrix(project))
+        self.get_nested(&DesktopTarget::Project(project, ProjectPart::Matrix))
             .iter()
             .map(|target| match target {
                 DesktopTarget::Launcher(launcher_id) => SlotContent::Launcher(*launcher_id),
-                DesktopTarget::Project(project_id) => SlotContent::Project(*project_id),
+                DesktopTarget::Project(project_id, ProjectPart::Project) => {
+                    SlotContent::Project(*project_id)
+                }
                 other => panic!(
                     "project matrix children must be launcher or project targets, found {other:?}"
                 ),
@@ -122,7 +124,7 @@ impl OrderedHierarchy<DesktopTarget> {
     /// uses [`Self::matrix_slots`].
     pub fn matrix_launchers(&self, project: ProjectId) -> impl Iterator<Item = LaunchProfileId> {
         let targets = self
-            .get_nested(&DesktopTarget::ProjectMatrix(project))
+            .get_nested(&DesktopTarget::Project(project, ProjectPart::Matrix))
             .to_vec();
         targets.into_iter().filter_map(|target| match target {
             DesktopTarget::Launcher(launcher_id) => Some(launcher_id),
@@ -139,16 +141,19 @@ mod tests {
         let mut topology = DesktopTopology::default();
         topology
             .add_nested(
-                DesktopTarget::Project(project),
+                project.into(),
                 [
-                    DesktopTarget::ProjectHeader(project),
-                    DesktopTarget::ProjectMatrix(project),
+                    DesktopTarget::Project(project, ProjectPart::Header),
+                    DesktopTarget::Project(project, ProjectPart::Matrix),
                 ],
             )
             .unwrap();
         for slot in slots {
             topology
-                .add(DesktopTarget::ProjectMatrix(project), slot.clone())
+                .add(
+                    DesktopTarget::Project(project, ProjectPart::Matrix),
+                    slot.clone(),
+                )
                 .unwrap();
         }
         topology
@@ -159,13 +164,8 @@ mod tests {
         let project = ProjectId::new();
         let launcher = LaunchProfileId::new();
         let nested = ProjectId::new();
-        let topology = topology_with_matrix(
-            project,
-            &[
-                DesktopTarget::Launcher(launcher),
-                DesktopTarget::Project(nested),
-            ],
-        );
+        let topology =
+            topology_with_matrix(project, &[DesktopTarget::Launcher(launcher), nested.into()]);
 
         assert_eq!(
             topology.matrix_slots(project),
@@ -183,7 +183,7 @@ mod tests {
         let topology = topology_with_matrix(
             project,
             &[
-                DesktopTarget::Project(ProjectId::new()),
+                DesktopTarget::Project(ProjectId::new(), ProjectPart::Project),
                 DesktopTarget::Launcher(launcher),
             ],
         );
@@ -199,19 +199,19 @@ mod tests {
         let root = ProjectId::new();
         let nested = ProjectId::new();
         let launcher = LaunchProfileId::new();
-        let mut topology = topology_with_matrix(root, &[DesktopTarget::Project(nested)]);
+        let mut topology = topology_with_matrix(root, &[nested.into()]);
         topology
             .add_nested(
-                DesktopTarget::Project(nested),
+                nested.into(),
                 [
-                    DesktopTarget::ProjectHeader(nested),
-                    DesktopTarget::ProjectMatrix(nested),
+                    DesktopTarget::Project(nested, ProjectPart::Header),
+                    DesktopTarget::Project(nested, ProjectPart::Matrix),
                 ],
             )
             .unwrap();
         topology
             .add(
-                DesktopTarget::ProjectMatrix(nested),
+                DesktopTarget::Project(nested, ProjectPart::Matrix),
                 DesktopTarget::Launcher(launcher),
             )
             .unwrap();
@@ -222,10 +222,7 @@ mod tests {
         );
         assert_eq!(topology.parent_project_of(nested), Some(root));
         assert_eq!(topology.parent_project_of(root), None);
-        assert_eq!(
-            topology.project_of_target(&DesktopTarget::Project(root)),
-            root
-        );
+        assert_eq!(topology.project_of_target(&root.into()), root);
     }
 
     /// The documented exception: `Desktop` goes *down* the hierarchy to its
@@ -234,9 +231,7 @@ mod tests {
     fn project_of_target_resolves_the_desktop_root_to_the_root_project() {
         let root = ProjectId::ROOT;
         let mut topology = DesktopTopology::default();
-        topology
-            .add(DesktopTarget::Desktop, DesktopTarget::Project(root))
-            .unwrap();
+        topology.add(DesktopTarget::Desktop, root.into()).unwrap();
 
         assert_eq!(topology.project_of_target(&DesktopTarget::Desktop), root);
     }
@@ -245,15 +240,9 @@ mod tests {
     fn launcher_walks_answer_none_under_a_project_without_a_launcher() {
         let root = ProjectId::new();
         let nested = ProjectId::new();
-        let topology = topology_with_matrix(root, &[DesktopTarget::Project(nested)]);
+        let topology = topology_with_matrix(root, &[nested.into()]);
 
-        assert_eq!(
-            topology.launcher_of_target(&DesktopTarget::Project(nested)),
-            None
-        );
-        assert_eq!(
-            topology.project_of_target(&DesktopTarget::Project(nested)),
-            nested
-        );
+        assert_eq!(topology.launcher_of_target(&nested.into()), None);
+        assert_eq!(topology.project_of_target(&nested.into()), nested);
     }
 }

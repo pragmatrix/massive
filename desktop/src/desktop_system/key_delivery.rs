@@ -5,7 +5,7 @@ use std::fmt;
 
 use anyhow::Result;
 
-use massive_applications::{ViewEvent, ViewId};
+use massive_applications::{InstanceId, ViewEvent, ViewId};
 
 use super::change::{Changes, DesktopChange};
 use super::{
@@ -43,6 +43,7 @@ enum KeyDelivery {
     Consumed(Commands),
     /// The key reached the application behind `view`.
     Forwarded {
+        instance: InstanceId,
         view: ViewId,
         event: ViewEvent,
     },
@@ -71,9 +72,13 @@ impl DesktopSystem {
                 }
                 InputFocus::Desktop
             }
-            KeyDelivery::Forwarded { view, event } => {
+            KeyDelivery::Forwarded {
+                instance,
+                view,
+                event,
+            } => {
                 changes <<= DesktopChange::ForwardEvents(
-                    EventTransition::Send(DesktopTarget::View(view), event).into(),
+                    EventTransition::Send(DesktopTarget::view(instance, view), event).into(),
                 );
                 InputFocus::Application(view)
             }
@@ -106,7 +111,7 @@ impl DesktopSystem {
                         .instances
                         .get(&instance)
                         .expect("An instance on the focus path has a presenter"),
-                    FocusableTarget::View(_) => &ApplicationKeys,
+                    FocusableTarget::View(..) => &ApplicationKeys,
                 };
                 KeyLevel { target, handler }
             })
@@ -130,10 +135,14 @@ fn offer_key_to_levels(
             KeyOutcome::Pass => {}
             KeyOutcome::Consumed(commands) => return KeyDelivery::Consumed(commands),
             KeyOutcome::Forward(event) => {
-                let FocusableTarget::View(view) = level.target else {
+                let FocusableTarget::View(instance, view) = level.target else {
                     unreachable!("Only the application's view level forwards a key");
                 };
-                return KeyDelivery::Forwarded { view, event };
+                return KeyDelivery::Forwarded {
+                    instance,
+                    view,
+                    event,
+                };
             }
         }
     }

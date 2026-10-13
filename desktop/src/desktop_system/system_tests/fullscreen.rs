@@ -67,7 +67,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
             .primary_view_id()
             .expect("the initial submission created a primary view");
         let scale_before = system
-            .placement(&DesktopTarget::View(view))
+            .placement(&DesktopTarget::view(instance, view))
             .transform
             .scale;
 
@@ -80,7 +80,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
 )?;
 
         let scale_after = system
-            .placement(&DesktopTarget::View(view))
+            .placement(&DesktopTarget::view(instance, view))
             .transform
             .scale;
 
@@ -134,7 +134,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
             .primary_view_id()
             .expect("the second instance created a primary view");
         let view_b_size_fullscreen = system
-            .placement(&DesktopTarget::View(view_b))
+            .placement(&DesktopTarget::view(instance_b, view_b))
             .rect
             .size;
 
@@ -146,7 +146,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
 )?;
 
         let view_b_size_after = system
-            .placement(&DesktopTarget::View(view_b))
+            .placement(&DesktopTarget::view(instance_b, view_b))
             .rect
             .size;
         assert!(

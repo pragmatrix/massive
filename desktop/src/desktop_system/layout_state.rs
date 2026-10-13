@@ -286,7 +286,7 @@ mod tests {
     };
 
     use super::{DesktopLayoutState, PlacementUpdate};
-    use crate::desktop_system::DesktopTarget;
+    use crate::desktop_system::{DesktopTarget, ProjectPart};
     use crate::projects::ProjectId;
 
     #[derive(Debug, Default)]
@@ -369,8 +369,8 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let root = DesktopTarget::Project(ProjectId::new());
-        let project = DesktopTarget::Project(ProjectId::new());
+        let root = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
+        let project = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
         topology.insert_node(root.clone());
         topology.set_children(root.clone(), vec![project.clone()]);
 
@@ -391,8 +391,8 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let root = DesktopTarget::Project(ProjectId::new());
-        let project = DesktopTarget::Project(ProjectId::new());
+        let root = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
+        let project = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
         topology.insert_node(root.clone());
         topology.set_children(root.clone(), vec![project]);
 
@@ -409,8 +409,8 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let root = DesktopTarget::Project(ProjectId::new());
-        let project = DesktopTarget::Project(ProjectId::new());
+        let root = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
+        let project = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
         topology.insert_node(root.clone());
         topology.set_children(root.clone(), vec![project.clone()]);
 
