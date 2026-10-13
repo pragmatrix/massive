@@ -30,6 +30,7 @@ mod camera;
 mod configuration;
 mod focus;
 mod fullscreen;
+mod layout;
 mod navigation;
 
 /// Tests run at the scale factor of a standard display.

@@ -15,12 +15,12 @@ pub fn renders_instance_background(mode: LauncherMode) -> bool {
     matches!(mode, LauncherMode::Visor)
 }
 
-/// The fixed panel extent a launcher measures with: visors measure with their
-/// default panel extent, bands measure from their children like any container.
-pub fn panel_measurement(mode: LauncherMode, default_panel_size: SizePx) -> Option<Size<2>> {
+/// The fixed extent a launcher measures with: visors measure with an instance's
+/// extent, bands measure from their children like any container.
+pub fn panel_measurement(mode: LauncherMode, instance_extent: SizePx) -> Option<Size<2>> {
     match mode {
         LauncherMode::Band => None,
-        LauncherMode::Visor => Some(default_panel_size.into()),
+        LauncherMode::Visor => Some(instance_extent.into()),
     }
 }
 
