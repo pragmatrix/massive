@@ -54,6 +54,8 @@ pub struct LauncherPresenter {
     movement: Movement<LauncherMovement>,
 
     location: Handle<Location>,
+    /// Held only because dropping the handle removes the name from the scene.
+    _name: Handle<Visual>,
     presents_instance: bool,
 
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
@@ -88,7 +90,11 @@ impl LauncherPresenter {
         let (our_transform, our_location) =
             identity_location().relative_to(&parent_location).submit();
 
-        let background = background_shape.at(&our_location).submit();
+        // Instances are parented to `our_location`, so the fade needs its own child location;
+        // the renderer skips it at alpha 0, keeping it out of the depth buffer under instances.
+        let (_, fade_location) = identity_location().relative_to(&our_location).submit();
+
+        let background = background_shape.at(&fade_location).submit();
 
         let name = name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that
@@ -103,20 +109,13 @@ impl LauncherPresenter {
             .size(32.0 * 8.0)
             .shape()
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
-            .at(&our_location)
+            .at(&fade_location)
             .with_decal_order(0)
             .submit();
 
         let scene_transform = our_transform.clone();
-        let movement_background = background.clone();
-        let movement_name = name.clone();
         let movement = movement(LauncherMovement::new(size), move |movement, context| {
-            movement.apply_animations(
-                context,
-                &scene_transform,
-                &movement_background,
-                &movement_name,
-            );
+            movement.apply_animations(context, &scene_transform, &background, &fade_location);
         })
         .mount();
 
@@ -124,6 +123,7 @@ impl LauncherPresenter {
             id,
             movement,
             location: our_location,
+            _name: name,
             presents_instance: false,
             focus_anchor_instance: None,
             event_manager: EventManager::default(),
@@ -317,34 +317,19 @@ impl LauncherMovement {
         progress: AnimationProgress,
         scene_transform_handle: &Handle<Transform>,
         background: &Handle<Visual>,
-        name: &Handle<Visual>,
+        fade_location: &Handle<Location>,
     ) {
         let layout = *self.layout.proceed_with(progress);
         let scene_transform = layout.to_origin_space();
         scene_transform_handle.update_if_changed(scene_transform);
 
-        let alpha = self.fader.proceed_with(progress);
+        let alpha = *self.fader.proceed_with(progress);
+        fade_location.update_if_changed_with(|location| location.alpha = alpha);
 
-        // Performance: How can we not call this if `self.size` and `self.fader` are both not
-        // animating. `is_animating()` is perhaps not reliable.
+        // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
+        // is perhaps not reliable.
         background.update_if_changed_with(|visual| {
-            visual.shapes = [background_shape(
-                layout.rect(),
-                BACKGROUND_COLOR.with_alpha(*alpha),
-            )]
-            .into()
-        });
-
-        // Ergonomics: Isn't there a better way to directly set new shapes?
-        name.update_if_changed_with(|visual| {
-            visual.shapes = match &*visual.shapes {
-                [Shape::GlyphRun(gr)] => [gr
-                    .clone()
-                    .with_color(TEXT_COLOR.with_alpha(*alpha))
-                    .into_shape()]
-                .into(),
-                rest => rest.into(),
-            }
+            visual.shapes = [background_shape(layout.rect(), BACKGROUND_COLOR)].into()
         });
     }
 }
