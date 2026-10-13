@@ -139,3 +139,35 @@ impl From<InstanceId> for DesktopTarget {
         Self::Instance(value, InstancePart::Instance)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    /// A title bar leaves selection and focus to its instance, while a view, though also a part of
+    /// the instance, is the application level and selects itself (ADR 0019).
+    #[test]
+    fn a_view_selects_itself_while_a_title_bar_selects_its_instance() {
+        let instance: InstanceId = Uuid::new_v4().into();
+        let view = ViewId::new();
+
+        let title_bar = DesktopTarget::Instance(instance, InstancePart::TitleBar);
+        assert_eq!(
+            title_bar.selected_target(),
+            FocusableTarget::Instance(instance)
+        );
+        assert_eq!(title_bar.as_focusable(), None);
+
+        let view_target = DesktopTarget::view(instance, view);
+        assert_eq!(
+            view_target.selected_target(),
+            FocusableTarget::View(instance, view)
+        );
+        assert_eq!(
+            view_target.as_focusable(),
+            Some(FocusableTarget::View(instance, view))
+        );
+    }
+}
