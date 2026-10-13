@@ -15,8 +15,9 @@ use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{
-    DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter,
-    MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
+    DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
+    LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment,
+    SlotContent,
 };
 
 use massive_applications::prelude::*;
@@ -882,7 +883,24 @@ impl DesktopSystem {
             .hierarchy
             .project_of_target(&instance.into());
         match &request {
-            ConfigurationRequest::AddLauncher => {
+            ConfigurationRequest::Add { target, name } => {
+                let content = match target {
+                    ConfigurationTarget::Project => SlotAssignment::Project {
+                        id: ProjectId::new(),
+                        name: name.clone().unwrap_or(DEFAULT_NEW_PROJECT_NAME.to_string()),
+                    },
+                    ConfigurationTarget::Launcher => SlotAssignment::Launcher {
+                        id: LaunchProfileId::new(),
+                        profile: LaunchProfile {
+                            name: name
+                                .clone()
+                                .unwrap_or(DEFAULT_NEW_LAUNCHER_NAME.to_string()),
+                            mode: LauncherMode::Visor,
+                            params: Default::default(),
+                            full_screen_mode: Default::default(),
+                        },
+                    },
+                };
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let Some((parent, current_placement)) =
                     self.aggregates.configuration.slot_of_content(launcher)
@@ -897,15 +915,7 @@ impl DesktopSystem {
                         column: current_placement.column + 1,
                         row: current_placement.row,
                     },
-                    content: SlotAssignment::Launcher {
-                        id: LaunchProfileId::new(),
-                        profile: LaunchProfile {
-                            name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
-                            mode: LauncherMode::Visor,
-                            params: Default::default(),
-                            full_screen_mode: Default::default(),
-                        },
-                    },
+                    content,
                     shift: SlotShift::default(),
                 })?;
                 Ok(ChangeOutput::changes(changes))
