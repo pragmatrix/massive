@@ -417,19 +417,49 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
+                let is_opaque = |visual: &&RenderVisual| self.visual_alpha(visual) == 1.0;
+                let is_translucent = |visual: &&RenderVisual| {
+                    let alpha = self.visual_alpha(visual);
+                    alpha > 0.0 && alpha < 1.0
+                };
+
                 for (i, pipeline) in self.pipelines.iter().enumerate() {
                     self.render_pipeline_batches(
-                        self.batches.normal_visuals.values(),
+                        self.batches.normal_visuals().filter(is_opaque),
                         pipeline,
                         |b| b.batches[i].as_ref(),
                         render_context,
                     );
                 }
 
-                for visuals in self.batches.decal_visuals_by_order.values() {
+                for visuals in self.batches.decal_visuals_by_order() {
                     for (i, pipeline) in self.decal_pipelines.iter().enumerate() {
                         self.render_pipeline_batches(
-                            visuals.values(),
+                            visuals.clone().filter(is_opaque),
+                            pipeline,
+                            |b| b.batches[i].as_ref(),
+                            render_context,
+                        );
+                    }
+                }
+
+                // Translucent surfaces blend over what is behind them, so all opaque visuals come
+                // first.
+                let translucent_surfaces = self.batches.normal_visuals().filter(is_translucent);
+                self.render_translucent_surfaces(
+                    self.back_to_front(translucent_surfaces, view_projections),
+                    render_context,
+                );
+
+                // A decal's own location depth says nothing about the surface it sits on, so
+                // translucent decals follow all translucent surfaces.
+                //
+                // Architecture: Where fading surfaces overlap, the front one hides the back one's
+                // decals; ADR 0022 draws each surface with its decals instead.
+                for visuals in self.batches.decal_visuals_by_order() {
+                    for (i, pipeline) in self.decal_pipelines.iter().enumerate() {
+                        self.render_pipeline_batches(
+                            visuals.clone().filter(is_translucent),
                             pipeline,
                             |b| b.batches[i].as_ref(),
                             render_context,
@@ -466,7 +496,6 @@ impl Renderer {
         select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
         context: &mut RenderContext,
     ) {
-        let locations = &self.visual_locations;
         let mut pipeline_set = false;
 
         for visual in visuals {
@@ -474,47 +503,97 @@ impl Renderer {
                 continue;
             };
 
-            let alpha = locations.get_alpha(visual.location_id);
-            if alpha == 0.0 {
-                continue;
-            }
-
             if !pipeline_set {
                 context.pass.set_pipeline(pipeline);
                 pipeline_set = true;
             }
 
-            // Architecture: We may go multiple times over the same visual and compute the
-            //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
-            //   lazy table here.
-            let projection = match locations.get_space(visual.location_id) {
-                LocationSpace::World => context.view_projections.world,
-                LocationSpace::Camera => context.view_projections.camera,
-            };
-            let matrix = projection * *locations.get_matrix(visual.location_id);
-
-            let pass = &mut context.pass;
-
-            let clip_rect = visual.clip_bounds.map_or(ClipRect::NONE, ClipRect::from);
-            let push_constants = Immediates {
-                view_model: matrix.to_pod(),
-                clip_rect,
-                alpha,
-                _padding: [0.0; 3],
-            };
-            pass.set_immediates(0, push_constants.as_bytes());
-            // Performance: This test needs only done once per pipeline.
-            if let Some(bg) = &batch.fs_bind_group {
-                pass.set_bind_group(0, bg, &[]);
-            }
-            pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-
-            pass.draw_indexed(
-                0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-                0,
-                0..1,
-            )
+            self.render_batch(visual, batch, context);
         }
+    }
+
+    fn back_to_front<'a>(
+        &self,
+        visuals: impl Iterator<Item = &'a RenderVisual>,
+        view_projections: &ViewProjections,
+    ) -> Vec<&'a RenderVisual> {
+        back_to_front(visuals.map(|visual| {
+            // Clip-space w of the location origin, the distance from the eye in both
+            // perspective projections.
+            let w = self.visual_matrix(visual, view_projections).w_axis.w;
+            (w, visual)
+        }))
+    }
+
+    /// Renders all batches of one translucent visual before the next, so blending follows the
+    /// order of `surfaces`.
+    fn render_translucent_surfaces(
+        &self,
+        surfaces: Vec<&RenderVisual>,
+        context: &mut RenderContext,
+    ) {
+        // wgpu rebinds even an unchanged pipeline, and consecutive surfaces mostly share theirs.
+        let mut bound_pipeline = None;
+        for visual in surfaces {
+            let pipelines_and_batches = self.pipelines.iter().zip(&visual.batches.batches);
+            for (index, (pipeline, batch)) in pipelines_and_batches.enumerate() {
+                let Some(batch) = batch else {
+                    continue;
+                };
+                if bound_pipeline != Some(index) {
+                    context.pass.set_pipeline(pipeline);
+                    bound_pipeline = Some(index);
+                }
+                self.render_batch(visual, batch, context);
+            }
+        }
+    }
+
+    fn render_batch(
+        &self,
+        visual: &RenderVisual,
+        batch: &RenderBatch,
+        context: &mut RenderContext,
+    ) {
+        // Architecture: We may go multiple times over the same visual and compute the
+        //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
+        //   lazy table here.
+        let matrix = self.visual_matrix(visual, &context.view_projections);
+
+        let pass = &mut context.pass;
+
+        let clip_rect = visual.clip_bounds.map_or(ClipRect::NONE, ClipRect::from);
+        let push_constants = Immediates {
+            view_model: matrix.to_pod(),
+            clip_rect,
+            alpha: self.visual_alpha(visual),
+            _padding: [0.0; 3],
+        };
+        pass.set_immediates(0, push_constants.as_bytes());
+        // Performance: This test needs only done once per pipeline.
+        if let Some(bg) = &batch.fs_bind_group {
+            pass.set_bind_group(0, bg, &[]);
+        }
+        pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+
+        pass.draw_indexed(
+            0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+            0,
+            0..1,
+        )
+    }
+
+    fn visual_alpha(&self, visual: &RenderVisual) -> f32 {
+        self.visual_locations.get_alpha(visual.location_id)
+    }
+
+    fn visual_matrix(&self, visual: &RenderVisual, view_projections: &ViewProjections) -> Matrix4 {
+        let locations = &self.visual_locations;
+        let projection = match locations.get_space(visual.location_id) {
+            LocationSpace::World => view_projections.world,
+            LocationSpace::Camera => view_projections.camera,
+        };
+        projection * *locations.get_matrix(visual.location_id)
     }
 
     /// A Matrix that projects from normalized view coordinates -1.0 to 1.0 (3D, all axis, Z from 0.1
@@ -636,5 +715,26 @@ impl Renderer {
             _texture: texture,
             view,
         }
+    }
+}
+
+/// Orders `(eye_distance, visual)` back to front.
+fn back_to_front<T>(visuals: impl Iterator<Item = (f64, T)>) -> Vec<T> {
+    let mut visuals: Vec<_> = visuals.collect();
+    visuals.sort_by(|(distance_a, _), (distance_b, _)| distance_b.total_cmp(distance_a));
+    visuals.into_iter().map(|(_, visual)| visual).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::back_to_front;
+
+    #[test]
+    fn translucent_surfaces_are_ordered_far_to_near() {
+        let visuals = [(2.0, "near"), (5.0, "far"), (3.0, "middle")];
+        assert_eq!(
+            back_to_front(visuals.into_iter()),
+            ["far", "middle", "near"]
+        );
     }
 }
