@@ -86,14 +86,12 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         parent_size: Size<2>,
         child_measurements: &[MeasuredLayout<2>],
     ) -> Vec<Placement<Transform, 2>> {
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-
         match id {
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.
-            DesktopTarget::Launcher(_) => self.place_launcher_children(id, &child_sizes),
+            DesktopTarget::Launcher(_) => self.place_launcher_children(id, child_measurements),
             DesktopTarget::ProjectMatrix(project_id) => {
-                self.place_project_matrix_children(*project_id, &child_sizes)
+                self.place_project_matrix_children(*project_id, child_measurements)
             }
             DesktopTarget::Instance(instance_id) => {
                 self.place_instance_children(*instance_id, parent_size, child_measurements)
@@ -110,10 +108,16 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
 
         match id {
+            // An empty launcher stretches to its matrix row, while instances give a launcher an
+            // intrinsic size, so the first instance takes the top of the cell (ADR 0019).
+            DesktopTarget::Launcher(_) if self.aggregates.hierarchy.get_nested(id).is_empty() => {
+                MeasuredLayout::new(self.instance_extent().into(), [false, true])
+            }
             DesktopTarget::Launcher(launcher_id) => {
+                // A launcher spans an instance's extent, title bar included (ADR 0019).
                 let panel_measure: Option<Size<2>> = launcher_mode::panel_measurement(
                     self.launcher_mode(*launcher_id),
-                    self.default_panel_size,
+                    self.instance_extent(),
                 );
                 panel_measure
                     .map(Into::into)
@@ -205,13 +209,14 @@ impl DesktopLayoutAlgorithm<'_> {
     fn place_project_matrix_children(
         &self,
         project_id: ProjectId,
-        child_sizes: &[Size<2>],
+        child_measurements: &[MeasuredLayout<2>],
     ) -> Vec<Placement<Transform, 2>> {
-        let slots = self.project_matrix_slots(project_id, child_sizes);
+        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
+        let slots = self.project_matrix_slots(project_id, &child_sizes);
         let (columns, rows) = matrix_tracks(&slots);
         let mut placements = Vec::with_capacity(slots.len());
 
-        for slot in &slots {
+        for (slot, measurement) in slots.iter().zip(child_measurements) {
             let offset = Offset::from([
                 track_offset(
                     &columns,
@@ -220,7 +225,8 @@ impl DesktopLayoutAlgorithm<'_> {
                 ),
                 track_offset(&rows, slot.placement.row as usize, MATRIX_ROW_SPACING),
             ]);
-            let rect: RectPx = LayoutRect::new(offset, slot.layout_size).into();
+            let layout_size = expand_to_row(slot, measurement, &rows);
+            let rect: RectPx = LayoutRect::new(offset, layout_size).into();
             let rect = Rect::from(rect);
             // The exact scaled center preserves left alignment despite rounded track extents.
             let center = rect.origin() + (rect.size() * slot.scale).center();
@@ -228,7 +234,7 @@ impl DesktopLayoutAlgorithm<'_> {
             // Intrinsic rectangles keep presentation scaling from resizing the child scene.
             placements.push(Placement::new(
                 transform,
-                LayoutRect::new(offset, slot.layout_size),
+                LayoutRect::new(offset, layout_size),
             ));
         }
 
@@ -291,11 +297,12 @@ impl DesktopLayoutAlgorithm<'_> {
     fn place_launcher_children(
         &self,
         id: &DesktopTarget,
-        child_sizes: &[Size<2>],
+        child_measurements: &[MeasuredLayout<2>],
     ) -> Vec<Placement<Transform, 2>> {
         let DesktopTarget::Launcher(launcher_id) = id else {
             panic!("place_launcher_children requires a launcher target")
         };
+        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
 
         let launcher = &self.aggregates.launchers[launcher_id];
         let child_instances: Vec<_> = self
@@ -321,7 +328,7 @@ impl DesktopLayoutAlgorithm<'_> {
             self.launcher_mode(*launcher_id),
             launcher,
             Offset::default(),
-            child_sizes,
+            &child_sizes,
             &child_instances,
             expanded,
             self.default_panel_size,
@@ -401,13 +408,7 @@ impl DesktopLayoutAlgorithm<'_> {
             | DesktopTarget::InstanceTitleBar(_) => {
                 panic!("{target:?} has no layout spec")
             }
-            DesktopTarget::Launcher(_) => {
-                if self.aggregates.hierarchy.get_nested(target).is_empty() {
-                    self.default_panel_size.into()
-                } else {
-                    LayoutAxis::HORIZONTAL.into()
-                }
-            }
+            DesktopTarget::Launcher(_) => LayoutAxis::HORIZONTAL.into(),
             DesktopTarget::Instance(_) => self.instance_extent().into(),
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
@@ -439,6 +440,17 @@ pub fn presentation_scale(preferred_width: u32, scene_width: u32) -> f64 {
         return 1.0;
     }
     preferred_width as f64 / scene_width as f64
+}
+
+/// The slot's layout size, its height stretched to its row's track when it expands vertically.
+fn expand_to_row(slot: &MatrixSlot, measurement: &MeasuredLayout<2>, rows: &[u32]) -> Size<2> {
+    let mut size = slot.layout_size;
+    if measurement.expandable_axes[1] {
+        // Tracks hold presented extents; only unscaled launchers expand, so they equal layout ones.
+        assert_eq!(slot.scale, 1.0, "only unscaled slots expand");
+        size[1] = max(size[1], rows[slot.placement.row as usize]);
+    }
+    size
 }
 
 /// The column and row tracks of a matrix: each track the largest slot in it.
@@ -530,7 +542,12 @@ pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> Size
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::OrderedHierarchy;
+    use crate::instance_presenter::InstanceTitleBarMetrics;
+    use crate::projects::persistence::parse_configuration;
 
     #[test]
     fn presentation_scale_fits_width_without_enlarging() {
@@ -542,5 +559,82 @@ mod tests {
     #[test]
     fn presentation_scale_of_an_empty_scene_is_one() {
         assert_eq!(presentation_scale(300, 0), 1.0);
+    }
+
+    /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
+    /// vertically, so the first instance takes the top of the cell (ADR 0019).
+    #[test]
+    fn launchers_measure_with_the_instance_extent() {
+        let configuration = parse_configuration(
+            Path::new("/config/desktop.json"),
+            r#"{
+                "startup": "/busy",
+                "slots": [
+                    { "at": [0, 0], "launcher": { "name": "empty", "mode": "visor" } },
+                    { "at": [1, 0], "launcher": { "name": "busy", "mode": "visor" } }
+                ]
+            }"#,
+        )
+        .unwrap();
+        let launcher_named = |name| {
+            DesktopTarget::Launcher(
+                configuration
+                    .launchers()
+                    .find(|launcher| launcher.name == name)
+                    .unwrap()
+                    .id,
+            )
+        };
+        let (empty, busy) = (launcher_named("empty"), launcher_named("busy"));
+        let mut hierarchy = OrderedHierarchy::default();
+        hierarchy
+            .add(
+                busy.clone(),
+                DesktopTarget::Instance(uuid::Uuid::new_v4().into()),
+            )
+            .unwrap();
+        let aggregates = Aggregates::new(
+            hierarchy,
+            configuration,
+            InstanceTitleBarMetrics::from_scale_factor(1.0),
+        );
+        let algorithm = DesktopLayoutAlgorithm {
+            aggregates: &aggregates,
+            default_panel_size: SizePx::new(800, 600),
+            focused_instance: None,
+            window_size: SizePx::new(800, 600),
+        };
+        let instance_extent: Size<2> = algorithm.instance_extent().into();
+        assert!(
+            instance_extent.0[1] > 600,
+            "the extent includes the title bar"
+        );
+
+        let empty = algorithm.measure(&empty, &[]);
+        assert_eq!(empty.size, instance_extent);
+        assert_eq!(empty.expandable_axes, [false, true]);
+
+        let busy = algorithm.measure(&busy, &[instance_extent.into()]);
+        assert_eq!(busy.size, instance_extent);
+        assert_eq!(busy.expandable_axes, [false, false]);
+    }
+
+    #[test]
+    fn only_vertically_expandable_slots_stretch_to_their_row() {
+        let layout_size = Size([100, 50]);
+        let slot = MatrixSlot {
+            layout_size,
+            size: layout_size,
+            scale: 1.0,
+            placement: MatrixPlacement { column: 0, row: 1 },
+        };
+        let rows = [400, 300];
+
+        let expandable = MeasuredLayout::new(layout_size, [false, true]);
+        assert_eq!(expand_to_row(&slot, &expandable, &rows), Size([100, 300]));
+        assert_eq!(
+            expand_to_row(&slot, &layout_size.into(), &rows),
+            layout_size
+        );
     }
 }

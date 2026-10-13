@@ -99,7 +99,11 @@ pub enum InstanceChange {
 /// Requests sent by the terminal CLI as JSON over its desktop request stream.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ConfigurationRequest {
-    AddLauncher,
+    /// Adds content right of the focused launcher; `None` picks the target's default name.
+    Add {
+        target: ConfigurationTarget,
+        name: Option<String>,
+    },
     Assign {
         target: ConfigurationTarget,
         name: String,
