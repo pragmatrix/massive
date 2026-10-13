@@ -135,15 +135,13 @@ impl LauncherPresenter {
 
     fn place_visor_children(
         &self,
-        local_offset: Offset<2>,
         children: &[MeasuredLayout<2>],
         center_index: usize,
         expanded: bool,
         default_panel_size: SizePx,
         placements: &mut [Placement<Transform, 2>],
     ) {
-        let offset =
-            centered_children_offset(local_offset, children, default_panel_size.width as i32);
+        let offset = centered_children_offset(children, default_panel_size.width as i32);
 
         let Some(summary) = visor_layout_summary(offset, children) else {
             place_container_children(
@@ -309,7 +307,6 @@ impl TargetLayout for LauncherPresenter {
                 let expanded = index_of(context.focused_instance).is_some();
                 let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
                 self.place_visor_children(
-                    Offset::default(),
                     children,
                     center_index,
                     expanded,
@@ -411,14 +408,8 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
     shapes::Rect::new(rect, color).into()
 }
 
-fn centered_children_offset(
-    local_offset: Offset<2>,
-    children: &[MeasuredLayout<2>],
-    panel_width: i32,
-) -> Offset<2> {
-    let mut offset = local_offset;
-    offset[0] += (panel_width - children_span(children)) / 2;
-    offset
+fn centered_children_offset(children: &[MeasuredLayout<2>], panel_width: i32) -> Offset<2> {
+    Offset::from([(panel_width - children_span(children)) / 2, 0])
 }
 
 fn children_span(children: &[MeasuredLayout<2>]) -> i32 {
