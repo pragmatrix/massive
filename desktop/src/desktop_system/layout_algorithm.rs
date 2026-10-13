@@ -1,7 +1,5 @@
 use std::cmp::max;
 
-use derive_more::From;
-
 use massive_geometry::{RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
     LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size,
@@ -9,41 +7,11 @@ use massive_layout::{
 };
 
 use super::{Aggregates, DesktopTarget, LayoutContext, TargetLayout};
-use crate::layout::{ContainerBuilder, ToContainer};
+use crate::desktop_presenter::DesktopPresenter;
 
-#[derive(Debug, From)]
-enum LayoutSpec {
-    Container {
-        axis: LayoutAxis,
-        padding: Thickness<2>,
-        spacing: u32,
-    },
-    #[from]
-    Leaf(SizePx),
-}
-
-impl From<LayoutAxis> for LayoutSpec {
-    fn from(axis: LayoutAxis) -> Self {
-        Self::Container {
-            axis,
-            padding: Default::default(),
-            spacing: 0,
-        }
-    }
-}
-
-impl From<ContainerBuilder> for LayoutSpec {
-    fn from(value: ContainerBuilder) -> Self {
-        let (axis, padding, spacing) = value.into_parts();
-        LayoutSpec::Container {
-            axis,
-            padding,
-            spacing,
-        }
-    }
-}
-
+/// Routes each target to the presenter that lays it out, handing it the target's part (ADR 0022).
 pub struct DesktopLayoutAlgorithm<'a> {
+    pub desktop: &'a DesktopPresenter,
     pub aggregates: &'a Aggregates,
     pub context: LayoutContext<'a>,
 }
@@ -61,32 +29,21 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             placements.len(),
             "one placement slot per child"
         );
+        let context = &self.context;
         match id {
-            DesktopTarget::Launcher(launcher) => self.aggregates.launchers[launcher]
-                .place_children(
-                    (),
-                    &self.context,
-                    parent_size,
-                    child_measurements,
-                    placements,
-                ),
+            DesktopTarget::Desktop => self.desktop.place_children(
+                (),
+                context,
+                parent_size,
+                child_measurements,
+                placements,
+            ),
             DesktopTarget::Project(project, part) => self.aggregates.projects[project]
-                .place_children(
-                    *part,
-                    &self.context,
-                    parent_size,
-                    child_measurements,
-                    placements,
-                ),
+                .place_children(*part, context, parent_size, child_measurements, placements),
+            DesktopTarget::Launcher(launcher) => self.aggregates.launchers[launcher]
+                .place_children((), context, parent_size, child_measurements, placements),
             DesktopTarget::Instance(instance, part) => self.aggregates.instances[instance]
-                .place_children(
-                    *part,
-                    &self.context,
-                    parent_size,
-                    child_measurements,
-                    placements,
-                ),
-            _ => self.place_standard_children(id, parent_size, child_measurements, placements),
+                .place_children(*part, context, parent_size, child_measurements, placements),
         }
     }
 
@@ -95,76 +52,17 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         id: &DesktopTarget,
         child_measurements: &[MeasuredLayout<2>],
     ) -> MeasuredLayout<2> {
+        let context = &self.context;
         match id {
-            DesktopTarget::Launcher(launcher) => {
-                self.aggregates.launchers[launcher].measure((), &self.context, child_measurements)
-            }
+            DesktopTarget::Desktop => self.desktop.measure((), context, child_measurements),
             DesktopTarget::Project(project, part) => {
-                self.aggregates.projects[project].measure(*part, &self.context, child_measurements)
+                self.aggregates.projects[project].measure(*part, context, child_measurements)
             }
-            DesktopTarget::Instance(instance, part) => self.aggregates.instances[instance].measure(
-                *part,
-                &self.context,
-                child_measurements,
-            ),
-            _ => self.measure_via_layout_spec(id, child_measurements).into(),
-        }
-    }
-}
-
-impl DesktopLayoutAlgorithm<'_> {
-    fn measure_via_layout_spec(
-        &self,
-        id: &DesktopTarget,
-        child_measurements: &[MeasuredLayout<2>],
-    ) -> Size<2> {
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(size) => size.into(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => measure_container(
-                axis,
-                padding,
-                spacing,
-                child_measurements.iter().map(|child| child.size),
-            ),
-        }
-    }
-
-    fn place_standard_children(
-        &self,
-        id: &DesktopTarget,
-        parent_size: Size<2>,
-        child_measurements: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
-    ) {
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(_) => assert!(placements.is_empty(), "{id:?} is a leaf"),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let cursor = Offset::from(padding.leading);
-                let child_sizes =
-                    expand_cross_axis_child_sizes(axis, padding, parent_size, child_measurements);
-                place_container_children(axis, spacing as i32, cursor, child_sizes, placements);
+            DesktopTarget::Launcher(launcher) => {
+                self.aggregates.launchers[launcher].measure((), context, child_measurements)
             }
-        }
-    }
-
-    fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
-        match target {
-            // The desktop node lays out everything it contains vertically; the
-            // root project is its only child.
-            DesktopTarget::Desktop => LayoutAxis::VERTICAL.to_container().into(),
-            // These targets are measured and placed by their own rules, never by a layout spec.
-            DesktopTarget::Project(..)
-            | DesktopTarget::Launcher(_)
-            | DesktopTarget::Instance(..) => {
-                panic!("{target:?} has no layout spec")
+            DesktopTarget::Instance(instance, part) => {
+                self.aggregates.instances[instance].measure(*part, context, child_measurements)
             }
         }
     }

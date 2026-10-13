@@ -120,6 +120,7 @@ impl DesktopSystem {
 
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
+            desktop: &self.desktop_presenter,
             aggregates: &self.aggregates,
             context: self.aggregates.layout_context(
                 self.default_panel_size,
@@ -155,6 +156,7 @@ impl DesktopSystem {
     fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
+            desktop: &self.desktop_presenter,
             aggregates: &self.aggregates,
             context: self.aggregates.layout_context(
                 self.default_panel_size,
@@ -229,9 +231,12 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         match target {
-            // The desktop node has no presenter, its layout state is only the
-            // placement bookkeeping the children read through `absolute_placement`.
-            DesktopTarget::Desktop => {}
+            DesktopTarget::Desktop => {
+                let applied = self
+                    .desktop_presenter
+                    .apply_layout((), layout, visible, animate)?;
+                assert_eq!(applied, AppliedLayout::Applied);
+            }
             DesktopTarget::Instance(instance_id, part) => {
                 // An instance can end while the layout loop still re-places its view;
                 // event_forwarding and the ResizeAll arm tolerate the same race.
