@@ -41,6 +41,9 @@ pub fn relayouts_on_keyboard_focus(mode: LauncherMode, instance_count: usize) ->
 /// around the presenter's focus anchor with visor arc geometry, so the pack
 /// decision names the mode policy while the anchor-dependent placement stays on
 /// the presenter.
+// TODO: Moves into the launcher's `TargetLayout` impl (ADR 0022), which takes most of these
+// arguments from the presenter and the layout context.
+#[allow(clippy::too_many_arguments)]
 pub fn place_panel_children(
     mode: LauncherMode,
     launcher: &LauncherPresenter,
@@ -49,13 +52,15 @@ pub fn place_panel_children(
     child_instances: &[InstanceId],
     expanded: bool,
     default_panel_size: SizePx,
-) -> Vec<Placement<Transform, 2>> {
+    placements: &mut [Placement<Transform, 2>],
+) {
     match mode {
         LauncherMode::Band => place_container_children(
             LayoutAxis::HORIZONTAL,
             CHILD_SPACING,
             local_offset,
             child_sizes,
+            placements,
         ),
         LauncherMode::Visor => launcher.place_visor_panel_children(
             local_offset,
@@ -63,6 +68,7 @@ pub fn place_panel_children(
             child_instances,
             expanded,
             default_panel_size,
+            placements,
         ),
     }
 }

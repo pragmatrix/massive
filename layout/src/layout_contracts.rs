@@ -65,10 +65,13 @@ where
     fn measure(&self, id: &Id, child_measurements: &[MeasuredLayout<RANK>])
     -> MeasuredLayout<RANK>;
 
+    /// Writes one placement per child into `placements`, which the caller sizes to the children so
+    /// the output length is part of the contract.
     fn place_children(
         &self,
         id: &Id,
         parent_size: Size<RANK>,
         child_measurements: &[MeasuredLayout<RANK>],
-    ) -> Vec<Placement<T, RANK>>;
+        placements: &mut [Placement<T, RANK>],
+    );
 }

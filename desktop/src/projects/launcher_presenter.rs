@@ -139,7 +139,8 @@ impl LauncherPresenter {
         child_instances: &[InstanceId],
         expanded: bool,
         default_panel_size: SizePx,
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
         let center_index = self
             .focus_anchor_instance
             .and_then(|anchor| {
@@ -155,7 +156,8 @@ impl LauncherPresenter {
             center_index,
             expanded,
             default_panel_size,
-        )
+            placements,
+        );
     }
 
     fn place_visor_children(
@@ -165,23 +167,27 @@ impl LauncherPresenter {
         center_index: usize,
         expanded: bool,
         default_panel_size: SizePx,
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
         let offset =
             centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
 
         let Some(summary) = visor_layout_summary(offset, child_sizes) else {
-            return place_container_children(
+            place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
                 offset,
                 child_sizes,
+                placements,
             );
+            return;
         };
 
-        let mut child_placements = Vec::with_capacity(child_sizes.len());
         let mut offset = offset;
 
-        for (child_index, &child_size) in child_sizes.iter().enumerate() {
+        for (child_index, (&child_size, placement)) in
+            child_sizes.iter().zip(placements).enumerate()
+        {
             if child_index > 0 {
                 offset[0] += CHILD_SPACING;
             }
@@ -191,14 +197,10 @@ impl LauncherPresenter {
                 visor_child_transform(child_index, center_y, summary, center_index, expanded);
             let visible = visor_child_visibility(child_index, center_index, expanded);
 
-            child_placements.push(
-                Placement::new(transform, LayoutRect::new(offset, child_size))
-                    .with_visibility(visible),
-            );
+            *placement = Placement::new(transform, LayoutRect::new(offset, child_size))
+                .with_visibility(visible);
             offset[0] += child_size[0] as i32;
         }
-
-        child_placements
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be

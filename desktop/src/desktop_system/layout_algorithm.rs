@@ -85,18 +85,25 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         id: &DesktopTarget,
         parent_size: Size<2>,
         child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
+        assert_eq!(
+            child_measurements.len(),
+            placements.len(),
+            "one placement slot per child"
+        );
         match id {
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.
-            DesktopTarget::Launcher(_) => self.place_launcher_children(id, child_measurements),
+            DesktopTarget::Launcher(_) => {
+                self.place_launcher_children(id, child_measurements, placements)
+            }
             DesktopTarget::Project(project_id, ProjectPart::Matrix) => {
-                self.place_project_matrix_children(*project_id, child_measurements)
+                self.place_project_matrix_children(*project_id, child_measurements, placements)
             }
-            DesktopTarget::Instance(instance_id, InstancePart::Instance) => {
-                self.place_instance_children(*instance_id, parent_size, child_measurements)
-            }
-            _ => self.place_standard_children(id, parent_size, child_measurements),
+            DesktopTarget::Instance(instance_id, InstancePart::Instance) => self
+                .place_instance_children(*instance_id, parent_size, child_measurements, placements),
+            _ => self.place_standard_children(id, parent_size, child_measurements, placements),
         }
     }
 
@@ -212,13 +219,14 @@ impl DesktopLayoutAlgorithm<'_> {
         &self,
         project_id: ProjectId,
         child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
         let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
         let slots = self.project_matrix_slots(project_id, &child_sizes);
         let (columns, rows) = matrix_tracks(&slots);
-        let mut placements = Vec::with_capacity(slots.len());
 
-        for (slot, measurement) in slots.iter().zip(child_measurements) {
+        for ((slot, measurement), placement) in slots.iter().zip(child_measurements).zip(placements)
+        {
             let offset = Offset::from([
                 track_offset(
                     &columns,
@@ -234,13 +242,8 @@ impl DesktopLayoutAlgorithm<'_> {
             let center = rect.origin() + (rect.size() * slot.scale).center();
             let transform = Transform::new(center.with_z(0.0), Quaternion::IDENTITY, slot.scale);
             // Intrinsic rectangles keep presentation scaling from resizing the child scene.
-            placements.push(Placement::new(
-                transform,
-                LayoutRect::new(offset, layout_size),
-            ));
+            *placement = Placement::new(transform, LayoutRect::new(offset, layout_size));
         }
-
-        placements
     }
 
     /// Cached intrinsic measurements keep parent scaling independent of child layout.
@@ -300,7 +303,8 @@ impl DesktopLayoutAlgorithm<'_> {
         &self,
         id: &DesktopTarget,
         child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
         let DesktopTarget::Launcher(launcher_id) = id else {
             panic!("place_launcher_children requires a launcher target")
         };
@@ -334,7 +338,8 @@ impl DesktopLayoutAlgorithm<'_> {
             &child_instances,
             expanded,
             self.default_panel_size,
-        )
+            placements,
+        );
     }
 
     /// Stacks the title bar and the view vertically. In Full Screen Mode the stack is laid out at
@@ -344,7 +349,8 @@ impl DesktopLayoutAlgorithm<'_> {
         instance_id: InstanceId,
         parent_size: Size<2>,
         child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
         let (scale, stack_size) = if self.is_instance_full_screen(instance_id) {
             let parent_size_px = SizePx::new(parent_size[0], parent_size[1]);
             (
@@ -360,17 +366,20 @@ impl DesktopLayoutAlgorithm<'_> {
         let shift = center(parent_size) - center(stack_size) * scale;
 
         let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-        place_container_children(LayoutAxis::VERTICAL, 0, Offset::default(), &child_sizes)
-            .into_iter()
-            .map(|placement| {
-                let transform = Transform::new(
-                    placement.transform.translate * scale + shift,
-                    Quaternion::IDENTITY,
-                    scale,
-                );
-                Placement::new(transform, placement.rect)
-            })
-            .collect()
+        place_container_children(
+            LayoutAxis::VERTICAL,
+            0,
+            Offset::default(),
+            &child_sizes,
+            placements,
+        );
+        for placement in placements {
+            placement.transform = Transform::new(
+                placement.transform.translate * scale + shift,
+                Quaternion::IDENTITY,
+                scale,
+            );
+        }
     }
 
     fn place_standard_children(
@@ -378,9 +387,10 @@ impl DesktopLayoutAlgorithm<'_> {
         id: &DesktopTarget,
         parent_size: Size<2>,
         child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
+        placements: &mut [Placement<Transform, 2>],
+    ) {
         match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(_) => Vec::new(),
+            LayoutSpec::Leaf(_) => assert!(placements.is_empty(), "{id:?} is a leaf"),
             LayoutSpec::Container {
                 axis,
                 padding,
@@ -389,7 +399,7 @@ impl DesktopLayoutAlgorithm<'_> {
                 let cursor = Offset::from(padding.leading);
                 let child_sizes =
                     expand_cross_axis_child_sizes(axis, padding, parent_size, child_measurements);
-                place_container_children(axis, spacing as i32, cursor, &child_sizes)
+                place_container_children(axis, spacing as i32, cursor, &child_sizes, placements);
             }
         }
     }
@@ -491,25 +501,20 @@ pub fn place_container_children(
     spacing: i32,
     mut cursor: Offset<2>,
     child_sizes: &[Size<2>],
-) -> Vec<Placement<Transform, 2>> {
+    placements: &mut [Placement<Transform, 2>],
+) {
     let axis_index: usize = axis.into();
-    let mut child_placements = Vec::with_capacity(child_sizes.len());
 
-    for (index, &child_size) in child_sizes.iter().enumerate() {
+    for (index, (&child_size, placement)) in child_sizes.iter().zip(placements).enumerate() {
         if index > 0 {
             cursor[axis_index] += spacing;
         }
         let rect: RectPx = LayoutRect::new(cursor, child_size).into();
         let center = rect.center().to_f64();
         let transform = Transform::from_translation(Vector3::new(center.x, center.y, 0.0));
-        child_placements.push(Placement::new(
-            transform,
-            LayoutRect::new(cursor, child_size),
-        ));
+        *placement = Placement::new(transform, LayoutRect::new(cursor, child_size));
         cursor[axis_index] += child_size[axis_index] as i32;
     }
-
-    child_placements
 }
 
 fn expand_cross_axis_child_sizes(
