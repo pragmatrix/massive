@@ -180,7 +180,7 @@ impl DesktopSystem {
         // descendants and never applies the child's own placement, so it cannot stand in for
         // `ApplyLayout(child)`.
         let mut effects = Effects::None;
-        for (child, outcome) in children.iter().zip(placement_outcomes) {
+        for (child, &outcome) in children.iter().zip(placement_outcomes) {
             match outcome {
                 PlacementUpdate::Unchanged => {}
                 PlacementUpdate::ChangedSizeUnchanged => {

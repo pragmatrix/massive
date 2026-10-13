@@ -34,6 +34,7 @@ pub struct DesktopLayoutState {
     /// Reused across passes, so measuring and placing a parent's children does not allocate.
     child_measurements: Vec<MeasuredLayout<2>>,
     child_placements: Vec<Placement<Transform, 2>>,
+    placement_updates: Vec<PlacementUpdate>,
 }
 
 impl DesktopLayoutState {
@@ -42,6 +43,7 @@ impl DesktopLayoutState {
             entries: HashMap::new(),
             child_measurements: Vec::new(),
             child_placements: Vec::new(),
+            placement_updates: Vec::new(),
         }
     }
 
@@ -135,15 +137,15 @@ impl DesktopLayoutState {
         target: &DesktopTarget,
         children: &[DesktopTarget],
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-    ) -> Vec<PlacementUpdate> {
+    ) -> &[PlacementUpdate] {
+        self.placement_updates.clear();
         if children.is_empty() {
-            return Vec::new();
+            return &self.placement_updates;
         }
 
         self.place_children(target, children, algorithm);
 
         // Update the placements, and see if there are size changes.
-        let mut updates = Vec::with_capacity(children.len());
         for (child, &placement) in children.iter().zip(&self.child_placements) {
             let Some(entry) = self.entries.get_mut(child) else {
                 panic!("Internal error: missing measured layout entry for child")
@@ -154,16 +156,16 @@ impl DesktopLayoutState {
                 let size_changed = current_placement
                     .is_none_or(|current| current.rect.size != placement.rect.size);
                 entry.placement = Some(placement);
-                updates.push(match size_changed {
+                self.placement_updates.push(match size_changed {
                     true => PlacementUpdate::ChangedSizeChanged,
                     false => PlacementUpdate::ChangedSizeUnchanged,
                 });
             } else {
-                updates.push(PlacementUpdate::Unchanged);
+                self.placement_updates.push(PlacementUpdate::Unchanged);
             }
         }
 
-        updates
+        &self.placement_updates
     }
 
     pub fn remove_subtree(
@@ -403,7 +405,7 @@ mod tests {
         let changed =
             state.place_children_of(&root, topology.children_of(&root), &updated_algorithm);
 
-        assert_eq!(changed, vec![PlacementUpdate::ChangedSizeUnchanged]);
+        assert_eq!(changed, [PlacementUpdate::ChangedSizeUnchanged]);
 
         let final_project = state.local_placement(&project);
 
