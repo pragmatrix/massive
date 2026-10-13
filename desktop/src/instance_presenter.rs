@@ -22,8 +22,7 @@ use massive_shapes::{self as shapes, Shape};
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, InstancePart, KeyContext, KeyHandler, KeyInput, KeyOutcome,
-    LayoutContext, Shortcut, TargetLayout, fullscreen_scale, instance_extent,
-    place_container_children, view_size,
+    LayoutContext, Shortcut, TargetLayout, fullscreen_scale, place_container_children, view_size,
 };
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
@@ -761,6 +760,11 @@ fn launcher_title(launcher_name: &str, kind: InstanceKind) -> String {
         InstanceKind::Primary => launcher_name.to_string(),
         InstanceKind::Assistant => format!("{launcher_name} (assistant)"),
     }
+}
+
+/// The extent of an instance for a regular `panel_size`: its title bar above the panel (ADR 0019).
+pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> SizePx {
+    SizePx::new(panel_size.width, panel_size.height + title_bar_height)
 }
 
 /// The bar's sizes in pixels at regular presentation scale (ADR 0019). They follow the monitor's

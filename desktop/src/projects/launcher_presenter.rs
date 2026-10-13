@@ -20,10 +20,9 @@ use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput,
-    KeyOutcome, LayoutContext, Shortcut, TargetLayout, instance_extent, measure_container,
-    place_container_children,
+    KeyOutcome, LayoutContext, Shortcut, TargetLayout, measure_container, place_container_children,
 };
-use crate::instance_presenter::InstanceKind;
+use crate::instance_presenter::{InstanceKind, instance_extent};
 use crate::projects::{LaunchProfileId, LauncherMode};
 
 use super::runtime_configuration::Params;

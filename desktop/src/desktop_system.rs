@@ -68,7 +68,7 @@ pub(crate) use key_input::KeyInput;
 pub(crate) use keyboard_focus::InputFocus;
 pub(crate) use keyboard_shortcuts::Shortcut;
 pub(crate) use layout_algorithm::{
-    expand_cross_axis_child_sizes, instance_extent, measure_container, place_container_children,
+    expand_cross_axis_child_sizes, measure_container, place_container_children,
 };
 pub(crate) use massive_applications::SlotShift;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
@@ -78,7 +78,9 @@ use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::{InstancePresenter, InstanceTitleBarMetrics, ViewWindowState};
+use crate::instance_presenter::{
+    InstancePresenter, InstanceTitleBarMetrics, ViewWindowState, instance_extent,
+};
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
 };

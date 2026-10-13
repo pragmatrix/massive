@@ -1,6 +1,6 @@
 use std::cmp::max;
 
-use massive_geometry::{RectPx, SizePx, Transform, Vector3};
+use massive_geometry::{RectPx, Transform, Vector3};
 use massive_layout::{
     ChildPlacement, LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement,
     Rect as LayoutRect, Size, Thickness,
@@ -122,9 +122,4 @@ pub fn expand_cross_axis_child_sizes(
         }
         child_size
     })
-}
-
-/// The extent of an instance for a regular `panel_size` (ADR 0019).
-pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> SizePx {
-    SizePx::new(panel_size.width, panel_size.height + title_bar_height)
 }
