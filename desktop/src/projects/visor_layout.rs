@@ -10,7 +10,7 @@ pub struct VisorPlacement {
 const MAX_ARC_RADIANS: f64 = PI / 2.0;
 const ARC_SOFTNESS_INSTANCE_COUNT: f64 = 6.0;
 const MIN_RADIUS: f64 = 1.0;
-pub const FORWARD_Z: f64 = 128.0;
+pub const FORWARD_Z: f64 = 0.0;
 
 pub fn placement(
     index: usize,
