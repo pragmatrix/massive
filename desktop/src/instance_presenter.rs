@@ -10,7 +10,8 @@ use winit::window::CursorIcon;
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_layout::{LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize};
 use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
@@ -18,7 +19,9 @@ use massive_shapes::{self as shapes, Shape};
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    AppliedLayout, DesktopCommand, InstancePart, KeyContext, KeyHandler, KeyInput, KeyOutcome,
+    LayoutContext, Shortcut, TargetLayout, fullscreen_scale, instance_extent,
+    place_container_children, view_size,
 };
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 
@@ -403,14 +406,14 @@ impl InstancePresenter {
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
         let snap_layout = !self.has_applied_layout || !animate;
 
-        self.apply_layout(layout, visible);
+        self.retarget_layout(layout, visible);
         if snap_layout {
             self.movement.snap();
         }
         self.has_applied_layout = true;
     }
 
-    fn apply_layout(&mut self, layout: SizedTransform, visible: bool) {
+    fn retarget_layout(&mut self, layout: SizedTransform, visible: bool) {
         // The content origin is the top-left corner of the extent, while the layout transform is
         // centered on it.
         self.root
@@ -477,6 +480,134 @@ impl KeyHandler for InstancePresenter {
         }
 
         KeyOutcome::Pass
+    }
+}
+
+/// The instance's extent holds the title bar above the view (ADR 0019); in Full Screen Mode both
+/// are laid out at window resolution and scaled into it (ADR 0014).
+impl TargetLayout for InstancePresenter {
+    type Part = InstancePart;
+
+    fn measure(
+        &self,
+        part: InstancePart,
+        context: &LayoutContext,
+        _children: &[MeasuredLayout<2>],
+    ) -> MeasuredLayout<2> {
+        let size: LayoutSize<2> = match part {
+            InstancePart::Instance => {
+                instance_extent(context.default_panel_size, context.title_bar_metrics.height).into()
+            }
+            // The bar spans the view and keeps its regular height on screen, because Full Screen
+            // Mode scales it together with the view (ADR 0019).
+            InstancePart::TitleBar => SizePx::new(
+                self.view_size(context).width,
+                context.title_bar_metrics.height,
+            )
+            .into(),
+            InstancePart::View(_) => self.view_size(context).into(),
+        };
+        size.into()
+    }
+
+    fn place_children(
+        &self,
+        part: InstancePart,
+        context: &LayoutContext,
+        parent_size: LayoutSize<2>,
+        children: &[MeasuredLayout<2>],
+        placements: &mut [Placement<Transform, 2>],
+    ) {
+        match part {
+            InstancePart::Instance => {
+                self.place_title_bar_and_view(context, parent_size, children, placements)
+            }
+            InstancePart::TitleBar | InstancePart::View(_) => {
+                assert!(placements.is_empty(), "{part:?} is a leaf")
+            }
+        }
+    }
+
+    fn apply_layout(
+        &mut self,
+        part: InstancePart,
+        layout: SizedTransform,
+        visible: bool,
+        animate: bool,
+    ) -> Result<AppliedLayout> {
+        match part {
+            InstancePart::Instance => self.set_layout(layout, visible, animate),
+            InstancePart::TitleBar => self.set_title_bar_layout(layout, animate),
+            InstancePart::View(view) => {
+                return Ok(match self.set_view_layout(view, layout)? {
+                    Some(size) => AppliedLayout::ViewResized { view, size },
+                    None => AppliedLayout::Applied,
+                });
+            }
+        }
+        Ok(AppliedLayout::Applied)
+    }
+}
+
+impl InstancePresenter {
+    /// Stacks the title bar and the view vertically. In Full Screen Mode the stack is laid out at
+    /// window resolution and scaled into the instance extent (ADR 0014, ADR 0019).
+    fn place_title_bar_and_view(
+        &self,
+        context: &LayoutContext,
+        parent_size: LayoutSize<2>,
+        children: &[MeasuredLayout<2>],
+        placements: &mut [Placement<Transform, 2>],
+    ) {
+        let (scale, stack_size) = match self.presented_full_screen_mode(context) {
+            FullScreenMode::FullScreen => {
+                let parent_size_px = SizePx::new(parent_size[0], parent_size[1]);
+                (
+                    fullscreen_scale(parent_size_px, context.window_size),
+                    context.window_size.into(),
+                )
+            }
+            FullScreenMode::Regular => (1.0, parent_size),
+        };
+
+        // The scaled stack stays centered in the instance.
+        let center =
+            |size: LayoutSize<2>| Vector3::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5, 0.0);
+        let shift = center(parent_size) - center(stack_size) * scale;
+
+        let child_sizes: Vec<_> = children.iter().map(|child| child.size).collect();
+        place_container_children(
+            LayoutAxis::VERTICAL,
+            0,
+            Offset::default(),
+            &child_sizes,
+            placements,
+        );
+        for placement in placements {
+            placement.transform = Transform::new(
+                placement.transform.translate * scale + shift,
+                Quaternion::IDENTITY,
+                scale,
+            );
+        }
+    }
+
+    /// The size the view presents at (ADR 0014, ADR 0019).
+    fn view_size(&self, context: &LayoutContext) -> SizePx {
+        view_size(
+            self.presented_full_screen_mode(context),
+            context.default_panel_size,
+            context.window_size,
+            context.title_bar_metrics.height,
+        )
+    }
+
+    /// An assistant presents in its own temporary mode, a primary instance in its launcher's.
+    fn presented_full_screen_mode(&self, context: &LayoutContext) -> FullScreenMode {
+        self.full_screen_mode().unwrap_or_else(|| {
+            let launcher = context.hierarchy.launcher_of_instance(self.id);
+            context.configuration[launcher].full_screen_mode
+        })
     }
 }
 

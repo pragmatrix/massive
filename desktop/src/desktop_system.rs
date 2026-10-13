@@ -31,6 +31,7 @@ mod presentation;
 #[cfg(test)]
 mod system_tests;
 mod target;
+mod target_layout;
 mod topology;
 mod zoom_level_indicator;
 
@@ -69,13 +70,13 @@ pub(crate) use keyboard_shortcuts::Shortcut;
 pub(crate) use layout_algorithm::{instance_extent, place_container_children};
 pub(crate) use massive_applications::SlotShift;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
+pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, InstanceTitleBarMetrics, ViewWindowState};
-use crate::projects::FullScreenMode;
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
 };
@@ -268,24 +269,6 @@ impl Aggregates {
             configuration,
             instances: Map::default(),
             instance_title_bar_metrics,
-        }
-    }
-
-    /// The Full Screen Mode `instance` currently presents in: an assistant's
-    /// temporary mode, or its launcher's mode shared by its primary instances.
-    /// Every caller passes an instance of the live topology, whose launcher and
-    /// its configuration record are invariants — layout, camera, and hover reads
-    /// all run after the transaction's topology changes are applied.
-    pub(super) fn instance_full_screen_mode(&self, instance: InstanceId) -> FullScreenMode {
-        if let Some(mode) = self
-            .instances
-            .get(&instance)
-            .and_then(|presenter| presenter.full_screen_mode())
-        {
-            mode
-        } else {
-            let launcher = self.hierarchy.launcher_of_instance(instance);
-            self.configuration[launcher].full_screen_mode
         }
     }
 }

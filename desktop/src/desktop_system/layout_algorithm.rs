@@ -2,18 +2,16 @@ use std::cmp::max;
 
 use derive_more::From;
 
-use massive_applications::InstanceId;
 use massive_geometry::{Quaternion, Rect, RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
     LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size,
     Thickness,
 };
 
-use super::{Aggregates, DesktopTarget, InstancePart, ProjectPart, fullscreen_scale, view_size};
+use super::{Aggregates, DesktopTarget, LayoutContext, ProjectPart, TargetLayout};
 use crate::layout::{ContainerBuilder, ToContainer};
 use crate::projects::{
-    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotContent,
-    launcher_mode,
+    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotContent, launcher_mode,
 };
 
 const PROJECT_PADDING: u32 = 10;
@@ -56,19 +54,10 @@ impl From<ContainerBuilder> for LayoutSpec {
 
 pub struct DesktopLayoutAlgorithm<'a> {
     pub aggregates: &'a Aggregates,
-    pub default_panel_size: SizePx,
-    pub focused_instance: Option<InstanceId>,
-    pub window_size: SizePx,
+    pub context: LayoutContext<'a>,
 }
 
 impl DesktopLayoutAlgorithm<'_> {
-    /// Whether `instance` presents in Full Screen Mode (ADR 0014): the content
-    /// scale follows the instance's mode — a primary instance's launcher mode, an
-    /// assistant's temporary one — independent of camera or focus depth.
-    fn is_instance_full_screen(&self, instance: InstanceId) -> bool {
-        self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
-    }
-
     /// The configured mode of a launcher.
     fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
         self.aggregates
@@ -101,8 +90,14 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             DesktopTarget::Project(project_id, ProjectPart::Matrix) => {
                 self.place_project_matrix_children(*project_id, child_measurements, placements)
             }
-            DesktopTarget::Instance(instance_id, InstancePart::Instance) => self
-                .place_instance_children(*instance_id, parent_size, child_measurements, placements),
+            DesktopTarget::Instance(instance, part) => self.aggregates.instances[instance]
+                .place_children(
+                    *part,
+                    &self.context,
+                    parent_size,
+                    child_measurements,
+                    placements,
+                ),
             _ => self.place_standard_children(id, parent_size, child_measurements, placements),
         }
     }
@@ -136,48 +131,23 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             DesktopTarget::Project(project_id, ProjectPart::Matrix) => self
                 .measure_project_matrix(*project_id, &child_sizes)
                 .into(),
-            DesktopTarget::Instance(_, InstancePart::Instance) => {
-                let size: Size<2> = self.instance_extent().into();
-                size.into()
-            }
-            DesktopTarget::Instance(_, InstancePart::TitleBar) => {
-                // In Full Screen Mode the bar is laid out at window resolution like the view and
-                // scaled with it, so it keeps its regular height on screen (ADR 0019).
-                let height = self.aggregates.instance_title_bar_metrics.height;
-                let size: Size<2> = SizePx::new(self.view_size_of(id).width, height).into();
-                size.into()
-            }
-            DesktopTarget::Instance(_, InstancePart::View(_)) => {
-                let size: Size<2> = self.view_size_of(id).into();
-                size.into()
-            }
+            DesktopTarget::Instance(instance, part) => self.aggregates.instances[instance].measure(
+                *part,
+                &self.context,
+                child_measurements,
+            ),
             _ => self.measure_via_layout_spec(id, &child_sizes).into(),
         }
     }
 }
 
 impl DesktopLayoutAlgorithm<'_> {
-    /// The size the view of the instance `target` belongs to presents at (ADR 0014, ADR 0019).
-    fn view_size_of(&self, target: &DesktopTarget) -> SizePx {
-        let instance = self
-            .aggregates
-            .hierarchy
-            .instance_of_target(target)
-            .expect("A title bar and a view belong to an instance");
-        view_size(
-            self.aggregates.instance_full_screen_mode(instance),
-            self.default_panel_size,
-            self.window_size,
-            self.aggregates.instance_title_bar_metrics.height,
-        )
-    }
-
     /// The extent of an instance: its title bar above the regular panel (ADR 0019). Full Screen
     /// Mode does not change it; the window-resolution content is scaled into it.
     fn instance_extent(&self) -> SizePx {
         instance_extent(
-            self.default_panel_size,
-            self.aggregates.instance_title_bar_metrics.height,
+            self.context.default_panel_size,
+            self.context.title_bar_metrics.height,
         )
     }
 
@@ -262,7 +232,8 @@ impl DesktopLayoutAlgorithm<'_> {
             })
             .max()
             .unwrap_or(0);
-        let project_scale = presentation_scale(self.default_panel_size.width, widest_project);
+        let project_scale =
+            presentation_scale(self.context.default_panel_size.width, widest_project);
 
         contents
             .into_iter()
@@ -320,6 +291,7 @@ impl DesktopLayoutAlgorithm<'_> {
         // Performance: This don't need to be computed on non-visor launchers (but we might remove
         // bands anyway). The visor only collapses when one of its instances holds keyboard focus.
         let expanded = self
+            .context
             .focused_instance
             .and_then(|focused| {
                 child_instances
@@ -337,49 +309,9 @@ impl DesktopLayoutAlgorithm<'_> {
             &child_sizes,
             &child_instances,
             expanded,
-            self.default_panel_size,
+            self.context.default_panel_size,
             placements,
         );
-    }
-
-    /// Stacks the title bar and the view vertically. In Full Screen Mode the stack is laid out at
-    /// window resolution and scaled into the instance extent (ADR 0014, ADR 0019).
-    fn place_instance_children(
-        &self,
-        instance_id: InstanceId,
-        parent_size: Size<2>,
-        child_measurements: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
-    ) {
-        let (scale, stack_size) = if self.is_instance_full_screen(instance_id) {
-            let parent_size_px = SizePx::new(parent_size[0], parent_size[1]);
-            (
-                fullscreen_scale(parent_size_px, self.window_size),
-                self.window_size.into(),
-            )
-        } else {
-            (1.0, parent_size)
-        };
-
-        // The scaled stack stays centered in the instance.
-        let center = |size: Size<2>| Vector3::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5, 0.0);
-        let shift = center(parent_size) - center(stack_size) * scale;
-
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-        place_container_children(
-            LayoutAxis::VERTICAL,
-            0,
-            Offset::default(),
-            &child_sizes,
-            placements,
-        );
-        for placement in placements {
-            placement.transform = Transform::new(
-                placement.transform.translate * scale + shift,
-                Quaternion::IDENTITY,
-                scale,
-            );
-        }
     }
 
     fn place_standard_children(
@@ -415,14 +347,11 @@ impl DesktopLayoutAlgorithm<'_> {
                 .padding((PROJECT_PADDING, PROJECT_PADDING))
                 .into(),
             // These targets are measured and placed by their own rules, never by a layout spec.
-            DesktopTarget::Project(_, ProjectPart::Header)
-            | DesktopTarget::Project(_, ProjectPart::Matrix)
-            | DesktopTarget::Instance(_, InstancePart::TitleBar) => {
+            DesktopTarget::Project(_, ProjectPart::Header | ProjectPart::Matrix)
+            | DesktopTarget::Instance(..) => {
                 panic!("{target:?} has no layout spec")
             }
             DesktopTarget::Launcher(_) => LayoutAxis::HORIZONTAL.into(),
-            DesktopTarget::Instance(_, InstancePart::Instance) => self.instance_extent().into(),
-            DesktopTarget::Instance(_, InstancePart::View(_)) => self.default_panel_size.into(),
         }
     }
 }
@@ -553,6 +482,7 @@ mod tests {
 
     use super::*;
     use crate::OrderedHierarchy;
+    use crate::desktop_system::InstancePart;
     use crate::instance_presenter::InstanceTitleBarMetrics;
     use crate::projects::persistence::parse_configuration;
 
@@ -607,9 +537,14 @@ mod tests {
         );
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &aggregates,
-            default_panel_size: SizePx::new(800, 600),
-            focused_instance: None,
-            window_size: SizePx::new(800, 600),
+            context: LayoutContext {
+                hierarchy: &aggregates.hierarchy,
+                configuration: &aggregates.configuration,
+                default_panel_size: SizePx::new(800, 600),
+                window_size: SizePx::new(800, 600),
+                focused_instance: None,
+                title_bar_metrics: aggregates.instance_title_bar_metrics,
+            },
         };
         let instance_extent: Size<2> = algorithm.instance_extent().into();
         assert!(
