@@ -13,7 +13,7 @@ A change to the desktop configuration: adding the root project, assigning or cle
 _Avoid_: project change
 
 **Desktop**:
-The hierarchy's virtual root target. It is never inserted explicitly, has no presenter, and only parents the root project's target — the one node every hit-test miss maps to. The root project's framing is the outermost camera position.
+The hierarchy's virtual root target. It is never inserted explicitly and only parents the root project's target — the one node every hit-test miss maps to. The root project's framing is the outermost camera position.
 _Avoid_: desktop depth, root project (the root project hangs *below* it)
 
 **Project**:
@@ -59,6 +59,10 @@ _Avoid_: session state, ephemeral state
 **Instance title bar**:
 The bar the desktop draws above an instance's panel, outside the instance's content grid, so the content's size is unaffected. It is one left-aligned string: the primary view's title (for the terminal, its working directory), a separator, then the launcher's name (marked as an assistant for an assistant instance); the name alone while the title is empty. It exists for every instance with a primary view, has a fixed height at regular presentation scale even in Full Screen Mode, and is part of the instance's extent for layout. It follows the instance's placement visibility and structural animation, and a click on it selects the instance. It is the instance-level counterpart of a project header.
 _Avoid_: status panel, status bar, instance header
+
+**Part**:
+A target that belongs to a project or an instance and is laid out on its own: a project's header and matrix, an instance's title bar and views. A part selects the target it belongs to, except a view, which holds the keyboard focus itself.
+_Avoid_: sub-target, component
 
 **Zoom level**:
 What the camera frames relative to the keyboard-focused target, within its zoom project: `Project`, `Row`, `Slot` or `Focus`. `Focus` frames the target itself — an instance's panel together with its title bar, or for any other target the same rect as its slot. Navigation keeps the zoom level. Zooming out of a nested project's outermost row focuses that project as a slot of its parent; zooming in on a project target focuses its project focus slot at `Row`. Clicking a target, starting an instance, and `Cmd+Enter` set `Focus`; `Cmd+Enter` or `Enter` on a project target first enters it down to its focused leaf. A target is fully in when its zoom level is `Focus`. The indicator shows what is framed — `Focus` reads `Instance` on an instance and `Slot` otherwise — with the zoom project's nesting depth, root = 0, e.g. `Row 1`.
