@@ -135,7 +135,7 @@ fn matrix_tracks(slots: impl Iterator<Item = MatrixSlot>) -> (Vec<u32>, Vec<u32>
     (columns, rows)
 }
 
-/// Grows the tracks to reach `index`; tracks without slots stay empty.
+/// Grows the tracks to reach `index`; a track no slot reaches keeps a zero extent but its spacing.
 fn widen_track(tracks: &mut Vec<u32>, index: usize, extent: u32) {
     if tracks.len() <= index {
         tracks.resize(index + 1, 0);

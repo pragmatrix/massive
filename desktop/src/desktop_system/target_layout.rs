@@ -50,7 +50,7 @@ pub struct LayoutContext<'a> {
     pub configuration: &'a RuntimeConfiguration,
     pub default_panel_size: SizePx,
     pub window_size: SizePx,
-    /// The visor collapses only while one of its instances holds keyboard focus.
+    /// A visor expands while one of its instances holds the keyboard focus.
     pub focused_instance: Option<InstanceId>,
     pub title_bar_metrics: InstanceTitleBarMetrics,
 }
