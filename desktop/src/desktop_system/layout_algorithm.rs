@@ -10,9 +10,7 @@ use massive_layout::{
 
 use super::{Aggregates, DesktopTarget, LayoutContext, ProjectPart, TargetLayout};
 use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotContent, launcher_mode,
-};
+use crate::projects::{MatrixPlacement, ProjectId, SlotContent};
 
 const PROJECT_PADDING: u32 = 10;
 const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
@@ -57,17 +55,6 @@ pub struct DesktopLayoutAlgorithm<'a> {
     pub context: LayoutContext<'a>,
 }
 
-impl DesktopLayoutAlgorithm<'_> {
-    /// The configured mode of a launcher.
-    fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
-        self.aggregates
-            .configuration
-            .launcher(launcher_id)
-            .expect("the configuration holds the launcher")
-            .mode
-    }
-}
-
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
     fn place_children(
         &self,
@@ -82,11 +69,14 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             "one placement slot per child"
         );
         match id {
-            // Launcher panels run a dedicated path because transform assignment is
-            // a second phase over the regular 2D child placement.
-            DesktopTarget::Launcher(_) => {
-                self.place_launcher_children(id, child_measurements, placements)
-            }
+            DesktopTarget::Launcher(launcher) => self.aggregates.launchers[launcher]
+                .place_children(
+                    (),
+                    &self.context,
+                    parent_size,
+                    child_measurements,
+                    placements,
+                ),
             DesktopTarget::Project(project_id, ProjectPart::Matrix) => {
                 self.place_project_matrix_children(*project_id, child_measurements, placements)
             }
@@ -110,20 +100,8 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
 
         match id {
-            // An empty launcher stretches to its matrix row, while instances give a launcher an
-            // intrinsic size, so the first instance takes the top of the cell (ADR 0019).
-            DesktopTarget::Launcher(_) if self.aggregates.hierarchy.get_nested(id).is_empty() => {
-                MeasuredLayout::new(self.instance_extent().into(), [false, true])
-            }
-            DesktopTarget::Launcher(launcher_id) => {
-                // A launcher spans an instance's extent, title bar included (ADR 0019).
-                let panel_measure: Option<Size<2>> = launcher_mode::panel_measurement(
-                    self.launcher_mode(*launcher_id),
-                    self.instance_extent(),
-                );
-                panel_measure
-                    .map(Into::into)
-                    .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into())
+            DesktopTarget::Launcher(launcher) => {
+                self.aggregates.launchers[launcher].measure((), &self.context, child_measurements)
             }
             DesktopTarget::Project(project_id, ProjectPart::Header) => {
                 self.project_header_size(*project_id)
@@ -142,15 +120,6 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
 }
 
 impl DesktopLayoutAlgorithm<'_> {
-    /// The extent of an instance: its title bar above the regular panel (ADR 0019). Full Screen
-    /// Mode does not change it; the window-resolution content is scaled into it.
-    fn instance_extent(&self) -> SizePx {
-        instance_extent(
-            self.context.default_panel_size,
-            self.context.title_bar_metrics.height,
-        )
-    }
-
     fn measure_via_layout_spec(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
         match self.resolve_layout_spec(id) {
             LayoutSpec::Leaf(size) => size.into(),
@@ -158,25 +127,7 @@ impl DesktopLayoutAlgorithm<'_> {
                 axis,
                 padding,
                 spacing,
-            } => {
-                let axis = *axis;
-                let mut inner_size = Size::EMPTY;
-
-                for (index, &child_size) in child_sizes.iter().enumerate() {
-                    for dim in 0..2 {
-                        if dim == axis {
-                            inner_size[dim] += child_size[dim];
-                            if index > 0 {
-                                inner_size[dim] += spacing;
-                            }
-                        } else {
-                            inner_size[dim] = max(inner_size[dim], child_size[dim]);
-                        }
-                    }
-                }
-
-                padding.leading + inner_size + padding.trailing
-            }
+            } => measure_container(axis, padding, spacing, child_sizes),
         }
     }
 
@@ -270,50 +221,6 @@ impl DesktopLayoutAlgorithm<'_> {
         MeasuredLayout::new(size, [true, false])
     }
 
-    fn place_launcher_children(
-        &self,
-        id: &DesktopTarget,
-        child_measurements: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
-    ) {
-        let DesktopTarget::Launcher(launcher_id) = id else {
-            panic!("place_launcher_children requires a launcher target")
-        };
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-
-        let launcher = &self.aggregates.launchers[launcher_id];
-        let child_instances: Vec<_> = self
-            .aggregates
-            .hierarchy
-            .launcher_instances(*launcher_id)
-            .collect();
-
-        // Performance: This don't need to be computed on non-visor launchers (but we might remove
-        // bands anyway). The visor only collapses when one of its instances holds keyboard focus.
-        let expanded = self
-            .context
-            .focused_instance
-            .and_then(|focused| {
-                child_instances
-                    .iter()
-                    .position(|&instance| instance == focused)
-            })
-            .is_some();
-
-        // The pack decision is a mode policy; the visor branch stays on the
-        // presenter because it places children around the presenter's focus anchor.
-        launcher_mode::place_panel_children(
-            self.launcher_mode(*launcher_id),
-            launcher,
-            Offset::default(),
-            &child_sizes,
-            &child_instances,
-            expanded,
-            self.context.default_panel_size,
-            placements,
-        );
-    }
-
     fn place_standard_children(
         &self,
         id: &DesktopTarget,
@@ -348,10 +255,10 @@ impl DesktopLayoutAlgorithm<'_> {
                 .into(),
             // These targets are measured and placed by their own rules, never by a layout spec.
             DesktopTarget::Project(_, ProjectPart::Header | ProjectPart::Matrix)
+            | DesktopTarget::Launcher(_)
             | DesktopTarget::Instance(..) => {
                 panic!("{target:?} has no layout spec")
             }
-            DesktopTarget::Launcher(_) => LayoutAxis::HORIZONTAL.into(),
         }
     }
 }
@@ -425,6 +332,33 @@ fn track_offset(tracks: &[u32], index: usize, spacing: u32) -> i32 {
         .sum()
 }
 
+/// The size of children stacked along `axis`: their extents and the spacing between them along it,
+/// the largest extent across it.
+pub fn measure_container(
+    axis: LayoutAxis,
+    padding: Thickness<2>,
+    spacing: u32,
+    child_sizes: &[Size<2>],
+) -> Size<2> {
+    let axis = *axis;
+    let mut inner_size = Size::EMPTY;
+
+    for (index, &child_size) in child_sizes.iter().enumerate() {
+        for dim in 0..2 {
+            if dim == axis {
+                inner_size[dim] += child_size[dim];
+                if index > 0 {
+                    inner_size[dim] += spacing;
+                }
+            } else {
+                inner_size[dim] = max(inner_size[dim], child_size[dim]);
+            }
+        }
+    }
+
+    padding.leading + inner_size + padding.trailing
+}
+
 pub fn place_container_children(
     axis: LayoutAxis,
     spacing: i32,
@@ -478,13 +412,7 @@ pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> Size
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
-    use crate::OrderedHierarchy;
-    use crate::desktop_system::InstancePart;
-    use crate::instance_presenter::InstanceTitleBarMetrics;
-    use crate::projects::persistence::parse_configuration;
 
     #[test]
     fn presentation_scale_fits_width_without_enlarging() {
@@ -496,69 +424,6 @@ mod tests {
     #[test]
     fn presentation_scale_of_an_empty_scene_is_one() {
         assert_eq!(presentation_scale(300, 0), 1.0);
-    }
-
-    /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
-    /// vertically, so the first instance takes the top of the cell (ADR 0019).
-    #[test]
-    fn launchers_measure_with_the_instance_extent() {
-        let configuration = parse_configuration(
-            Path::new("/config/desktop.json"),
-            r#"{
-                "startup": "/busy",
-                "slots": [
-                    { "at": [0, 0], "launcher": { "name": "empty", "mode": "visor" } },
-                    { "at": [1, 0], "launcher": { "name": "busy", "mode": "visor" } }
-                ]
-            }"#,
-        )
-        .unwrap();
-        let launcher_named = |name| {
-            DesktopTarget::Launcher(
-                configuration
-                    .launchers()
-                    .find(|launcher| launcher.name == name)
-                    .unwrap()
-                    .id,
-            )
-        };
-        let (empty, busy) = (launcher_named("empty"), launcher_named("busy"));
-        let mut hierarchy = OrderedHierarchy::default();
-        hierarchy
-            .add(
-                busy.clone(),
-                DesktopTarget::Instance(uuid::Uuid::new_v4().into(), InstancePart::Instance),
-            )
-            .unwrap();
-        let aggregates = Aggregates::new(
-            hierarchy,
-            configuration,
-            InstanceTitleBarMetrics::from_scale_factor(1.0),
-        );
-        let algorithm = DesktopLayoutAlgorithm {
-            aggregates: &aggregates,
-            context: LayoutContext {
-                hierarchy: &aggregates.hierarchy,
-                configuration: &aggregates.configuration,
-                default_panel_size: SizePx::new(800, 600),
-                window_size: SizePx::new(800, 600),
-                focused_instance: None,
-                title_bar_metrics: aggregates.instance_title_bar_metrics,
-            },
-        };
-        let instance_extent: Size<2> = algorithm.instance_extent().into();
-        assert!(
-            instance_extent.0[1] > 600,
-            "the extent includes the title bar"
-        );
-
-        let empty = algorithm.measure(&empty, &[]);
-        assert_eq!(empty.size, instance_extent);
-        assert_eq!(empty.expandable_axes, [false, true]);
-
-        let busy = algorithm.measure(&busy, &[instance_extent.into()]);
-        assert_eq!(busy.size, instance_extent);
-        assert_eq!(busy.expandable_axes, [false, false]);
     }
 
     #[test]

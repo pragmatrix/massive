@@ -271,11 +271,13 @@ impl DesktopSystem {
                     .set_layout(layout);
             }
             DesktopTarget::Launcher(launcher_id) => {
-                self.aggregates
+                let applied = self
+                    .aggregates
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_layout(layout, animate);
+                    .apply_layout((), layout, visible, animate)?;
+                assert_eq!(applied, AppliedLayout::Applied);
             }
         }
         Ok(())
@@ -291,7 +293,7 @@ impl DesktopSystem {
 }
 
 impl Aggregates {
-    fn layout_context(
+    pub(super) fn layout_context(
         &self,
         default_panel_size: SizePx,
         window_size: SizePx,

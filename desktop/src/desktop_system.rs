@@ -67,7 +67,7 @@ pub(crate) use key_delivery::{KeyContext, KeyHandler, KeyOutcome};
 pub(crate) use key_input::KeyInput;
 pub(crate) use keyboard_focus::InputFocus;
 pub(crate) use keyboard_shortcuts::Shortcut;
-pub(crate) use layout_algorithm::{instance_extent, place_container_children};
+pub(crate) use layout_algorithm::{instance_extent, measure_container, place_container_children};
 pub(crate) use massive_applications::SlotShift;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};

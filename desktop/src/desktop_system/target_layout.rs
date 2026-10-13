@@ -31,6 +31,11 @@ pub trait TargetLayout {
         placements: &mut [Placement<Transform, 2>],
     );
 
+    /// Whether a keyboard-focus change inside `part` re-runs its layout.
+    fn relayouts_on_focus(&self, _part: Self::Part, _context: &LayoutContext) -> bool {
+        false
+    }
+
     fn apply_layout(
         &mut self,
         part: Self::Part,
