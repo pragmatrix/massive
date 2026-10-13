@@ -67,7 +67,7 @@ impl<'a> FocusTargets<'a> {
             .get(&launcher)
             .and_then(|presenter| presenter.focus_anchor_instance)
             .filter(|instance| {
-                hierarchy.parent(&DesktopTarget::Instance(*instance))
+                hierarchy.parent(&DesktopTarget::from(*instance))
                     == Some(&DesktopTarget::Launcher(launcher))
             })
             .or_else(|| hierarchy.launcher_instances(launcher).next())

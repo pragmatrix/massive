@@ -92,7 +92,7 @@ impl DesktopSystem {
 
         let insertion_pos = nested
             .iter()
-            .position(|i| *i == DesktopTarget::Instance(originator))
+            .position(|i| *i == originator.into())
             .map(|i| i + 1)
             .unwrap_or(nested.len());
 
@@ -134,8 +134,8 @@ impl DesktopSystem {
 
         // Add the view to the hierarchy as a separate topology change.
         let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
-            what: DesktopTarget::View(view_creation_info.id),
-            under: DesktopTarget::Instance(instance),
+            what: DesktopTarget::view(instance, view_creation_info.id),
+            under: instance.into(),
             after: None,
         })
         .into();
@@ -154,8 +154,10 @@ impl DesktopSystem {
 
         // Remove the view from the hierarchy as a separate topology change. The remove change
         // also retargets focus away from the removed subtree.
-        let changes: Changes =
-            DesktopChange::Topology(TopologyChange::Remove(DesktopTarget::View(path.view))).into();
+        let changes: Changes = DesktopChange::Topology(TopologyChange::Remove(
+            DesktopTarget::view(path.instance, path.view),
+        ))
+        .into();
 
         Ok(ChangeOutput::changes(changes))
     }
@@ -164,13 +166,9 @@ impl DesktopSystem {
     pub fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
         let target = self.hover_target()?;
         match &target {
-            DesktopTarget::Instance(_)
-            | DesktopTarget::Project(_)
-            | DesktopTarget::ProjectHeader(_)
-            | DesktopTarget::ProjectMatrix(_)
+            DesktopTarget::Project(..)
             | DesktopTarget::Launcher(_)
-            | DesktopTarget::InstanceTitleBar(_)
-            | DesktopTarget::View(_) => Some(self.placement(&target)),
+            | DesktopTarget::Instance(..) => Some(self.placement(&target)),
             DesktopTarget::Desktop => None,
         }
     }
@@ -184,11 +182,7 @@ impl DesktopSystem {
 
         // The outline marks what a click selects; a view outlines its whole instance (ADR 0019).
         Some(match target.selected_target() {
-            FocusableTarget::View(view) => self
-                .aggregates
-                .hierarchy
-                .instance_of_target(&DesktopTarget::View(view))
-                .map_or(DesktopTarget::View(view), DesktopTarget::Instance),
+            FocusableTarget::View(instance, _) => instance.into(),
             target => target.into(),
         })
     }

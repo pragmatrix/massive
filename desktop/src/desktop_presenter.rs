@@ -1,15 +1,19 @@
 use std::{sync::Arc, time::Duration};
 
+use anyhow::Result;
+
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
-use massive_layout::Placement;
+use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement};
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
+    Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
+    place_container_children,
 };
 
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
@@ -72,6 +76,60 @@ impl KeyHandler for DesktopPresenter {
         };
 
         KeyOutcome::Consumed(command.into())
+    }
+}
+
+/// The desktop stacks its content vertically; the root project is its only child.
+impl TargetLayout for DesktopPresenter {
+    type Part = ();
+
+    fn measure(
+        &self,
+        (): (),
+        _context: &LayoutContext,
+        children: &[MeasuredLayout<2>],
+    ) -> MeasuredLayout<2> {
+        measure_container(
+            LayoutAxis::VERTICAL,
+            Default::default(),
+            0,
+            children.iter().map(|child| child.size),
+        )
+        .into()
+    }
+
+    fn place_children(
+        &self,
+        (): (),
+        _context: &LayoutContext,
+        children: ChildPlacement<'_, Transform, 2>,
+    ) {
+        let (parent_size, children, placements) = children.into();
+        let child_sizes = expand_cross_axis_child_sizes(
+            LayoutAxis::VERTICAL,
+            Default::default(),
+            parent_size,
+            children,
+        );
+        place_container_children(
+            LayoutAxis::VERTICAL,
+            0,
+            Offset::default(),
+            child_sizes,
+            placements,
+        );
+    }
+
+    /// The desktop is the scene's root: its placement only anchors its children's absolute
+    /// placements.
+    fn apply_layout(
+        &mut self,
+        (): (),
+        _layout: SizedTransform,
+        _visible: bool,
+        _animate: bool,
+    ) -> Result<AppliedLayout> {
+        Ok(AppliedLayout::Applied)
     }
 }
 

@@ -30,6 +30,8 @@ mod navigation;
 mod presentation;
 #[cfg(test)]
 mod system_tests;
+mod target;
+mod target_layout;
 mod topology;
 mod zoom_level_indicator;
 
@@ -65,147 +67,31 @@ pub(crate) use key_delivery::{KeyContext, KeyHandler, KeyOutcome};
 pub(crate) use key_input::KeyInput;
 pub(crate) use keyboard_focus::InputFocus;
 pub(crate) use keyboard_shortcuts::Shortcut;
-pub(crate) use layout_algorithm::{instance_extent, place_container_children};
+pub(crate) use layout_algorithm::{
+    expand_cross_axis_child_sizes, measure_container, place_container_children,
+};
 pub(crate) use massive_applications::SlotShift;
+pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
+pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::{InstancePresenter, InstanceTitleBarMetrics, ViewWindowState};
-use crate::projects::FullScreenMode;
+use crate::instance_presenter::{
+    InstancePresenter, InstanceTitleBarMetrics, ViewWindowState, instance_extent,
+};
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
-    SlotContent,
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
-/// This enum specifies a unique target inside the navigation and layout history.
-///
-/// `Desktop` is the hierarchy's virtual root: it is never inserted explicitly and
-/// has no presenter — it only appears as the parent key under which the root
-/// project's target is added.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DesktopTarget {
-    Desktop,
-    Project(ProjectId),
-    ProjectHeader(ProjectId),
-    ProjectMatrix(ProjectId),
-    Launcher(LaunchProfileId),
-
-    Instance(InstanceId),
-    /// The bar above an instance's view (ADR 0019). Selects its instance.
-    InstanceTitleBar(InstanceId),
-    View(ViewId),
-}
-
-/// The targets that hold the keyboard focus, so decisions about the focus match exhaustively.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusableTarget {
-    Desktop,
-    Project(ProjectId),
-    Launcher(LaunchProfileId),
-    Instance(InstanceId),
-    View(ViewId),
-}
-
-impl DesktopTarget {
-    /// Only a target that selects itself holds the keyboard focus and handles keys on a focus path;
-    /// a part that selects another leaves both to its parent on the same path (ADR 0019).
-    pub fn as_focusable(&self) -> Option<FocusableTarget> {
-        let selected = self.selected_target();
-        (DesktopTarget::from(selected) == *self).then_some(selected)
-    }
-
-    /// What a click on the target selects; a part selects the target it belongs to (ADR 0019).
-    pub fn selected_target(&self) -> FocusableTarget {
-        match *self {
-            Self::Desktop => FocusableTarget::Desktop,
-            Self::Project(project)
-            | Self::ProjectHeader(project)
-            | Self::ProjectMatrix(project) => FocusableTarget::Project(project),
-            Self::Launcher(launcher) => FocusableTarget::Launcher(launcher),
-            Self::Instance(instance) | Self::InstanceTitleBar(instance) => {
-                FocusableTarget::Instance(instance)
-            }
-            Self::View(view) => FocusableTarget::View(view),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Left,
     Right,
     Up,
     Down,
-}
-
-impl FocusableTarget {
-    /// Whether the target is an instance or its view.
-    pub fn is_instance_target(&self) -> bool {
-        matches!(self, Self::Instance(_) | Self::View(_))
-    }
-
-    /// The project the target stands for; `Desktop` stands for the root project.
-    pub fn stands_for_project(&self) -> Option<ProjectId> {
-        match *self {
-            Self::Project(project) => Some(project),
-            Self::Desktop => Some(ProjectId::ROOT),
-            Self::Launcher(_) | Self::Instance(_) | Self::View(_) => None,
-        }
-    }
-}
-
-impl From<ProjectId> for FocusableTarget {
-    fn from(project: ProjectId) -> Self {
-        Self::Project(project)
-    }
-}
-
-impl From<SlotContent> for FocusableTarget {
-    fn from(content: SlotContent) -> Self {
-        match content {
-            SlotContent::Launcher(launcher) => Self::Launcher(launcher),
-            SlotContent::Project(project) => Self::Project(project),
-        }
-    }
-}
-
-impl From<FocusableTarget> for DesktopTarget {
-    fn from(target: FocusableTarget) -> Self {
-        match target {
-            FocusableTarget::Desktop => Self::Desktop,
-            FocusableTarget::Project(project) => Self::Project(project),
-            FocusableTarget::Launcher(launcher) => Self::Launcher(launcher),
-            FocusableTarget::Instance(instance) => Self::Instance(instance),
-            FocusableTarget::View(view) => Self::View(view),
-        }
-    }
-}
-
-impl From<ProjectId> for DesktopTarget {
-    fn from(value: ProjectId) -> Self {
-        Self::Project(value)
-    }
-}
-
-impl From<LaunchProfileId> for DesktopTarget {
-    fn from(value: LaunchProfileId) -> Self {
-        Self::Launcher(value)
-    }
-}
-
-impl From<InstanceId> for DesktopTarget {
-    fn from(value: InstanceId) -> Self {
-        Self::Instance(value)
-    }
-}
-
-impl From<ViewId> for DesktopTarget {
-    fn from(value: ViewId) -> Self {
-        Self::View(value)
-    }
 }
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
@@ -387,24 +273,6 @@ impl Aggregates {
             configuration,
             instances: Map::default(),
             instance_title_bar_metrics,
-        }
-    }
-
-    /// The Full Screen Mode `instance` currently presents in: an assistant's
-    /// temporary mode, or its launcher's mode shared by its primary instances.
-    /// Every caller passes an instance of the live topology, whose launcher and
-    /// its configuration record are invariants — layout, camera, and hover reads
-    /// all run after the transaction's topology changes are applied.
-    pub(super) fn instance_full_screen_mode(&self, instance: InstanceId) -> FullScreenMode {
-        if let Some(mode) = self
-            .instances
-            .get(&instance)
-            .and_then(|presenter| presenter.full_screen_mode())
-        {
-            mode
-        } else {
-            let launcher = self.hierarchy.launcher_of_instance(instance);
-            self.configuration[launcher].full_screen_mode
         }
     }
 }
@@ -711,7 +579,7 @@ impl Aggregates {
             .get_nested(&instance.into())
             .iter()
             .find_map(|target| match target {
-                DesktopTarget::View(view) => Some(*view),
+                DesktopTarget::Instance(_, InstancePart::View(view)) => Some(*view),
                 _ => None,
             })
     }

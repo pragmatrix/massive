@@ -2,8 +2,7 @@ use anyhow::Result;
 use log::warn;
 use massive_applications::ViewEvent;
 
-use super::{Aggregates, Commands, DesktopSystem, DesktopTarget};
-use crate::focus_path::PathResolver;
+use super::{Aggregates, Commands, DesktopSystem, DesktopTarget, InstancePart, ProjectPart};
 use crate::instance_manager::InstanceManager;
 use crate::projects::SlotContent;
 use crate::targeted_event::{EventTransitions, TargetedEvent, convert_to_targeted_events};
@@ -61,19 +60,7 @@ impl DesktopSystem {
                 let launcher = launchers.get_mut(&launcher_id).expect("Launcher not found");
                 return launcher.process(event, &params.params);
             }
-            DesktopTarget::View(view_id) => {
-                let path = self
-                    .aggregates
-                    .hierarchy
-                    .resolve_path(Some(&view_id.into()));
-                let Some(instance) = path.instance() else {
-                    // This happens when the instance is gone (resolve_path returns only the view, because it puts it by default in the first position).
-                    warn!(
-                        "Instance of view {view_id:?} not found (path: {path:?}), can't deliver event: {event:?}"
-                    );
-                    return Ok(Commands::Empty);
-                };
-
+            DesktopTarget::Instance(instance, InstancePart::View(view_id)) => {
                 // Hit testing already returned view-local coordinates.
                 if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
                 {
@@ -91,10 +78,11 @@ impl DesktopSystem {
     fn remember_unfocused_project_slot(&mut self, target: &DesktopTarget) {
         let content = match target {
             DesktopTarget::Launcher(launcher) => SlotContent::Launcher(*launcher),
-            DesktopTarget::Project(project) => SlotContent::Project(*project),
+            DesktopTarget::Project(project, ProjectPart::Project) => SlotContent::Project(*project),
             _ => return,
         };
-        let Some(DesktopTarget::ProjectMatrix(project)) = self.aggregates.hierarchy.parent(target)
+        let Some(DesktopTarget::Project(project, ProjectPart::Matrix)) =
+            self.aggregates.hierarchy.parent(target)
         else {
             return;
         };

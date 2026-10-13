@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use massive_geometry::{Point, Transform};
 use massive_layout::{
-    LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
-    Size as LayoutSize,
+    ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
+    Rect as LayoutRect, Size as LayoutSize,
 };
 
 use super::DesktopTarget;
@@ -31,12 +31,19 @@ struct LayoutEntry {
 
 pub struct DesktopLayoutState {
     entries: HashMap<DesktopTarget, LayoutEntry>,
+    /// Reused across passes, so measuring and placing a parent's children does not allocate.
+    child_measurements: Vec<MeasuredLayout<2>>,
+    child_placements: Vec<Placement<Transform, 2>>,
+    placement_updates: Vec<PlacementUpdate>,
 }
 
 impl DesktopLayoutState {
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            child_measurements: Vec::new(),
+            child_placements: Vec::new(),
+            placement_updates: Vec::new(),
         }
     }
 
@@ -50,10 +57,9 @@ impl DesktopLayoutState {
         topology: &impl LayoutTopology<DesktopTarget>,
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
     ) -> MeasureOutcome {
-        let child_measurements: Vec<_> = topology
-            .children_of(target)
-            .iter()
-            .map(|child| {
+        self.child_measurements.clear();
+        self.child_measurements
+            .extend(topology.children_of(target).iter().map(|child| {
                 self.entries
                     .get(child)
                     .copied()
@@ -61,10 +67,9 @@ impl DesktopLayoutState {
                         panic!("Internal error: child should be measured before parent")
                     })
                     .measured
-            })
-            .collect();
+            }));
 
-        let measured = algorithm.measure(target, &child_measurements);
+        let measured = algorithm.measure(target, &self.child_measurements);
         let current_entry = self.entries.get(target).copied();
         let size_changed = current_entry.is_none_or(|current| current.measured != measured);
         if size_changed {
@@ -132,16 +137,16 @@ impl DesktopLayoutState {
         target: &DesktopTarget,
         children: &[DesktopTarget],
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-    ) -> Vec<PlacementUpdate> {
+    ) -> &[PlacementUpdate] {
+        self.placement_updates.clear();
         if children.is_empty() {
-            return Vec::new();
+            return &self.placement_updates;
         }
 
-        let child_placements = self.place_children(target, children, algorithm);
+        self.place_children(target, children, algorithm);
 
         // Update the placements, and see if there are size changes.
-        let mut updates = Vec::with_capacity(children.len());
-        for (child, placement) in children.iter().zip(child_placements) {
+        for (child, &placement) in children.iter().zip(&self.child_placements) {
             let Some(entry) = self.entries.get_mut(child) else {
                 panic!("Internal error: missing measured layout entry for child")
             };
@@ -151,16 +156,16 @@ impl DesktopLayoutState {
                 let size_changed = current_placement
                     .is_none_or(|current| current.rect.size != placement.rect.size);
                 entry.placement = Some(placement);
-                updates.push(match size_changed {
+                self.placement_updates.push(match size_changed {
                     true => PlacementUpdate::ChangedSizeChanged,
                     false => PlacementUpdate::ChangedSizeUnchanged,
                 });
             } else {
-                updates.push(PlacementUpdate::Unchanged);
+                self.placement_updates.push(PlacementUpdate::Unchanged);
             }
         }
 
-        updates
+        &self.placement_updates
     }
 
     pub fn remove_subtree(
@@ -175,22 +180,21 @@ impl DesktopLayoutState {
         }
     }
 
+    /// Leaves one placement per child in `child_placements`.
     fn place_children(
-        &self,
+        &mut self,
         target: &DesktopTarget,
         children: &[DesktopTarget],
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-    ) -> Vec<Placement<Transform, 2>> {
-        let child_measurements: Vec<_> = children
-            .iter()
-            .map(|child| {
-                self.entries
-                    .get(child)
-                    .copied()
-                    .expect("Internal error: missing measured layout size for child")
-                    .measured
-            })
-            .collect();
+    ) {
+        self.child_measurements.clear();
+        self.child_measurements.extend(children.iter().map(|child| {
+            self.entries
+                .get(child)
+                .copied()
+                .expect("Internal error: missing measured layout size for child")
+                .measured
+        }));
 
         let parent_entry = self
             .entries
@@ -200,12 +204,20 @@ impl DesktopLayoutState {
             .placement
             .map(|placement| placement.rect.size)
             .unwrap_or(parent_entry.measured.size);
-        let child_placements = algorithm.place_children(target, parent_size, &child_measurements);
-        if child_placements.len() != children.len() {
-            panic!("Internal error: child placement count does not match child count")
-        }
-
-        child_placements
+        // Every slot is overwritten; the filler only gives the slice its length.
+        self.child_placements.clear();
+        self.child_placements.resize(
+            children.len(),
+            Placement::new(Transform::default(), LayoutRect::default()),
+        );
+        algorithm.place_children(
+            target,
+            ChildPlacement::new(
+                parent_size,
+                &self.child_measurements,
+                &mut self.child_placements,
+            ),
+        );
     }
 
     pub fn absolute_placement(
@@ -281,12 +293,12 @@ mod tests {
 
     use massive_geometry::Transform;
     use massive_layout::{
-        LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
-        Size as LayoutSize,
+        ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
+        Rect as LayoutRect, Size as LayoutSize,
     };
 
     use super::{DesktopLayoutState, PlacementUpdate};
-    use crate::desktop_system::DesktopTarget;
+    use crate::desktop_system::{DesktopTarget, ProjectPart};
     use crate::projects::ProjectId;
 
     #[derive(Debug, Default)]
@@ -327,7 +339,6 @@ mod tests {
 
     struct TestAlgorithm {
         child_offset: Offset<2>,
-        mismatch_child_count: bool,
     }
 
     impl LayoutAlgorithm<DesktopTarget, Transform, 2> for TestAlgorithm {
@@ -341,48 +352,15 @@ mod tests {
             size.into()
         }
 
-        fn place_children(
-            &self,
-            _id: &DesktopTarget,
-            _parent_size: LayoutSize<2>,
-            child_measurements: &[MeasuredLayout<2>],
-        ) -> Vec<Placement<Transform, 2>> {
-            if self.mismatch_child_count {
-                return Vec::new();
+        fn place_children(&self, _id: &DesktopTarget, children: ChildPlacement<'_, Transform, 2>) {
+            let (_, child_measurements, placements) = children.into();
+            for (placement, child) in placements.iter_mut().zip(child_measurements) {
+                *placement = Placement::new(
+                    Transform::default(),
+                    LayoutRect::new(self.child_offset, child.size),
+                );
             }
-
-            child_measurements
-                .iter()
-                .map(|child| {
-                    Placement::new(
-                        Transform::default(),
-                        LayoutRect::new(self.child_offset, child.size),
-                    )
-                })
-                .collect()
         }
-    }
-
-    #[test]
-    #[should_panic(expected = "Internal error: child placement count does not match child count")]
-    fn place_children_count_mismatch_panics() {
-        let mut state = DesktopLayoutState::new();
-        let mut topology = TestTopology::default();
-
-        let root = DesktopTarget::Project(ProjectId::new());
-        let project = DesktopTarget::Project(ProjectId::new());
-        topology.insert_node(root.clone());
-        topology.set_children(root.clone(), vec![project.clone()]);
-
-        let algorithm = TestAlgorithm {
-            child_offset: Offset::default(),
-            mismatch_child_count: true,
-        };
-
-        state.measure_node(&project, &topology, &algorithm);
-        state.measure_node(&root, &topology, &algorithm);
-
-        state.place_children_of(&root, topology.children_of(&root), &algorithm);
     }
 
     #[test]
@@ -391,14 +369,13 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let root = DesktopTarget::Project(ProjectId::new());
-        let project = DesktopTarget::Project(ProjectId::new());
+        let root = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
+        let project = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
         topology.insert_node(root.clone());
         topology.set_children(root.clone(), vec![project]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
-            mismatch_child_count: false,
         };
 
         state.measure_node(&root, &topology, &algorithm);
@@ -409,14 +386,13 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let root = DesktopTarget::Project(ProjectId::new());
-        let project = DesktopTarget::Project(ProjectId::new());
+        let root = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
+        let project = DesktopTarget::Project(ProjectId::new(), ProjectPart::Project);
         topology.insert_node(root.clone());
         topology.set_children(root.clone(), vec![project.clone()]);
 
         let initial_algorithm = TestAlgorithm {
             child_offset: [0, 0].into(),
-            mismatch_child_count: false,
         };
 
         state.measure_node(&project, &topology, &initial_algorithm);
@@ -425,12 +401,11 @@ mod tests {
 
         let updated_algorithm = TestAlgorithm {
             child_offset: [7, 3].into(),
-            mismatch_child_count: false,
         };
         let changed =
             state.place_children_of(&root, topology.children_of(&root), &updated_algorithm);
 
-        assert_eq!(changed, vec![PlacementUpdate::ChangedSizeUnchanged]);
+        assert_eq!(changed, [PlacementUpdate::ChangedSizeUnchanged]);
 
         let final_project = state.local_placement(&project);
 

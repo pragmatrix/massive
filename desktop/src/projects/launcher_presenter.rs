@@ -9,18 +9,21 @@ use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
-use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
+use massive_layout::{
+    ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
+    Size as LayoutSize,
+};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
 use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    Commands, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
-    place_container_children,
+    AppliedLayout, Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput,
+    KeyOutcome, LayoutContext, Shortcut, TargetLayout, measure_container, place_container_children,
 };
-use crate::instance_presenter::InstanceKind;
-use crate::projects::LaunchProfileId;
+use crate::instance_presenter::{InstanceKind, instance_extent};
+use crate::projects::{LaunchProfileId, LauncherMode};
 
 use super::runtime_configuration::Params;
 
@@ -130,58 +133,31 @@ impl LauncherPresenter {
         }
     }
 
-    /// Visor-mode child placement: the mode match lives at the layout call site, leaving
-    /// this method to own the presentation-side anchor and arc geometry.
-    pub fn place_visor_panel_children(
-        &self,
-        local_offset: Offset<2>,
-        child_sizes: &[LayoutSize<2>],
-        child_instances: &[InstanceId],
-        expanded: bool,
-        default_panel_size: SizePx,
-    ) -> Vec<Placement<Transform, 2>> {
-        let center_index = self
-            .focus_anchor_instance
-            .and_then(|anchor| {
-                child_instances
-                    .iter()
-                    .position(|&instance| instance == anchor)
-            })
-            .unwrap_or_default();
-
-        self.place_visor_children(
-            local_offset,
-            child_sizes,
-            center_index,
-            expanded,
-            default_panel_size,
-        )
-    }
-
     fn place_visor_children(
         &self,
-        local_offset: Offset<2>,
-        child_sizes: &[LayoutSize<2>],
+        children: &[MeasuredLayout<2>],
         center_index: usize,
         expanded: bool,
         default_panel_size: SizePx,
-    ) -> Vec<Placement<Transform, 2>> {
-        let offset =
-            centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
+        placements: &mut [Placement<Transform, 2>],
+    ) {
+        let offset = centered_children_offset(children, default_panel_size.width as i32);
 
-        let Some(summary) = visor_layout_summary(offset, child_sizes) else {
-            return place_container_children(
+        let Some(summary) = visor_layout_summary(offset, children) else {
+            place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
                 offset,
-                child_sizes,
+                children.iter().map(|child| child.size),
+                placements,
             );
+            return;
         };
 
-        let mut child_placements = Vec::with_capacity(child_sizes.len());
         let mut offset = offset;
 
-        for (child_index, &child_size) in child_sizes.iter().enumerate() {
+        for (child_index, (child, placement)) in children.iter().zip(placements).enumerate() {
+            let child_size = child.size;
             if child_index > 0 {
                 offset[0] += CHILD_SPACING;
             }
@@ -191,14 +167,10 @@ impl LauncherPresenter {
                 visor_child_transform(child_index, center_y, summary, center_index, expanded);
             let visible = visor_child_visibility(child_index, center_index, expanded);
 
-            child_placements.push(
-                Placement::new(transform, LayoutRect::new(offset, child_size))
-                    .with_visibility(visible),
-            );
+            *placement = Placement::new(transform, LayoutRect::new(offset, child_size))
+                .with_visibility(visible);
             offset[0] += child_size[0] as i32;
         }
-
-        child_placements
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
@@ -295,6 +267,104 @@ impl KeyHandler for LauncherPresenter {
     }
 }
 
+/// Bands pack their instances horizontally; visors arc them around the focus anchor and collapse
+/// while none of them holds the keyboard focus.
+impl TargetLayout for LauncherPresenter {
+    type Part = ();
+
+    fn measure(
+        &self,
+        (): (),
+        context: &LayoutContext,
+        children: &[MeasuredLayout<2>],
+    ) -> MeasuredLayout<2> {
+        measure_launcher(self.id, context, children)
+    }
+
+    fn place_children(
+        &self,
+        (): (),
+        context: &LayoutContext,
+        children: ChildPlacement<'_, Transform, 2>,
+    ) {
+        let (_, children, placements) = children.into();
+        match context.configuration[self.id].mode {
+            LauncherMode::Band => place_container_children(
+                LayoutAxis::HORIZONTAL,
+                CHILD_SPACING,
+                Offset::default(),
+                children.iter().map(|child| child.size),
+                placements,
+            ),
+            LauncherMode::Visor => {
+                let index_of = |instance: Option<InstanceId>| {
+                    let instance = instance?;
+                    context
+                        .hierarchy
+                        .launcher_instances(self.id)
+                        .position(|child| child == instance)
+                };
+                let expanded = index_of(context.focused_instance).is_some();
+                let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
+                self.place_visor_children(
+                    children,
+                    center_index,
+                    expanded,
+                    context.default_panel_size,
+                    placements,
+                );
+            }
+        }
+    }
+
+    /// A visor collapses around the focus anchor, which matters only when more than the anchor
+    /// instance exists.
+    fn relayouts_on_focus(&self, (): (), context: &LayoutContext) -> bool {
+        context.configuration[self.id].mode == LauncherMode::Visor
+            && context.hierarchy.launcher_instances(self.id).count() > 1
+    }
+
+    fn apply_layout(
+        &mut self,
+        (): (),
+        layout: SizedTransform,
+        _visible: bool,
+        animate: bool,
+    ) -> Result<AppliedLayout> {
+        self.set_layout(layout, animate);
+        Ok(AppliedLayout::Applied)
+    }
+}
+
+/// A launcher spans an instance's extent, title bar included (ADR 0019). An empty one stretches to
+/// its matrix row, while instances give it an intrinsic size, so the first instance takes the top
+/// of the cell; bands measure from their instances like any horizontal container.
+fn measure_launcher(
+    launcher: LaunchProfileId,
+    context: &LayoutContext,
+    children: &[MeasuredLayout<2>],
+) -> MeasuredLayout<2> {
+    let instance_extent: LayoutSize<2> =
+        instance_extent(context.default_panel_size, context.title_bar_metrics.height).into();
+    if context
+        .hierarchy
+        .get_nested(&DesktopTarget::Launcher(launcher))
+        .is_empty()
+    {
+        return MeasuredLayout::new(instance_extent, [false, true]);
+    }
+    match context.configuration[launcher].mode {
+        LauncherMode::Visor => instance_extent.into(),
+        LauncherMode::Band => measure_container(
+            LayoutAxis::HORIZONTAL,
+            Default::default(),
+            CHILD_SPACING as u32,
+            children.iter().map(|child| child.size),
+        )
+        .into(),
+    }
+}
+
 impl LauncherMovement {
     fn new(size: Size) -> Self {
         Self {
@@ -338,29 +408,27 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
     shapes::Rect::new(rect, color).into()
 }
 
-fn centered_children_offset(
-    local_offset: Offset<2>,
-    child_sizes: &[LayoutSize<2>],
-    panel_width: i32,
-) -> Offset<2> {
-    let mut offset = local_offset;
-    offset[0] += (panel_width - children_span(child_sizes)) / 2;
-    offset
+fn centered_children_offset(children: &[MeasuredLayout<2>], panel_width: i32) -> Offset<2> {
+    Offset::from([(panel_width - children_span(children)) / 2, 0])
 }
 
-fn children_span(child_sizes: &[LayoutSize<2>]) -> i32 {
-    child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
-        + CHILD_SPACING * child_sizes.len().saturating_sub(1) as i32
+fn children_span(children: &[MeasuredLayout<2>]) -> i32 {
+    children
+        .iter()
+        .map(|child| child.size[0] as i32)
+        .sum::<i32>()
+        + CHILD_SPACING * children.len().saturating_sub(1) as i32
 }
 
 fn visor_layout_summary(
     mut offset: Offset<2>,
-    child_sizes: &[LayoutSize<2>],
+    children: &[MeasuredLayout<2>],
 ) -> Option<VisorLayoutSummary> {
     let mut first_center_x = None;
     let mut last_center_x = None;
 
-    for (child_index, &child_size) in child_sizes.iter().enumerate() {
+    for (child_index, child) in children.iter().enumerate() {
+        let child_size = child.size;
         if child_index > 0 {
             offset[0] += CHILD_SPACING;
         }
@@ -372,7 +440,7 @@ fn visor_layout_summary(
         offset[0] += child_size[0] as i32;
     }
 
-    let instance_count = child_sizes.len();
+    let instance_count = children.len();
     if instance_count <= 1 {
         return None;
     }
@@ -430,4 +498,69 @@ fn visor_child_transform(
 
 fn visor_child_visibility(instance_index: usize, center_index: usize, expanded: bool) -> bool {
     expanded || instance_index == center_index
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::OrderedHierarchy;
+    use crate::desktop_system::InstancePart;
+    use crate::instance_presenter::InstanceTitleBarMetrics;
+    use crate::projects::persistence::parse_configuration;
+
+    /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
+    /// vertically, so the first instance takes the top of the cell (ADR 0019).
+    #[test]
+    fn launchers_measure_with_the_instance_extent() {
+        let configuration = parse_configuration(
+            Path::new("/config/desktop.json"),
+            r#"{
+                "startup": "/busy",
+                "slots": [
+                    { "at": [0, 0], "launcher": { "name": "empty", "mode": "visor" } },
+                    { "at": [1, 0], "launcher": { "name": "busy", "mode": "visor" } }
+                ]
+            }"#,
+        )
+        .unwrap();
+        let launcher_named = |name| {
+            configuration
+                .launchers()
+                .find(|launcher| launcher.name == name)
+                .unwrap()
+                .id
+        };
+        let (empty, busy) = (launcher_named("empty"), launcher_named("busy"));
+        let mut hierarchy = OrderedHierarchy::default();
+        hierarchy
+            .add(
+                DesktopTarget::Launcher(busy),
+                DesktopTarget::Instance(Uuid::new_v4().into(), InstancePart::Instance),
+            )
+            .unwrap();
+        let context = LayoutContext {
+            hierarchy: &hierarchy,
+            configuration: &configuration,
+            default_panel_size: SizePx::new(800, 600),
+            window_size: SizePx::new(800, 600),
+            focused_instance: None,
+            title_bar_metrics: InstanceTitleBarMetrics::from_scale_factor(1.0),
+        };
+        let instance_extent: LayoutSize<2> =
+            instance_extent(context.default_panel_size, context.title_bar_metrics.height).into();
+        assert!(
+            instance_extent.0[1] > 600,
+            "the extent includes the title bar"
+        );
+
+        let empty = measure_launcher(empty, &context, &[]);
+        assert_eq!(empty.size, instance_extent);
+        assert_eq!(empty.expandable_axes, [false, true]);
+
+        let busy = measure_launcher(busy, &context, &[instance_extent.into()]);
+        assert_eq!(busy.size, instance_extent);
+        assert_eq!(busy.expandable_axes, [false, false]);
+    }
 }

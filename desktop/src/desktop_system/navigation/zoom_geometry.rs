@@ -11,7 +11,7 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::layout_state::DesktopLayoutState;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::desktop_system::{DesktopTarget, FocusableTarget, ZoomLevel};
+use crate::desktop_system::{DesktopTarget, FocusableTarget, InstancePart, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::projects::{
     LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
@@ -112,7 +112,7 @@ impl<'a> ZoomGeometry<'a> {
     }
 
     fn instance_camera(&self, instance: InstanceId) -> PixelCamera {
-        let transform = self.placement(&DesktopTarget::Instance(instance)).transform;
+        let transform = self.placement(&instance.into()).transform;
         // The camera frames the instance at its content scale, the scale the layout gives the
         // instance's children: 1 at regular size, and in Full Screen Mode (ADR 0014) the factor
         // that fits their window-resolution content into the instance extent. Dollying by it maps
@@ -122,7 +122,7 @@ impl<'a> ZoomGeometry<'a> {
         // view-less fullscreen instance already frames fullscreen and the camera does not zoom out
         // and back in when the view arrives.
         let content_scale = self
-            .placement(&DesktopTarget::InstanceTitleBar(instance))
+            .placement(&DesktopTarget::Instance(instance, InstancePart::TitleBar))
             .transform
             .scale;
         Self::camera_from_placement(Transform::new(
@@ -180,10 +180,7 @@ impl<'a> ZoomGeometry<'a> {
     fn camera_for_visor_arc(&self, instances: Vec<InstanceId>) -> Option<PixelCamera> {
         let transforms: Vec<Transform> = instances
             .iter()
-            .map(|instance| {
-                self.placement(&DesktopTarget::Instance(*instance))
-                    .transform
-            })
+            .map(|instance| self.placement(&DesktopTarget::from(*instance)).transform)
             .collect();
         let mean_yaw = transforms
             .iter()
@@ -214,7 +211,7 @@ impl<'a> ZoomGeometry<'a> {
     fn fold_instance_bounds(&self, instances: Vec<InstanceId>) -> OverviewBounds {
         let mut bounds: Option<OverviewBounds> = None;
         for instance in instances {
-            let instance_bounds = self.target_bounds(&DesktopTarget::Instance(instance));
+            let instance_bounds = self.target_bounds(&instance.into());
             bounds = Some(match bounds {
                 Some(existing) => existing.joined(instance_bounds),
                 None => instance_bounds,
@@ -228,7 +225,7 @@ impl<'a> ZoomGeometry<'a> {
     fn fold_instance_rect(&self, instances: Vec<InstanceId>) -> Rect {
         instances
             .iter()
-            .map(|instance| self.target_rect(&DesktopTarget::Instance(*instance)))
+            .map(|instance| self.target_rect(&DesktopTarget::from(*instance)))
             .bounds()
             .expect("Internal error: a launcher with instances must yield rects")
     }
@@ -275,7 +272,7 @@ impl<'a> ZoomGeometry<'a> {
     }
 
     fn project_rect(&self, project_id: ProjectId) -> Rect {
-        let root = DesktopTarget::Project(project_id);
+        let root = project_id.into();
         let mut rect = Some(self.target_rect(&root));
         self.extend_rect_with_subtree(&root, &mut rect);
         rect.expect("Internal error: project bounds should always exist")

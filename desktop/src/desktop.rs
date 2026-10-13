@@ -19,11 +19,11 @@ use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
-use crate::desktop_system::{
-    Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode, instance_extent,
-};
+use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
+use crate::instance_presenter::{
+    InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
+};
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;

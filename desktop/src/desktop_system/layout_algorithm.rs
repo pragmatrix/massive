@@ -1,102 +1,35 @@
 use std::cmp::max;
 
-use derive_more::From;
-
-use massive_applications::InstanceId;
-use massive_geometry::{Quaternion, Rect, RectPx, SizePx, Transform, Vector3};
+use massive_geometry::{RectPx, Transform, Vector3};
 use massive_layout::{
-    LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size,
-    Thickness,
+    ChildPlacement, LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement,
+    Rect as LayoutRect, Size, Thickness,
 };
 
-use super::{Aggregates, DesktopTarget, fullscreen_scale, view_size};
-use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::{
-    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotContent,
-    launcher_mode,
-};
+use super::{Aggregates, DesktopTarget, LayoutContext, TargetLayout};
+use crate::desktop_presenter::DesktopPresenter;
 
-const PROJECT_PADDING: u32 = 10;
-const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
-const PROJECT_HEADER_SPACING: u32 = 10;
-const MATRIX_COLUMN_SPACING: u32 = 10;
-const MATRIX_ROW_SPACING: u32 = 10;
-
-#[derive(Debug, From)]
-enum LayoutSpec {
-    Container {
-        axis: LayoutAxis,
-        padding: Thickness<2>,
-        spacing: u32,
-    },
-    #[from]
-    Leaf(SizePx),
-}
-
-impl From<LayoutAxis> for LayoutSpec {
-    fn from(axis: LayoutAxis) -> Self {
-        Self::Container {
-            axis,
-            padding: Default::default(),
-            spacing: 0,
-        }
-    }
-}
-
-impl From<ContainerBuilder> for LayoutSpec {
-    fn from(value: ContainerBuilder) -> Self {
-        let (axis, padding, spacing) = value.into_parts();
-        LayoutSpec::Container {
-            axis,
-            padding,
-            spacing,
-        }
-    }
-}
-
+/// Routes each target to the presenter that lays it out, handing it the target's part (ADR 0022).
 pub struct DesktopLayoutAlgorithm<'a> {
+    pub desktop: &'a DesktopPresenter,
     pub aggregates: &'a Aggregates,
-    pub default_panel_size: SizePx,
-    pub focused_instance: Option<InstanceId>,
-    pub window_size: SizePx,
-}
-
-impl DesktopLayoutAlgorithm<'_> {
-    /// Whether `instance` presents in Full Screen Mode (ADR 0014): the content
-    /// scale follows the instance's mode — a primary instance's launcher mode, an
-    /// assistant's temporary one — independent of camera or focus depth.
-    fn is_instance_full_screen(&self, instance: InstanceId) -> bool {
-        self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
-    }
-
-    /// The configured mode of a launcher.
-    fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
-        self.aggregates
-            .configuration
-            .launcher(launcher_id)
-            .expect("the configuration holds the launcher")
-            .mode
-    }
+    pub context: LayoutContext<'a>,
 }
 
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
-    fn place_children(
-        &self,
-        id: &DesktopTarget,
-        parent_size: Size<2>,
-        child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
+    fn place_children(&self, id: &DesktopTarget, children: ChildPlacement<'_, Transform, 2>) {
+        let context = &self.context;
         match id {
-            // Launcher panels run a dedicated path because transform assignment is
-            // a second phase over the regular 2D child placement.
-            DesktopTarget::Launcher(_) => self.place_launcher_children(id, child_measurements),
-            DesktopTarget::ProjectMatrix(project_id) => {
-                self.place_project_matrix_children(*project_id, child_measurements)
+            DesktopTarget::Desktop => self.desktop.place_children((), context, children),
+            DesktopTarget::Project(project, part) => {
+                self.aggregates.projects[project].place_children(*part, context, children)
             }
-            DesktopTarget::Instance(instance_id) => {
-                self.place_instance_children(*instance_id, parent_size, child_measurements)
+            DesktopTarget::Launcher(launcher) => {
+                self.aggregates.launchers[launcher].place_children((), context, children)
             }
-            _ => self.place_standard_children(id, parent_size, child_measurements),
+            DesktopTarget::Instance(instance, part) => {
+                self.aggregates.instances[instance].place_children(*part, context, children)
+            }
         }
     }
 
@@ -105,536 +38,88 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         id: &DesktopTarget,
         child_measurements: &[MeasuredLayout<2>],
     ) -> MeasuredLayout<2> {
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-
+        let context = &self.context;
         match id {
-            // An empty launcher stretches to its matrix row, while instances give a launcher an
-            // intrinsic size, so the first instance takes the top of the cell (ADR 0019).
-            DesktopTarget::Launcher(_) if self.aggregates.hierarchy.get_nested(id).is_empty() => {
-                MeasuredLayout::new(self.instance_extent().into(), [false, true])
+            DesktopTarget::Desktop => self.desktop.measure((), context, child_measurements),
+            DesktopTarget::Project(project, part) => {
+                self.aggregates.projects[project].measure(*part, context, child_measurements)
             }
-            DesktopTarget::Launcher(launcher_id) => {
-                // A launcher spans an instance's extent, title bar included (ADR 0019).
-                let panel_measure: Option<Size<2>> = launcher_mode::panel_measurement(
-                    self.launcher_mode(*launcher_id),
-                    self.instance_extent(),
-                );
-                panel_measure
-                    .map(Into::into)
-                    .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into())
+            DesktopTarget::Launcher(launcher) => {
+                self.aggregates.launchers[launcher].measure((), context, child_measurements)
             }
-            DesktopTarget::ProjectHeader(project_id) => self.project_header_size(*project_id),
-            DesktopTarget::ProjectMatrix(project_id) => self
-                .measure_project_matrix(*project_id, &child_sizes)
-                .into(),
-            DesktopTarget::Instance(_) => {
-                let size: Size<2> = self.instance_extent().into();
-                size.into()
+            DesktopTarget::Instance(instance, part) => {
+                self.aggregates.instances[instance].measure(*part, context, child_measurements)
             }
-            DesktopTarget::InstanceTitleBar(_) => {
-                // In Full Screen Mode the bar is laid out at window resolution like the view and
-                // scaled with it, so it keeps its regular height on screen (ADR 0019).
-                let height = self.aggregates.instance_title_bar_metrics.height;
-                let size: Size<2> = SizePx::new(self.view_size_of(id).width, height).into();
-                size.into()
-            }
-            DesktopTarget::View(_) => {
-                let size: Size<2> = self.view_size_of(id).into();
-                size.into()
-            }
-            _ => self.measure_via_layout_spec(id, &child_sizes).into(),
         }
     }
 }
 
-impl DesktopLayoutAlgorithm<'_> {
-    /// The size the view of the instance `target` belongs to presents at (ADR 0014, ADR 0019).
-    fn view_size_of(&self, target: &DesktopTarget) -> SizePx {
-        let instance = self
-            .aggregates
-            .hierarchy
-            .instance_of_target(target)
-            .expect("A title bar and a view belong to an instance");
-        view_size(
-            self.aggregates.instance_full_screen_mode(instance),
-            self.default_panel_size,
-            self.window_size,
-            self.aggregates.instance_title_bar_metrics.height,
-        )
-    }
+/// The size of children stacked along `axis`: their extents and the spacing between them along it,
+/// the largest extent across it.
+pub fn measure_container(
+    axis: LayoutAxis,
+    padding: Thickness<2>,
+    spacing: u32,
+    child_sizes: impl IntoIterator<Item = Size<2>>,
+) -> Size<2> {
+    let axis = *axis;
+    let mut inner_size = Size::EMPTY;
 
-    /// The extent of an instance: its title bar above the regular panel (ADR 0019). Full Screen
-    /// Mode does not change it; the window-resolution content is scaled into it.
-    fn instance_extent(&self) -> SizePx {
-        instance_extent(
-            self.default_panel_size,
-            self.aggregates.instance_title_bar_metrics.height,
-        )
-    }
-
-    fn measure_via_layout_spec(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(size) => size.into(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let axis = *axis;
-                let mut inner_size = Size::EMPTY;
-
-                for (index, &child_size) in child_sizes.iter().enumerate() {
-                    for dim in 0..2 {
-                        if dim == axis {
-                            inner_size[dim] += child_size[dim];
-                            if index > 0 {
-                                inner_size[dim] += spacing;
-                            }
-                        } else {
-                            inner_size[dim] = max(inner_size[dim], child_size[dim]);
-                        }
-                    }
+    for (index, child_size) in child_sizes.into_iter().enumerate() {
+        for dim in 0..2 {
+            if dim == axis {
+                inner_size[dim] += child_size[dim];
+                if index > 0 {
+                    inner_size[dim] += spacing;
                 }
-
-                padding.leading + inner_size + padding.trailing
+            } else {
+                inner_size[dim] = max(inner_size[dim], child_size[dim]);
             }
         }
     }
 
-    fn measure_project_matrix(&self, project_id: ProjectId, child_sizes: &[Size<2>]) -> Size<2> {
-        // Shared presented extents keep measured matrix bounds consistent with placement.
-        matrix_size(&self.project_matrix_slots(project_id, child_sizes))
-    }
-
-    fn place_project_matrix_children(
-        &self,
-        project_id: ProjectId,
-        child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-        let slots = self.project_matrix_slots(project_id, &child_sizes);
-        let (columns, rows) = matrix_tracks(&slots);
-        let mut placements = Vec::with_capacity(slots.len());
-
-        for (slot, measurement) in slots.iter().zip(child_measurements) {
-            let offset = Offset::from([
-                track_offset(
-                    &columns,
-                    slot.placement.column as usize,
-                    MATRIX_COLUMN_SPACING,
-                ),
-                track_offset(&rows, slot.placement.row as usize, MATRIX_ROW_SPACING),
-            ]);
-            let layout_size = expand_to_row(slot, measurement, &rows);
-            let rect: RectPx = LayoutRect::new(offset, layout_size).into();
-            let rect = Rect::from(rect);
-            // The exact scaled center preserves left alignment despite rounded track extents.
-            let center = rect.origin() + (rect.size() * slot.scale).center();
-            let transform = Transform::new(center.with_z(0.0), Quaternion::IDENTITY, slot.scale);
-            // Intrinsic rectangles keep presentation scaling from resizing the child scene.
-            placements.push(Placement::new(
-                transform,
-                LayoutRect::new(offset, layout_size),
-            ));
-        }
-
-        placements
-    }
-
-    /// Cached intrinsic measurements keep parent scaling independent of child layout.
-    fn project_matrix_slots(
-        &self,
-        project_id: ProjectId,
-        child_sizes: &[Size<2>],
-    ) -> Vec<MatrixSlot> {
-        let contents = self.aggregates.hierarchy.matrix_slots(project_id);
-        // ADR 0015: a parent-wide scale preserves the relative sizes of sibling projects.
-        let widest_project = contents
-            .iter()
-            .zip(child_sizes)
-            .filter_map(|(content, size)| {
-                matches!(content, SlotContent::Project(_)).then_some(size[0])
-            })
-            .max()
-            .unwrap_or(0);
-        let project_scale = presentation_scale(self.default_panel_size.width, widest_project);
-
-        contents
-            .into_iter()
-            .zip(child_sizes.iter().copied())
-            .map(|(content, measured)| {
-                let scale = match content {
-                    SlotContent::Launcher(_) => 1.0,
-                    SlotContent::Project(_) => project_scale,
-                };
-                let size = SizePx::new(measured[0], measured[1]).to_f64();
-                // Round outward so integer tracks contain the full fractional presented extent.
-                let size = (size * scale).ceil().to_u32();
-                MatrixSlot {
-                    layout_size: measured,
-                    size: size.into(),
-                    scale,
-                    placement: self
-                        .aggregates
-                        .configuration
-                        .placement_of_content(project_id, content)
-                        .expect("slot content has a matrix placement"),
-                }
-            })
-            .collect()
-    }
-
-    fn project_header_size(&self, project_id: ProjectId) -> MeasuredLayout<2> {
-        let measured = self.aggregates.projects[&project_id].header.measured_size();
-        let size: Size<2> = SizePx::new(
-            measured.width,
-            max(measured.height, PROJECT_HEADER_MIN_HEIGHT),
-        )
-        .into();
-        MeasuredLayout::new(size, [true, false])
-    }
-
-    fn place_launcher_children(
-        &self,
-        id: &DesktopTarget,
-        child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
-        let DesktopTarget::Launcher(launcher_id) = id else {
-            panic!("place_launcher_children requires a launcher target")
-        };
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-
-        let launcher = &self.aggregates.launchers[launcher_id];
-        let child_instances: Vec<_> = self
-            .aggregates
-            .hierarchy
-            .launcher_instances(*launcher_id)
-            .collect();
-
-        // Performance: This don't need to be computed on non-visor launchers (but we might remove
-        // bands anyway). The visor only collapses when one of its instances holds keyboard focus.
-        let expanded = self
-            .focused_instance
-            .and_then(|focused| {
-                child_instances
-                    .iter()
-                    .position(|&instance| instance == focused)
-            })
-            .is_some();
-
-        // The pack decision is a mode policy; the visor branch stays on the
-        // presenter because it places children around the presenter's focus anchor.
-        launcher_mode::place_panel_children(
-            self.launcher_mode(*launcher_id),
-            launcher,
-            Offset::default(),
-            &child_sizes,
-            &child_instances,
-            expanded,
-            self.default_panel_size,
-        )
-    }
-
-    /// Stacks the title bar and the view vertically. In Full Screen Mode the stack is laid out at
-    /// window resolution and scaled into the instance extent (ADR 0014, ADR 0019).
-    fn place_instance_children(
-        &self,
-        instance_id: InstanceId,
-        parent_size: Size<2>,
-        child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
-        let (scale, stack_size) = if self.is_instance_full_screen(instance_id) {
-            let parent_size_px = SizePx::new(parent_size[0], parent_size[1]);
-            (
-                fullscreen_scale(parent_size_px, self.window_size),
-                self.window_size.into(),
-            )
-        } else {
-            (1.0, parent_size)
-        };
-
-        // The scaled stack stays centered in the instance.
-        let center = |size: Size<2>| Vector3::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5, 0.0);
-        let shift = center(parent_size) - center(stack_size) * scale;
-
-        let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
-        place_container_children(LayoutAxis::VERTICAL, 0, Offset::default(), &child_sizes)
-            .into_iter()
-            .map(|placement| {
-                let transform = Transform::new(
-                    placement.transform.translate * scale + shift,
-                    Quaternion::IDENTITY,
-                    scale,
-                );
-                Placement::new(transform, placement.rect)
-            })
-            .collect()
-    }
-
-    fn place_standard_children(
-        &self,
-        id: &DesktopTarget,
-        parent_size: Size<2>,
-        child_measurements: &[MeasuredLayout<2>],
-    ) -> Vec<Placement<Transform, 2>> {
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(_) => Vec::new(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let cursor = Offset::from(padding.leading);
-                let child_sizes =
-                    expand_cross_axis_child_sizes(axis, padding, parent_size, child_measurements);
-                place_container_children(axis, spacing as i32, cursor, &child_sizes)
-            }
-        }
-    }
-
-    fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
-        match target {
-            // The desktop node lays out everything it contains vertically; the
-            // root project is its only child.
-            DesktopTarget::Desktop => LayoutAxis::VERTICAL.to_container().into(),
-            DesktopTarget::Project(_) => LayoutAxis::VERTICAL
-                .to_container()
-                .spacing(PROJECT_HEADER_SPACING)
-                .padding((PROJECT_PADDING, PROJECT_PADDING))
-                .into(),
-            // These targets are measured and placed by their own rules, never by a layout spec.
-            DesktopTarget::ProjectHeader(_)
-            | DesktopTarget::ProjectMatrix(_)
-            | DesktopTarget::InstanceTitleBar(_) => {
-                panic!("{target:?} has no layout spec")
-            }
-            DesktopTarget::Launcher(_) => LayoutAxis::HORIZONTAL.into(),
-            DesktopTarget::Instance(_) => self.instance_extent().into(),
-            DesktopTarget::View(_) => self.default_panel_size.into(),
-        }
-    }
-}
-
-/// Separate intrinsic and presented sizes keep child layout independent of parent track allocation.
-#[derive(Debug)]
-struct MatrixSlot {
-    layout_size: Size<2>,
-    size: Size<2>,
-    scale: f64,
-    placement: MatrixPlacement,
-}
-
-/// The size the tracks span, column and row spacing included.
-fn matrix_size(slots: &[MatrixSlot]) -> Size<2> {
-    let (columns, rows) = matrix_tracks(slots);
-    [
-        tracks_span(&columns, MATRIX_COLUMN_SPACING),
-        tracks_span(&rows, MATRIX_ROW_SPACING),
-    ]
-    .into()
-}
-
-/// ADR 0015: width-only shrinking preserves readability without penalizing tall projects.
-pub fn presentation_scale(preferred_width: u32, scene_width: u32) -> f64 {
-    if scene_width <= preferred_width {
-        return 1.0;
-    }
-    preferred_width as f64 / scene_width as f64
-}
-
-/// The slot's layout size, its height stretched to its row's track when it expands vertically.
-fn expand_to_row(slot: &MatrixSlot, measurement: &MeasuredLayout<2>, rows: &[u32]) -> Size<2> {
-    let mut size = slot.layout_size;
-    if measurement.expandable_axes[1] {
-        // Tracks hold presented extents; only unscaled launchers expand, so they equal layout ones.
-        assert_eq!(slot.scale, 1.0, "only unscaled slots expand");
-        size[1] = max(size[1], rows[slot.placement.row as usize]);
-    }
-    size
-}
-
-/// The column and row tracks of a matrix: each track the largest slot in it.
-fn matrix_tracks(slots: &[MatrixSlot]) -> (Vec<u32>, Vec<u32>) {
-    let (column_count, row_count) = slots.iter().fold((0, 0), |(columns, rows), slot| {
-        (
-            max(columns, slot.placement.column as usize + 1),
-            max(rows, slot.placement.row as usize + 1),
-        )
-    });
-    let mut columns = vec![0; column_count];
-    let mut rows = vec![0; row_count];
-    for slot in slots {
-        let column = slot.placement.column as usize;
-        let row = slot.placement.row as usize;
-        columns[column] = max(columns[column], slot.size[0]);
-        rows[row] = max(rows[row], slot.size[1]);
-    }
-    (columns, rows)
-}
-
-fn tracks_span(tracks: &[u32], spacing: u32) -> u32 {
-    tracks.iter().sum::<u32>() + spacing * tracks.len().saturating_sub(1) as u32
-}
-
-fn track_offset(tracks: &[u32], index: usize, spacing: u32) -> i32 {
-    tracks
-        .iter()
-        .take(index)
-        .map(|track| *track as i32 + spacing as i32)
-        .sum()
+    padding.leading + inner_size + padding.trailing
 }
 
 pub fn place_container_children(
     axis: LayoutAxis,
     spacing: i32,
     mut cursor: Offset<2>,
-    child_sizes: &[Size<2>],
-) -> Vec<Placement<Transform, 2>> {
+    child_sizes: impl IntoIterator<Item = Size<2>>,
+    placements: &mut [Placement<Transform, 2>],
+) {
     let axis_index: usize = axis.into();
-    let mut child_placements = Vec::with_capacity(child_sizes.len());
 
-    for (index, &child_size) in child_sizes.iter().enumerate() {
+    for (index, (child_size, placement)) in child_sizes.into_iter().zip(placements).enumerate() {
         if index > 0 {
             cursor[axis_index] += spacing;
         }
         let rect: RectPx = LayoutRect::new(cursor, child_size).into();
         let center = rect.center().to_f64();
         let transform = Transform::from_translation(Vector3::new(center.x, center.y, 0.0));
-        child_placements.push(Placement::new(
-            transform,
-            LayoutRect::new(cursor, child_size),
-        ));
+        *placement = Placement::new(transform, LayoutRect::new(cursor, child_size));
         cursor[axis_index] += child_size[axis_index] as i32;
     }
-
-    child_placements
 }
 
-fn expand_cross_axis_child_sizes(
+pub fn expand_cross_axis_child_sizes(
     axis: LayoutAxis,
     padding: Thickness<2>,
     parent_size: Size<2>,
     child_measurements: &[MeasuredLayout<2>],
-) -> Vec<Size<2>> {
+) -> impl Iterator<Item = Size<2>> + '_ {
     let axis_index: usize = axis.into();
     let cross_axis = 1 - axis_index;
     let cross_padding = padding.leading[cross_axis] + padding.trailing[cross_axis];
     let parent_content_cross_size = parent_size[cross_axis].saturating_sub(cross_padding);
 
-    child_measurements
-        .iter()
-        .map(|child| {
-            let mut child_size = child.size;
-            if child.expandable_axes[cross_axis] {
-                // Child sizes are minima from measure; placement may expand only on the cross axis
-                // when the child opted in for this axis.
-                child_size[cross_axis] = max(child_size[cross_axis], parent_content_cross_size);
-            }
-            child_size
-        })
-        .collect()
-}
-
-/// The extent of an instance for a regular `panel_size` (ADR 0019).
-pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> SizePx {
-    SizePx::new(panel_size.width, panel_size.height + title_bar_height)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::*;
-    use crate::OrderedHierarchy;
-    use crate::instance_presenter::InstanceTitleBarMetrics;
-    use crate::projects::persistence::parse_configuration;
-
-    #[test]
-    fn presentation_scale_fits_width_without_enlarging() {
-        assert_eq!(presentation_scale(300, 600), 0.5);
-        assert_eq!(presentation_scale(300, 300), 1.0);
-        assert_eq!(presentation_scale(300, 150), 1.0);
-    }
-
-    #[test]
-    fn presentation_scale_of_an_empty_scene_is_one() {
-        assert_eq!(presentation_scale(300, 0), 1.0);
-    }
-
-    /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
-    /// vertically, so the first instance takes the top of the cell (ADR 0019).
-    #[test]
-    fn launchers_measure_with_the_instance_extent() {
-        let configuration = parse_configuration(
-            Path::new("/config/desktop.json"),
-            r#"{
-                "startup": "/busy",
-                "slots": [
-                    { "at": [0, 0], "launcher": { "name": "empty", "mode": "visor" } },
-                    { "at": [1, 0], "launcher": { "name": "busy", "mode": "visor" } }
-                ]
-            }"#,
-        )
-        .unwrap();
-        let launcher_named = |name| {
-            DesktopTarget::Launcher(
-                configuration
-                    .launchers()
-                    .find(|launcher| launcher.name == name)
-                    .unwrap()
-                    .id,
-            )
-        };
-        let (empty, busy) = (launcher_named("empty"), launcher_named("busy"));
-        let mut hierarchy = OrderedHierarchy::default();
-        hierarchy
-            .add(
-                busy.clone(),
-                DesktopTarget::Instance(uuid::Uuid::new_v4().into()),
-            )
-            .unwrap();
-        let aggregates = Aggregates::new(
-            hierarchy,
-            configuration,
-            InstanceTitleBarMetrics::from_scale_factor(1.0),
-        );
-        let algorithm = DesktopLayoutAlgorithm {
-            aggregates: &aggregates,
-            default_panel_size: SizePx::new(800, 600),
-            focused_instance: None,
-            window_size: SizePx::new(800, 600),
-        };
-        let instance_extent: Size<2> = algorithm.instance_extent().into();
-        assert!(
-            instance_extent.0[1] > 600,
-            "the extent includes the title bar"
-        );
-
-        let empty = algorithm.measure(&empty, &[]);
-        assert_eq!(empty.size, instance_extent);
-        assert_eq!(empty.expandable_axes, [false, true]);
-
-        let busy = algorithm.measure(&busy, &[instance_extent.into()]);
-        assert_eq!(busy.size, instance_extent);
-        assert_eq!(busy.expandable_axes, [false, false]);
-    }
-
-    #[test]
-    fn only_vertically_expandable_slots_stretch_to_their_row() {
-        let layout_size = Size([100, 50]);
-        let slot = MatrixSlot {
-            layout_size,
-            size: layout_size,
-            scale: 1.0,
-            placement: MatrixPlacement { column: 0, row: 1 },
-        };
-        let rows = [400, 300];
-
-        let expandable = MeasuredLayout::new(layout_size, [false, true]);
-        assert_eq!(expand_to_row(&slot, &expandable, &rows), Size([100, 300]));
-        assert_eq!(
-            expand_to_row(&slot, &layout_size.into(), &rows),
-            layout_size
-        );
-    }
+    child_measurements.iter().map(move |child| {
+        let mut child_size = child.size;
+        if child.expandable_axes[cross_axis] {
+            // Child sizes are minima from measure; placement may expand only on the cross axis
+            // when the child opted in for this axis.
+            child_size[cross_axis] = max(child_size[cross_axis], parent_content_cross_size);
+        }
+        child_size
+    })
 }

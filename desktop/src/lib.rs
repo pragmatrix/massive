@@ -9,7 +9,6 @@ mod focus_path;
 mod hit_tester;
 mod instance_manager;
 mod instance_presenter;
-mod layout;
 mod projects;
 mod targeted_event;
 mod window_state;

@@ -1,0 +1,12 @@
+# Presenters own the layout of their targets
+
+## Status: accepted
+
+Each desktop target is laid out by the presenter that draws it. A `TargetLayout` trait on the four owning presenters — desktop, project, launcher and instance — measures, places and applies their targets and decides whether a keyboard-focus change re-runs their layout, so everything about one presenter's layout lives in one impl instead of in parallel matches over every target.
+
+- **A target names its presenter and a part of it.** `DesktopTarget` is `Desktop`, `Project(id, ProjectPart)`, `Launcher(id)` or `Instance(id, InstancePart)`. A presenter that draws several targets — a project's header and matrix, an instance's title bar and views — declares them as its own part type, so a part can only be paired with the presenter that owns it.
+- **The part is passed, not resolved.** The layout algorithm matches the four presenters once per operation, looks the presenter up by id and hands it the part. A new part changes only its presenter's part type and impl; a new presenter adds one variant and one arm per operation. A lookup or address trait per presenter and type-erased per-part handles were rejected as mapping overhead that a closed set of four presenters does not need.
+- **A view belongs to its instance but selects itself.** Other parts select their presenter's target (ADR 0019); a view is the application level and holds the keyboard focus itself. Because the view's target carries its instance, a focused view converts back into a target without a hierarchy lookup.
+- **Computing a layout only reads.** Measure, place and the relayout decision read the presenter and a `LayoutContext` (hierarchy, configuration, panel and window sizes, focused instance, title bar metrics); only applying a layout mutates the presenter. Hit testing and camera framing read placements and stay with their own subsystems (ADR 0001, ADR 0003, ADR 0016).
+- **Placements are written into a caller-sized slice.** `place_children` fills one placement per child into a slice the caller sized from the children, so the output length is part of the contract rather than checked after the call, and the layout state reuses its buffers instead of allocating per placed parent.
+- **Launcher modes decide layout inside the launcher.** Band and visor measurement, placement and the focus relayout rule are the launcher's layout; the mode policies that hit testing and presentation consult stay mode policies.

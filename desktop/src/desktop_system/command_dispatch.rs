@@ -8,8 +8,8 @@ use super::change::{
     TopologyChange,
 };
 use super::{
-    ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusableTarget,
-    KeyboardFocusReason, ProjectCommand, ZoomLevel, view_size,
+    ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusableTarget, InstancePart,
+    KeyboardFocusReason, ProjectCommand, ProjectPart, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -151,8 +151,8 @@ impl DesktopSystem {
                     }),
                     // ADR 0019: The title bar exists with the instance, ahead of its view.
                     DesktopChange::Topology(TopologyChange::Add {
-                        what: DesktopTarget::InstanceTitleBar(instance),
-                        under: DesktopTarget::Instance(instance),
+                        what: DesktopTarget::Instance(instance, InstancePart::TitleBar),
+                        under: instance.into(),
                         after: None,
                     }),
                 ];
@@ -222,34 +222,22 @@ impl DesktopSystem {
                     ToggleFullScreenModeTarget::Launcher(launcher),
                 );
             }
-            Some(target @ (FocusableTarget::Instance(_) | FocusableTarget::View(_))) => {
-                let instance = match target {
-                    FocusableTarget::Instance(instance) => Some(instance),
-                    FocusableTarget::View(view) => self
-                        .aggregates
-                        .hierarchy
-                        .instance_of_target(&DesktopTarget::View(view)),
-                    _ => None,
+            Some(FocusableTarget::Instance(instance) | FocusableTarget::View(instance, _)) => {
+                // An assistant toggles its own temporary mode; a base
+                // instance toggles its launcher's mode (ADR 0014).
+                let toggle = if self
+                    .aggregates
+                    .instances
+                    .get(&instance)
+                    .is_some_and(|presenter| presenter.kind() == InstanceKind::Assistant)
+                {
+                    ToggleFullScreenModeTarget::AssistantInstance(instance)
+                } else {
+                    ToggleFullScreenModeTarget::Launcher(
+                        self.aggregates.hierarchy.launcher_of_instance(instance),
+                    )
                 };
-                let toggle = instance.map(|instance| {
-                    // An assistant toggles its own temporary mode; a base
-                    // instance toggles its launcher's mode (ADR 0014).
-                    if self
-                        .aggregates
-                        .instances
-                        .get(&instance)
-                        .is_some_and(|presenter| presenter.kind() == InstanceKind::Assistant)
-                    {
-                        ToggleFullScreenModeTarget::AssistantInstance(instance)
-                    } else {
-                        ToggleFullScreenModeTarget::Launcher(
-                            self.aggregates.hierarchy.launcher_of_instance(instance),
-                        )
-                    }
-                });
-                if let Some(toggle) = toggle {
-                    changes <<= DesktopChange::ToggleFullScreenMode(toggle);
-                }
+                changes <<= DesktopChange::ToggleFullScreenMode(toggle);
             }
             _ => {}
         }
@@ -293,7 +281,7 @@ impl DesktopSystem {
                     placement,
                     assignment: content.clone(),
                 };
-                let under = DesktopTarget::ProjectMatrix(parent);
+                let under = DesktopTarget::Project(parent, ProjectPart::Matrix);
                 match content.content() {
                     SlotContent::Project(project) => changes += project_topology(project, under),
                     SlotContent::Launcher(launcher) => {
@@ -341,10 +329,10 @@ impl DesktopSystem {
             }
         };
         if id != ProjectId::ROOT
-            || self
-                .aggregates
-                .hierarchy
-                .exists(&DesktopTarget::Project(ProjectId::ROOT))
+            || self.aggregates.hierarchy.exists(&DesktopTarget::Project(
+                ProjectId::ROOT,
+                ProjectPart::Project,
+            ))
         {
             bail!(
                 "Internal error (plan AssignSlot): the root project is created exactly once, as `AssignSlot {{ parent: None }}` with id {:?}",
@@ -402,7 +390,7 @@ impl DesktopSystem {
             }
             SlotContent::Project(project) => {
                 changes += self.plan_remove_project_content(project);
-                changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
+                changes <<= TopologyChange::Remove(project.into());
             }
         }
         changes <<= ConfigurationChange::ClearSlot { parent, placement };
@@ -456,7 +444,10 @@ impl DesktopSystem {
                 }
                 SlotContent::Project(nested) => {
                     changes += self.plan_remove_project_content(nested);
-                    changes <<= TopologyChange::Remove(DesktopTarget::Project(nested));
+                    changes <<= TopologyChange::Remove(DesktopTarget::Project(
+                        nested,
+                        ProjectPart::Project,
+                    ));
                 }
             }
         }
@@ -709,8 +700,8 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 }
                 let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::ProjectMatrix(source_parent));
-                output.measure(DesktopTarget::ProjectMatrix(dest_parent));
+                output.measure(DesktopTarget::Project(source_parent, ProjectPart::Matrix));
+                output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
                 return Ok(output);
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
@@ -768,7 +759,7 @@ impl DesktopSystem {
             Some(location) => location,
             None => self.desktop_presenter.location.clone(),
         };
-        let presenter = ProjectPresenter::new(name, location);
+        let presenter = ProjectPresenter::new(id, name, location);
         self.aggregates.projects.insert(id, presenter)
     }
 
@@ -815,7 +806,7 @@ impl DesktopSystem {
             }
             InstanceChange::CreateView(creation_info) => {
                 let mut output = self.present_view(instance, &creation_info)?;
-                output.measure(DesktopTarget::Instance(instance));
+                output.measure(instance.into());
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the
@@ -826,7 +817,7 @@ impl DesktopSystem {
                     && focused_instance == instance
                 {
                     output.changes += set_focus(
-                        Some(FocusableTarget::View(creation_info.id)),
+                        Some(FocusableTarget::View(instance, creation_info.id)),
                         KeyboardFocusReason::PromotePrimaryView,
                     );
                 }
@@ -1165,8 +1156,8 @@ impl DesktopSystem {
     /// Full Screen Mode, so a toggle must invalidate both.
     fn instance_view_targets(&self, instance: InstanceId) -> Vec<DesktopTarget> {
         let mut targets = vec![
-            DesktopTarget::Instance(instance),
-            DesktopTarget::InstanceTitleBar(instance),
+            instance.into(),
+            DesktopTarget::Instance(instance, InstancePart::TitleBar),
         ];
         if let Some(view) = self
             .aggregates
@@ -1174,7 +1165,7 @@ impl DesktopSystem {
             .get(&instance)
             .and_then(|presenter| presenter.primary_view_id())
         {
-            targets.push(DesktopTarget::View(view));
+            targets.push(DesktopTarget::view(instance, view));
         }
         targets
     }
@@ -1184,17 +1175,17 @@ impl DesktopSystem {
 fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
     let mut changes = Changes::Empty;
     changes <<= TopologyChange::Add {
-        what: DesktopTarget::Project(project),
+        what: project.into(),
         under,
         after: None,
     };
     changes <<= TopologyChange::AddNested {
         what: [
-            DesktopTarget::ProjectHeader(project),
-            DesktopTarget::ProjectMatrix(project),
+            DesktopTarget::Project(project, ProjectPart::Header),
+            DesktopTarget::Project(project, ProjectPart::Matrix),
         ]
         .into(),
-        under: DesktopTarget::Project(project),
+        under: project.into(),
     };
     changes
 }

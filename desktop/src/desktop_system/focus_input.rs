@@ -11,10 +11,11 @@ use super::keyboard_focus::{KeyboardFocusChange, WindowFocusRequest};
 use super::{
     DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, ZoomLevel,
 };
+use crate::desktop_system::TargetLayout;
 use crate::event_router::RouterStep;
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
-use crate::projects::{LaunchProfileId, launcher_mode};
+use crate::projects::LaunchProfileId;
 use crate::targeted_event::EventTransition;
 
 impl DesktopSystem {
@@ -141,20 +142,18 @@ impl DesktopSystem {
     fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
         let focused_path = self.path_of(target);
         let focused_instance = focused_path.instance()?;
-        let topology = &self.aggregates.hierarchy;
-        let launcher_id = topology.launcher_of_instance(focused_instance);
-        let instance_count = topology
-            .get_nested(&DesktopTarget::Launcher(launcher_id))
-            .len();
-
-        // Architecture: Passing instance_count here is weird.
-        self.aggregates
-            .configuration
-            .launcher(launcher_id)
-            .filter(|launcher| {
-                launcher_mode::relayouts_on_keyboard_focus(launcher.mode, instance_count)
-            })
-            .map(|_| launcher_id)
+        let launcher_id = self
+            .aggregates
+            .hierarchy
+            .launcher_of_instance(focused_instance);
+        let context = self.aggregates.layout_context(
+            self.default_panel_size,
+            self.window_state.inner_size,
+            self.focused_path().instance(),
+        );
+        self.aggregates.launchers[&launcher_id]
+            .relayouts_on_focus((), &context)
+            .then_some(launcher_id)
     }
 
     // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped

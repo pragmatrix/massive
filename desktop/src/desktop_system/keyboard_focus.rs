@@ -150,7 +150,7 @@ impl InputFocus {
     fn is_application_at(&self, keyboard_focus: FocusableTarget) -> bool {
         matches!(
             (self, keyboard_focus),
-            (Self::Application(view), FocusableTarget::View(focused)) if *view == focused
+            (Self::Application(view), FocusableTarget::View(_, focused)) if *view == focused
         )
     }
 }
@@ -167,6 +167,7 @@ impl From<KeyboardFocusChange> for EventTransition<DesktopTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use massive_applications::InstanceId;
 
     #[test]
     fn regaining_the_window_focus_restores_the_lost_focus_unless_a_newer_one_is_set() {
@@ -178,7 +179,7 @@ mod tests {
             Some(WindowFocusRequest::Restore(FocusableTarget::Desktop))
         );
 
-        let view = FocusableTarget::View(ViewId::new());
+        let view = FocusableTarget::View(InstanceId::from(uuid::Uuid::new_v4()), ViewId::new());
         let mut focus = focused_on(FocusableTarget::Desktop);
         focus.set_window_focus(false);
         focus.focus(Some(view));
@@ -188,13 +189,13 @@ mod tests {
 
     #[test]
     fn only_the_application_at_the_focused_view_hides_the_outline() {
-        let view = ViewId::new();
-        let mut focus = focused_on(FocusableTarget::View(view));
+        let (instance, view) = (InstanceId::from(uuid::Uuid::new_v4()), ViewId::new());
+        let mut focus = focused_on(FocusableTarget::View(instance, view));
 
         focus.set_input_focus(InputFocus::Application(ViewId::new()));
         assert_eq!(
             focus.hover_outline_focus(),
-            Some(FocusableTarget::View(view))
+            Some(FocusableTarget::View(instance, view))
         );
 
         focus.set_input_focus(InputFocus::Application(view));

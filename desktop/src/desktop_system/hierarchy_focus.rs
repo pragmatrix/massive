@@ -1,6 +1,6 @@
 use massive_applications::InstanceId;
 
-use super::{DesktopTarget, FocusableTarget};
+use super::{DesktopTarget, FocusableTarget, InstancePart};
 use crate::focus_path::PathResolver;
 use crate::{DirectionBias, OrderedHierarchy};
 
@@ -10,7 +10,7 @@ impl OrderedHierarchy<DesktopTarget> {
         focused: &DesktopTarget,
         instance: InstanceId,
     ) -> Option<FocusableTarget> {
-        if !self.path_contains_target(Some(focused), &DesktopTarget::Instance(instance)) {
+        if !self.path_contains_target(Some(focused), &instance.into()) {
             return None;
         }
 
@@ -32,10 +32,10 @@ impl OrderedHierarchy<DesktopTarget> {
             return None;
         }
         let neighbor = self
-            .entry(&DesktopTarget::Instance(instance))
+            .entry(&instance.into())
             .neighbor(DirectionBias::Begin)
             .cloned()?;
-        let DesktopTarget::Instance(neighbor) = neighbor else {
+        let DesktopTarget::Instance(neighbor, InstancePart::Instance) = neighbor else {
             panic!("A launcher nests only instances, found {neighbor:?}");
         };
         Some(neighbor)
@@ -44,10 +44,12 @@ impl OrderedHierarchy<DesktopTarget> {
     /// Resolves an instance to its sole view when present, so keyboard focus reaches the view;
     /// otherwise, the instance itself.
     pub(super) fn instance_focus_target(&self, instance: InstanceId) -> FocusableTarget {
-        self.get_nested(&DesktopTarget::Instance(instance))
+        self.get_nested(&instance.into())
             .iter()
             .find_map(|nested| match nested {
-                DesktopTarget::View(view) => Some(FocusableTarget::View(*view)),
+                DesktopTarget::Instance(_, InstancePart::View(view)) => {
+                    Some(FocusableTarget::View(instance, *view))
+                }
                 _ => None,
             })
             .unwrap_or(FocusableTarget::Instance(instance))
@@ -65,6 +67,7 @@ impl OrderedHierarchy<DesktopTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desktop_system::ProjectPart;
     use crate::projects::{LaunchProfileId, ProjectId};
     use uuid::Uuid;
 
@@ -89,16 +92,16 @@ mod tests {
         let mut hierarchy = OrderedHierarchy::default();
         hierarchy
             .add_nested(
-                DesktopTarget::Project(project),
+                project.into(),
                 [
-                    DesktopTarget::ProjectHeader(project),
-                    DesktopTarget::ProjectMatrix(project),
+                    DesktopTarget::Project(project, ProjectPart::Header),
+                    DesktopTarget::Project(project, ProjectPart::Matrix),
                 ],
             )
             .unwrap();
         hierarchy
             .add(
-                DesktopTarget::ProjectMatrix(project),
+                DesktopTarget::Project(project, ProjectPart::Matrix),
                 DesktopTarget::Launcher(launcher),
             )
             .unwrap();
@@ -107,7 +110,7 @@ mod tests {
             hierarchy
                 .add(
                     DesktopTarget::Launcher(launcher),
-                    DesktopTarget::Instance(*instance),
+                    DesktopTarget::from(*instance),
                 )
                 .unwrap();
         }
@@ -121,7 +124,7 @@ mod tests {
         let second = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
-        let focused = DesktopTarget::Instance(second);
+        let focused = second.into();
         let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
         assert_eq!(neighbor, None);
@@ -133,7 +136,7 @@ mod tests {
         let second = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
-        let focused = DesktopTarget::Instance(first);
+        let focused = first.into();
         let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
         assert_eq!(neighbor, Some(second));
@@ -146,7 +149,7 @@ mod tests {
         let second = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
-        let focused = DesktopTarget::Instance(second);
+        let focused = second.into();
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
@@ -161,14 +164,14 @@ mod tests {
         let (mut hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         hierarchy
-            .add(DesktopTarget::Instance(second), DesktopTarget::View(view))
+            .add(second.into(), DesktopTarget::view(second, view))
             .unwrap();
 
-        let focused = DesktopTarget::Instance(first);
+        let focused = first.into();
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
-        assert_eq!(replacement, Some(FocusableTarget::View(view)));
+        assert_eq!(replacement, Some(FocusableTarget::View(second, view)));
     }
 
     #[test]
@@ -180,23 +183,20 @@ mod tests {
         let (mut hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         hierarchy
-            .add(
-                DesktopTarget::Instance(first),
-                DesktopTarget::View(first_view),
-            )
+            .add(first.into(), DesktopTarget::view(first, first_view))
             .unwrap();
         hierarchy
-            .add(
-                DesktopTarget::Instance(second),
-                DesktopTarget::View(second_view),
-            )
+            .add(second.into(), DesktopTarget::view(second, second_view))
             .unwrap();
 
-        let focused = DesktopTarget::View(first_view);
+        let focused = DesktopTarget::view(first, first_view);
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
-        assert_eq!(replacement, Some(FocusableTarget::View(second_view)));
+        assert_eq!(
+            replacement,
+            Some(FocusableTarget::View(second, second_view))
+        );
     }
 
     #[test]
@@ -204,7 +204,7 @@ mod tests {
         let instance = instance_id();
         let (hierarchy, launcher) = hierarchy_with_instances(&[instance]);
 
-        let focused = DesktopTarget::Instance(instance);
+        let focused = instance.into();
         let replacement =
             hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, instance);
 
@@ -218,11 +218,11 @@ mod tests {
         let (mut hierarchy, _launcher) = hierarchy_with_instances(&[instance]);
 
         hierarchy
-            .add(DesktopTarget::Instance(instance), DesktopTarget::View(view))
+            .add(instance.into(), DesktopTarget::view(instance, view))
             .unwrap();
 
         let focus_target = hierarchy.instance_focus_target(instance);
-        assert_eq!(focus_target, FocusableTarget::View(view));
+        assert_eq!(focus_target, FocusableTarget::View(instance, view));
     }
 
     #[test]

@@ -1,13 +1,16 @@
 use anyhow::Result;
 use log::warn;
 
-use massive_applications::ViewEvent;
+use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::{PixelCamera, SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
+use super::{
+    Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart,
+    LayoutContext, TargetLayout, TransactionEffectsMode,
+};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::TITLE_SEPARATOR;
 use crate::window_state::WindowPresentationState;
@@ -117,10 +120,13 @@ impl DesktopSystem {
 
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
+            desktop: &self.desktop_presenter,
             aggregates: &self.aggregates,
-            default_panel_size: self.default_panel_size,
-            focused_instance,
-            window_size: self.window_state.inner_size,
+            context: self.aggregates.layout_context(
+                self.default_panel_size,
+                self.window_state.inner_size,
+                focused_instance,
+            ),
         };
 
         let outcome =
@@ -150,10 +156,13 @@ impl DesktopSystem {
     fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
+            desktop: &self.desktop_presenter,
             aggregates: &self.aggregates,
-            default_panel_size: self.default_panel_size,
-            focused_instance,
-            window_size: self.window_state.inner_size,
+            context: self.aggregates.layout_context(
+                self.default_panel_size,
+                self.window_state.inner_size,
+                focused_instance,
+            ),
         };
 
         let children = self.aggregates.hierarchy.children_of(&root);
@@ -171,7 +180,7 @@ impl DesktopSystem {
         // descendants and never applies the child's own placement, so it cannot stand in for
         // `ApplyLayout(child)`.
         let mut effects = Effects::None;
-        for (child, outcome) in children.iter().zip(placement_outcomes) {
+        for (child, &outcome) in children.iter().zip(placement_outcomes) {
             match outcome {
                 PlacementUpdate::Unchanged => {}
                 PlacementUpdate::ChangedSizeUnchanged => {
@@ -222,68 +231,44 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         match target {
-            // The desktop node has no presenter, its layout state is only the
-            // placement bookkeeping the children read through `absolute_placement`.
-            DesktopTarget::Desktop => {}
-            DesktopTarget::Instance(instance_id) => {
-                self.aggregates
-                    .instances
-                    .get_mut(&instance_id)
-                    .expect("Instance missing")
-                    .set_layout(layout, visible, animate);
+            DesktopTarget::Desktop => {
+                let applied = self
+                    .desktop_presenter
+                    .apply_layout((), layout, visible, animate)?;
+                assert_eq!(applied, AppliedLayout::Applied);
             }
-            DesktopTarget::InstanceTitleBar(instance_id) => {
-                self.aggregates
-                    .instances
-                    .get_mut(&instance_id)
-                    .expect("Instance missing")
-                    .set_title_bar_layout(layout, animate);
+            DesktopTarget::Instance(instance_id, part) => {
+                // An instance can end while the layout loop still re-places its view;
+                // event_forwarding and the ResizeAll arm tolerate the same race.
+                let Some(instance) = self.aggregates.instances.get_mut(&instance_id) else {
+                    assert!(matches!(part, InstancePart::View(_)), "Instance missing");
+                    return Ok(());
+                };
+                if let AppliedLayout::ViewResized { view, size } =
+                    instance.apply_layout(part, layout, visible, animate)?
+                    && let Err(e) = instance_manager
+                        .send_view_event((instance_id, view), ViewEvent::Resized(size))
+                {
+                    warn!("Sending view resize to {instance_id:?} failed with {e}");
+                }
             }
-            DesktopTarget::Project(project_id) => {
-                self.aggregates
+            DesktopTarget::Project(project_id, part) => {
+                let applied = self
+                    .aggregates
                     .projects
                     .get_mut(&project_id)
                     .expect("Missing project")
-                    .set_layout(layout);
-            }
-            DesktopTarget::ProjectHeader(project_id) => {
-                self.aggregates
-                    .projects
-                    .get_mut(&project_id)
-                    .expect("Missing project")
-                    .header
-                    .set_layout(layout, animate);
-            }
-            DesktopTarget::ProjectMatrix(project_id) => {
-                self.aggregates
-                    .projects
-                    .get_mut(&project_id)
-                    .expect("Missing project")
-                    .matrix
-                    .set_layout(layout);
+                    .apply_layout(part, layout, visible, animate)?;
+                assert_eq!(applied, AppliedLayout::Applied);
             }
             DesktopTarget::Launcher(launcher_id) => {
-                self.aggregates
+                let applied = self
+                    .aggregates
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_layout(layout, animate);
-            }
-            DesktopTarget::View(view_id) => {
-                let Some(instance_id) = self.aggregates.hierarchy.instance_of_target(&target)
-                else {
-                    return Ok(());
-                };
-                if let Some(instance) = self.aggregates.instances.get_mut(&instance_id)
-                    && let Some(resized) = instance.set_view_layout(view_id, layout)?
-                    && let Err(e) = instance_manager
-                        .send_view_event((instance_id, view_id), ViewEvent::Resized(resized))
-                {
-                    // An instance can end while the layout loop still re-places
-                    // its view; event_forwarding and the ResizeAll arm tolerate
-                    // the same race.
-                    warn!("Sending view resize to {instance_id:?} failed with {e}");
-                }
+                    .apply_layout((), layout, visible, animate)?;
+                assert_eq!(applied, AppliedLayout::Applied);
             }
         }
         Ok(())
@@ -295,5 +280,23 @@ impl DesktopSystem {
             self.zoom_geometry()
                 .resolve_camera_for_target(focused, self.zoom_level),
         )
+    }
+}
+
+impl Aggregates {
+    pub(super) fn layout_context(
+        &self,
+        default_panel_size: SizePx,
+        window_size: SizePx,
+        focused_instance: Option<InstanceId>,
+    ) -> LayoutContext<'_> {
+        LayoutContext {
+            hierarchy: &self.hierarchy,
+            configuration: &self.configuration,
+            default_panel_size,
+            window_size,
+            focused_instance,
+            title_bar_metrics: self.instance_title_bar_metrics,
+        }
     }
 }
