@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{SizePx, SizedTransform, Transform};
-use massive_layout::{MeasuredLayout, Placement, Size};
+use massive_layout::{ChildPlacement, MeasuredLayout};
 
 use super::DesktopTarget;
 use crate::OrderedHierarchy;
@@ -21,14 +21,12 @@ pub trait TargetLayout {
         children: &[MeasuredLayout<2>],
     ) -> MeasuredLayout<2>;
 
-    /// Writes one placement per child into `placements`.
+    /// Writes one placement per child into the slots of `children`.
     fn place_children(
         &self,
         part: Self::Part,
         context: &LayoutContext,
-        parent_size: Size<2>,
-        children: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
+        children: ChildPlacement<'_, Transform, 2>,
     );
 
     /// Whether a keyboard-focus change inside `part` re-runs its layout.

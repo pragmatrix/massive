@@ -2,8 +2,8 @@ use std::cmp::max;
 
 use massive_geometry::{RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
-    LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size,
-    Thickness,
+    ChildPlacement, LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement,
+    Rect as LayoutRect, Size, Thickness,
 };
 
 use super::{Aggregates, DesktopTarget, LayoutContext, TargetLayout};
@@ -17,33 +17,19 @@ pub struct DesktopLayoutAlgorithm<'a> {
 }
 
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
-    fn place_children(
-        &self,
-        id: &DesktopTarget,
-        parent_size: Size<2>,
-        child_measurements: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
-    ) {
-        assert_eq!(
-            child_measurements.len(),
-            placements.len(),
-            "one placement slot per child"
-        );
+    fn place_children(&self, id: &DesktopTarget, children: ChildPlacement<'_, Transform, 2>) {
         let context = &self.context;
         match id {
-            DesktopTarget::Desktop => self.desktop.place_children(
-                (),
-                context,
-                parent_size,
-                child_measurements,
-                placements,
-            ),
-            DesktopTarget::Project(project, part) => self.aggregates.projects[project]
-                .place_children(*part, context, parent_size, child_measurements, placements),
-            DesktopTarget::Launcher(launcher) => self.aggregates.launchers[launcher]
-                .place_children((), context, parent_size, child_measurements, placements),
-            DesktopTarget::Instance(instance, part) => self.aggregates.instances[instance]
-                .place_children(*part, context, parent_size, child_measurements, placements),
+            DesktopTarget::Desktop => self.desktop.place_children((), context, children),
+            DesktopTarget::Project(project, part) => {
+                self.aggregates.projects[project].place_children(*part, context, children)
+            }
+            DesktopTarget::Launcher(launcher) => {
+                self.aggregates.launchers[launcher].place_children((), context, children)
+            }
+            DesktopTarget::Instance(instance, part) => {
+                self.aggregates.instances[instance].place_children(*part, context, children)
+            }
         }
     }
 

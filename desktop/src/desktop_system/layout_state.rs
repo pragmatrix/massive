@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use massive_geometry::{Point, Transform};
 use massive_layout::{
-    LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
-    Size as LayoutSize,
+    ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
+    Rect as LayoutRect, Size as LayoutSize,
 };
 
 use super::DesktopTarget;
@@ -210,9 +210,11 @@ impl DesktopLayoutState {
         );
         algorithm.place_children(
             target,
-            parent_size,
-            &self.child_measurements,
-            &mut self.child_placements,
+            ChildPlacement::new(
+                parent_size,
+                &self.child_measurements,
+                &mut self.child_placements,
+            ),
         );
     }
 
@@ -289,8 +291,8 @@ mod tests {
 
     use massive_geometry::Transform;
     use massive_layout::{
-        LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
-        Size as LayoutSize,
+        ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
+        Rect as LayoutRect, Size as LayoutSize,
     };
 
     use super::{DesktopLayoutState, PlacementUpdate};
@@ -348,13 +350,8 @@ mod tests {
             size.into()
         }
 
-        fn place_children(
-            &self,
-            _id: &DesktopTarget,
-            _parent_size: LayoutSize<2>,
-            child_measurements: &[MeasuredLayout<2>],
-            placements: &mut [Placement<Transform, 2>],
-        ) {
+        fn place_children(&self, _id: &DesktopTarget, children: ChildPlacement<'_, Transform, 2>) {
+            let (_, child_measurements, placements) = children.into();
             for (placement, child) in placements.iter_mut().zip(child_measurements) {
                 *placement = Placement::new(
                     Transform::default(),

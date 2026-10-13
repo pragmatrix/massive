@@ -11,7 +11,9 @@ use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpo
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Quaternion, Rect, SizePx, SizedTransform, Transform, Vector3};
-use massive_layout::{LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize};
+use massive_layout::{
+    ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize,
+};
 use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
@@ -514,10 +516,9 @@ impl TargetLayout for InstancePresenter {
         &self,
         part: InstancePart,
         context: &LayoutContext,
-        parent_size: LayoutSize<2>,
-        children: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
+        children: ChildPlacement<'_, Transform, 2>,
     ) {
+        let (parent_size, children, placements) = children.into();
         match part {
             InstancePart::Instance => {
                 self.place_title_bar_and_view(context, parent_size, children, placements)

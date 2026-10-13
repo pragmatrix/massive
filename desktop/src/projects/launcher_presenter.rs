@@ -10,7 +10,8 @@ use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
 use massive_layout::{
-    LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size as LayoutSize,
+    ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
+    Size as LayoutSize,
 };
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
@@ -287,10 +288,9 @@ impl TargetLayout for LauncherPresenter {
         &self,
         (): (),
         context: &LayoutContext,
-        _parent_size: LayoutSize<2>,
-        children: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
+        children: ChildPlacement<'_, Transform, 2>,
     ) {
+        let (_, children, placements) = children.into();
         match context.configuration[self.id].mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use derive_more::Constructor;
+use derive_more::{Constructor, Into};
 
 use crate::dimensional_types::{Offset, Rect, Size};
 
@@ -48,6 +48,34 @@ impl<const RANK: usize> From<Size<RANK>> for MeasuredLayout<RANK> {
     }
 }
 
+/// The input and output of placing a parent's children: one placement slot per measured child, so
+/// an algorithm can't produce a different count.
+#[derive(Debug, Into)]
+pub struct ChildPlacement<'a, T, const RANK: usize> {
+    parent_size: Size<RANK>,
+    measurements: &'a [MeasuredLayout<RANK>],
+    placements: &'a mut [Placement<T, RANK>],
+}
+
+impl<'a, T, const RANK: usize> ChildPlacement<'a, T, RANK> {
+    pub fn new(
+        parent_size: Size<RANK>,
+        measurements: &'a [MeasuredLayout<RANK>],
+        placements: &'a mut [Placement<T, RANK>],
+    ) -> Self {
+        assert_eq!(
+            measurements.len(),
+            placements.len(),
+            "one placement slot per child"
+        );
+        Self {
+            parent_size,
+            measurements,
+            placements,
+        }
+    }
+}
+
 pub trait LayoutTopology<Id>: Debug
 where
     Id: Eq + Hash + Clone,
@@ -65,13 +93,6 @@ where
     fn measure(&self, id: &Id, child_measurements: &[MeasuredLayout<RANK>])
     -> MeasuredLayout<RANK>;
 
-    /// Writes one placement per child into `placements`, which the caller sizes to the children so
-    /// the output length is part of the contract.
-    fn place_children(
-        &self,
-        id: &Id,
-        parent_size: Size<RANK>,
-        child_measurements: &[MeasuredLayout<RANK>],
-        placements: &mut [Placement<T, RANK>],
-    );
+    /// Writes one placement per child into the slots of `children`.
+    fn place_children(&self, id: &Id, children: ChildPlacement<'_, T, RANK>);
 }

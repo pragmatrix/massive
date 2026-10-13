@@ -5,7 +5,7 @@ use anyhow::Result;
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
-use massive_layout::{LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize};
+use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement};
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
 
@@ -102,10 +102,9 @@ impl TargetLayout for DesktopPresenter {
         &self,
         (): (),
         _context: &LayoutContext,
-        parent_size: LayoutSize<2>,
-        children: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
+        children: ChildPlacement<'_, Transform, 2>,
     ) {
+        let (parent_size, children, placements) = children.into();
         let child_sizes = expand_cross_axis_child_sizes(
             LayoutAxis::VERTICAL,
             Default::default(),

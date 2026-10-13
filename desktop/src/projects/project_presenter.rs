@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use massive_applications::prelude::*;
 use massive_geometry::{Color, SizePx, SizedTransform, Transform};
-use massive_layout::{LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize};
+use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Size as LayoutSize};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
@@ -117,10 +117,9 @@ impl TargetLayout for ProjectPresenter {
         &self,
         part: ProjectPart,
         context: &LayoutContext,
-        parent_size: LayoutSize<2>,
-        children: &[MeasuredLayout<2>],
-        placements: &mut [Placement<Transform, 2>],
+        children: ChildPlacement<'_, Transform, 2>,
     ) {
+        let (parent_size, children, placements) = children.into();
         match part {
             ProjectPart::Project => {
                 let padding = (PROJECT_PADDING, PROJECT_PADDING).into();
