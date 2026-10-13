@@ -1,20 +1,32 @@
+use std::cmp::max;
+
+use anyhow::Result;
+
 use massive_applications::prelude::*;
-use massive_geometry::{Color, SizedTransform, Transform};
+use massive_geometry::{Color, SizePx, SizedTransform, Transform};
+use massive_layout::{LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, Shortcut,
+    AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
+    ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
+    place_container_children,
 };
-use crate::projects::MatrixPlacement;
+use crate::projects::{MatrixPlacement, ProjectId};
 
+use super::matrix_layout::{measure_matrix, place_matrix_children};
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
 const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
 const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
+const PROJECT_PADDING: u32 = 10;
+const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
+const PROJECT_HEADER_SPACING: u32 = 10;
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
+    id: ProjectId,
     scene_transform: Handle<Transform>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -22,7 +34,7 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
-    pub fn new(name: String, parent_location: Handle<Location>) -> Self {
+    pub fn new(id: ProjectId, name: String, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let mut header = TitleBarPresenter::new(
@@ -37,6 +49,7 @@ impl ProjectPresenter {
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
+            id,
             scene_transform,
             header,
             matrix,
@@ -64,6 +77,85 @@ impl KeyHandler for ProjectPresenter {
         } else {
             KeyOutcome::Pass
         }
+    }
+}
+
+/// A project stacks its header above its matrix; the header is at least readable, the matrix holds
+/// the slots (ADR 0011).
+impl TargetLayout for ProjectPresenter {
+    type Part = ProjectPart;
+
+    fn measure(
+        &self,
+        part: ProjectPart,
+        context: &LayoutContext,
+        children: &[MeasuredLayout<2>],
+    ) -> MeasuredLayout<2> {
+        match part {
+            ProjectPart::Project => measure_container(
+                LayoutAxis::VERTICAL,
+                (PROJECT_PADDING, PROJECT_PADDING).into(),
+                PROJECT_HEADER_SPACING,
+                children.iter().map(|child| child.size),
+            )
+            .into(),
+            // The header stretches across the project's width.
+            ProjectPart::Header => {
+                let measured = self.header.measured_size();
+                let size: LayoutSize<2> = SizePx::new(
+                    measured.width,
+                    max(measured.height, PROJECT_HEADER_MIN_HEIGHT),
+                )
+                .into();
+                MeasuredLayout::new(size, [true, false])
+            }
+            ProjectPart::Matrix => measure_matrix(self.id, context, children).into(),
+        }
+    }
+
+    fn place_children(
+        &self,
+        part: ProjectPart,
+        context: &LayoutContext,
+        parent_size: LayoutSize<2>,
+        children: &[MeasuredLayout<2>],
+        placements: &mut [Placement<Transform, 2>],
+    ) {
+        match part {
+            ProjectPart::Project => {
+                let padding = (PROJECT_PADDING, PROJECT_PADDING).into();
+                let child_sizes = expand_cross_axis_child_sizes(
+                    LayoutAxis::VERTICAL,
+                    padding,
+                    parent_size,
+                    children,
+                );
+                place_container_children(
+                    LayoutAxis::VERTICAL,
+                    PROJECT_HEADER_SPACING as i32,
+                    Offset::from(padding.leading),
+                    child_sizes,
+                    placements,
+                );
+            }
+            ProjectPart::Header => assert!(placements.is_empty(), "{part:?} is a leaf"),
+            ProjectPart::Matrix => place_matrix_children(self.id, context, children, placements),
+        }
+    }
+
+    fn apply_layout(
+        &mut self,
+        part: ProjectPart,
+        layout: SizedTransform,
+        _visible: bool,
+        animate: bool,
+    ) -> Result<AppliedLayout> {
+        match part {
+            ProjectPart::Project => self.set_layout(layout),
+            ProjectPart::Header => self.header.set_layout(layout, animate),
+            ProjectPart::Matrix => self.matrix.set_layout(layout),
+        }
+        Ok(AppliedLayout::Applied)
     }
 }
 

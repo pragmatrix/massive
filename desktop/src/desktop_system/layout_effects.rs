@@ -9,7 +9,7 @@ use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
 use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart,
-    LayoutContext, ProjectPart, TargetLayout, TransactionEffectsMode,
+    LayoutContext, TargetLayout, TransactionEffectsMode,
 };
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::TITLE_SEPARATOR;
@@ -247,28 +247,14 @@ impl DesktopSystem {
                     warn!("Sending view resize to {instance_id:?} failed with {e}");
                 }
             }
-            DesktopTarget::Project(project_id, ProjectPart::Project) => {
-                self.aggregates
+            DesktopTarget::Project(project_id, part) => {
+                let applied = self
+                    .aggregates
                     .projects
                     .get_mut(&project_id)
                     .expect("Missing project")
-                    .set_layout(layout);
-            }
-            DesktopTarget::Project(project_id, ProjectPart::Header) => {
-                self.aggregates
-                    .projects
-                    .get_mut(&project_id)
-                    .expect("Missing project")
-                    .header
-                    .set_layout(layout, animate);
-            }
-            DesktopTarget::Project(project_id, ProjectPart::Matrix) => {
-                self.aggregates
-                    .projects
-                    .get_mut(&project_id)
-                    .expect("Missing project")
-                    .matrix
-                    .set_layout(layout);
+                    .apply_layout(part, layout, visible, animate)?;
+                assert_eq!(applied, AppliedLayout::Applied);
             }
             DesktopTarget::Launcher(launcher_id) => {
                 let applied = self

@@ -1,5 +1,6 @@
 pub mod launcher_mode;
 mod launcher_presenter;
+mod matrix_layout;
 pub(crate) mod persistence;
 mod project_presenter;
 mod runtime_configuration;

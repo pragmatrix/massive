@@ -104,7 +104,10 @@ impl OrderedHierarchy<DesktopTarget> {
     ///
     /// The *placement* of each slot is configuration data, not topology state; see
     /// `DesktopConfiguration::placement_of_content`.
-    pub fn matrix_slots(&self, project: ProjectId) -> Vec<SlotContent> {
+    pub fn matrix_slots(
+        &self,
+        project: ProjectId,
+    ) -> impl Iterator<Item = SlotContent> + Clone + '_ {
         self.get_nested(&DesktopTarget::Project(project, ProjectPart::Matrix))
             .iter()
             .map(|target| match target {
@@ -116,7 +119,6 @@ impl OrderedHierarchy<DesktopTarget> {
                     "project matrix children must be launcher or project targets, found {other:?}"
                 ),
             })
-            .collect()
     }
 
     /// The launchers of `project` in matrix child order. Slot contents that are
@@ -168,7 +170,7 @@ mod tests {
             topology_with_matrix(project, &[DesktopTarget::Launcher(launcher), nested.into()]);
 
         assert_eq!(
-            topology.matrix_slots(project),
+            topology.matrix_slots(project).collect::<Vec<_>>(),
             vec![
                 SlotContent::Launcher(launcher),
                 SlotContent::Project(nested),

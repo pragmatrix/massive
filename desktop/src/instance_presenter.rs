@@ -575,12 +575,11 @@ impl InstancePresenter {
             |size: LayoutSize<2>| Vector3::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5, 0.0);
         let shift = center(parent_size) - center(stack_size) * scale;
 
-        let child_sizes: Vec<_> = children.iter().map(|child| child.size).collect();
         place_container_children(
             LayoutAxis::VERTICAL,
             0,
             Offset::default(),
-            &child_sizes,
+            children.iter().map(|child| child.size),
             placements,
         );
         for placement in placements {

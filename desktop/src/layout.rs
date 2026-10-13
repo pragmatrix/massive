@@ -16,16 +16,6 @@ impl ContainerBuilder {
         }
     }
 
-    pub fn padding(mut self, padding: impl Into<Thickness<2>>) -> Self {
-        self.padding = padding.into();
-        self
-    }
-
-    pub fn spacing(mut self, spacing: u32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-
     pub(crate) fn into_parts(self) -> (LayoutAxis, Thickness<2>, u32) {
         (self.axis, self.padding, self.spacing)
     }

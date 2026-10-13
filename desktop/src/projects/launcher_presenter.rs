@@ -136,21 +136,21 @@ impl LauncherPresenter {
     fn place_visor_children(
         &self,
         local_offset: Offset<2>,
-        child_sizes: &[LayoutSize<2>],
+        children: &[MeasuredLayout<2>],
         center_index: usize,
         expanded: bool,
         default_panel_size: SizePx,
         placements: &mut [Placement<Transform, 2>],
     ) {
         let offset =
-            centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
+            centered_children_offset(local_offset, children, default_panel_size.width as i32);
 
-        let Some(summary) = visor_layout_summary(offset, child_sizes) else {
+        let Some(summary) = visor_layout_summary(offset, children) else {
             place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
                 offset,
-                child_sizes,
+                children.iter().map(|child| child.size),
                 placements,
             );
             return;
@@ -158,9 +158,8 @@ impl LauncherPresenter {
 
         let mut offset = offset;
 
-        for (child_index, (&child_size, placement)) in
-            child_sizes.iter().zip(placements).enumerate()
-        {
+        for (child_index, (child, placement)) in children.iter().zip(placements).enumerate() {
+            let child_size = child.size;
             if child_index > 0 {
                 offset[0] += CHILD_SPACING;
             }
@@ -292,13 +291,12 @@ impl TargetLayout for LauncherPresenter {
         children: &[MeasuredLayout<2>],
         placements: &mut [Placement<Transform, 2>],
     ) {
-        let child_sizes: Vec<_> = children.iter().map(|child| child.size).collect();
         match context.configuration[self.id].mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
                 Offset::default(),
-                &child_sizes,
+                children.iter().map(|child| child.size),
                 placements,
             ),
             LauncherMode::Visor => {
@@ -313,7 +311,7 @@ impl TargetLayout for LauncherPresenter {
                 let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
                 self.place_visor_children(
                     Offset::default(),
-                    &child_sizes,
+                    children,
                     center_index,
                     expanded,
                     context.default_panel_size,
@@ -361,16 +359,13 @@ fn measure_launcher(
     }
     match context.configuration[launcher].mode {
         LauncherMode::Visor => instance_extent.into(),
-        LauncherMode::Band => {
-            let child_sizes: Vec<_> = children.iter().map(|child| child.size).collect();
-            measure_container(
-                LayoutAxis::HORIZONTAL,
-                Default::default(),
-                CHILD_SPACING as u32,
-                &child_sizes,
-            )
-            .into()
-        }
+        LauncherMode::Band => measure_container(
+            LayoutAxis::HORIZONTAL,
+            Default::default(),
+            CHILD_SPACING as u32,
+            children.iter().map(|child| child.size),
+        )
+        .into(),
     }
 }
 
@@ -419,27 +414,31 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
 
 fn centered_children_offset(
     local_offset: Offset<2>,
-    child_sizes: &[LayoutSize<2>],
+    children: &[MeasuredLayout<2>],
     panel_width: i32,
 ) -> Offset<2> {
     let mut offset = local_offset;
-    offset[0] += (panel_width - children_span(child_sizes)) / 2;
+    offset[0] += (panel_width - children_span(children)) / 2;
     offset
 }
 
-fn children_span(child_sizes: &[LayoutSize<2>]) -> i32 {
-    child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
-        + CHILD_SPACING * child_sizes.len().saturating_sub(1) as i32
+fn children_span(children: &[MeasuredLayout<2>]) -> i32 {
+    children
+        .iter()
+        .map(|child| child.size[0] as i32)
+        .sum::<i32>()
+        + CHILD_SPACING * children.len().saturating_sub(1) as i32
 }
 
 fn visor_layout_summary(
     mut offset: Offset<2>,
-    child_sizes: &[LayoutSize<2>],
+    children: &[MeasuredLayout<2>],
 ) -> Option<VisorLayoutSummary> {
     let mut first_center_x = None;
     let mut last_center_x = None;
 
-    for (child_index, &child_size) in child_sizes.iter().enumerate() {
+    for (child_index, child) in children.iter().enumerate() {
+        let child_size = child.size;
         if child_index > 0 {
             offset[0] += CHILD_SPACING;
         }
@@ -451,7 +450,7 @@ fn visor_layout_summary(
         offset[0] += child_size[0] as i32;
     }
 
-    let instance_count = child_sizes.len();
+    let instance_count = children.len();
     if instance_count <= 1 {
         return None;
     }
