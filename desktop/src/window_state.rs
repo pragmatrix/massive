@@ -17,17 +17,12 @@ pub struct WindowPresentationState {
     pub title: String,
     pub cursor_visible: bool,
     pub cursor: CursorIcon,
-    /// `None` disables the IME.
-    pub ime: Option<WindowIme>,
-}
-
-/// The IME is bound to the focused view, so a composition never continues in another view.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct WindowIme {
-    pub view: ViewId,
-    /// The input area in surface pixels; `None` while the view is not visible, which keeps the
-    /// last position.
-    pub area: Option<BoxPx>,
+    /// The view the IME composes for; `None` disables it. Bound to the view, so a composition
+    /// never continues in another one.
+    pub ime_view: Option<ViewId>,
+    /// Where macOS places its text input UI (IME candidates, caps lock indicator), in surface
+    /// pixels. `None` keeps the last position.
+    pub input_area: Option<BoxPx>,
 }
 
 impl Default for WindowPresentationState {
@@ -37,7 +32,8 @@ impl Default for WindowPresentationState {
             // Usually, when the Window opens, the cursor is visible.
             cursor_visible: true,
             cursor: CursorIcon::default(),
-            ime: None,
+            ime_view: None,
+            input_area: None,
         }
     }
 }
@@ -53,25 +49,21 @@ impl WindowPresentationState {
         if self.cursor != new_state.cursor {
             window.set_cursor(new_state.cursor);
         }
-        if self.ime != new_state.ime {
-            Self::sync_ime(self.ime, new_state.ime, window);
-        }
-
-        *self = new_state
-    }
-
-    fn sync_ime(current: Option<WindowIme>, new: Option<WindowIme>, window: &ShellWindow) {
-        if current.map(|ime| ime.view) != new.map(|ime| ime.view) {
+        if self.ime_view != new_state.ime_view {
             // Disallowing discards the composition pending in the view that lost the focus.
-            if current.is_some() {
+            if self.ime_view.is_some() {
                 window.set_ime_allowed(false);
             }
-            if new.is_some() {
+            if new_state.ime_view.is_some() {
                 window.set_ime_allowed(true);
             }
         }
-        if let Some(area) = new.and_then(|ime| ime.area) {
+        if self.input_area != new_state.input_area
+            && let Some(area) = new_state.input_area
+        {
             window.set_ime_cursor_area(area);
         }
+
+        *self = new_state
     }
 }

@@ -15,7 +15,7 @@ use super::{
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::TITLE_SEPARATOR;
-use crate::window_state::{WindowIme, WindowPresentationState};
+use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
@@ -51,14 +51,16 @@ impl DesktopSystem {
 
     pub fn window_presentation_state(
         &self,
-        render_geometry: &RenderGeometry,
+        surface_size: SizePx,
     ) -> Result<WindowPresentationState> {
         let (view_target, view_window_state) = self.focused_view_window_state()?.unzip();
         let view_window_state = view_window_state.unwrap_or_default();
-        let ime = view_target.and_then(|target| {
-            let area = view_window_state.ime_area?;
-            Some(self.window_ime(&target, area, render_geometry))
+        let ime = view_target.zip(view_window_state.ime_area);
+        let ime_view = ime.as_ref().map(|(target, _)| match *target {
+            DesktopTarget::Instance(_, InstancePart::View(view)) => view,
+            _ => panic!("IME area of a non-view target: {target:?}"),
         });
+        let input_area = self.input_area(ime, surface_size);
         let title = self.window_title(view_window_state.title);
         let cursor = view_window_state.cursor;
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
@@ -67,36 +69,43 @@ impl DesktopSystem {
             title,
             cursor_visible,
             cursor,
-            ime,
+            ime_view,
+            input_area,
         })
     }
 
-    /// Projects the view-local IME area every frame, so the candidate window follows camera and
-    /// layout movements.
-    fn window_ime(
+    /// The focused view's IME area, or else the whole focused target, so the caps lock indicator
+    /// follows the focus. `None` while nothing visible is focused.
+    fn input_area(
         &self,
-        view_target: &DesktopTarget,
-        area: Rect,
-        render_geometry: &RenderGeometry,
-    ) -> WindowIme {
-        let DesktopTarget::Instance(_, InstancePart::View(view)) = *view_target else {
-            panic!("IME area of a non-view target: {view_target:?}");
-        };
+        ime: Option<(DesktopTarget, Rect)>,
+        surface_size: SizePx,
+    ) -> Option<BoxPx> {
+        // Projected through the camera's target, so the area moves once instead of following an
+        // animation; placements are layout targets already.
+        let geometry = RenderGeometry::new(surface_size, *self.camera.target());
         let hit_tester = AggregateHitTester::new(
             &self.aggregates.hierarchy,
             &self.layout_state,
             &self.aggregates.configuration,
-            render_geometry,
+            &geometry,
         );
+        let (target, area) = match ime {
+            Some(ime) => ime,
+            None => {
+                let target = self.focused_target()?;
+                let size = hit_tester.surface_size(&target)?;
+                (target, Rect::from_size(size))
+            }
+        };
         let projected: Option<Vec<Point>> = area
             .to_quad()
             .into_iter()
-            .map(|corner| hit_tester.project_to_surface(view_target, corner))
+            .map(|corner| hit_tester.project_to_surface(&target, corner))
             .collect();
-        // The view may be rotated or in perspective, so the candidate window aligns with the
-        // bounding box of the projected corners.
-        let area = projected.map(surface_bounds);
-        WindowIme { view, area }
+        // The target may be rotated or in perspective, so the area is the bounding box of the
+        // projected corners.
+        projected.map(surface_bounds)
     }
 
     fn window_title(&self, terminal_title: String) -> String {

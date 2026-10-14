@@ -1,5 +1,6 @@
 use massive_geometry::{
-    Contains, PerspectiveDivide, Point, Rect, RectPx, SizedTransform, Transform, Vector3, Vector4,
+    Contains, PerspectiveDivide, Point, Rect, RectPx, Size, SizedTransform, Transform, Vector3,
+    Vector4,
 };
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
@@ -69,6 +70,11 @@ impl<'a> AggregateHitTester<'a> {
             configuration,
             geometry,
         }
+    }
+
+    /// The size of the target's hit-test surface, `None` if the target is not visible.
+    pub fn surface_size(&self, target: &DesktopTarget) -> Option<Size> {
+        Some(self.resolve_hit_surface(target)?.size)
     }
 
     /// Projects a target-local point to surface pixels through the same surface the pointer is
