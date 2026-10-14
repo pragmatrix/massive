@@ -21,7 +21,6 @@ mod fullscreen;
 mod hierarchy_focus;
 mod key_delivery;
 mod key_input;
-mod key_pairing;
 mod keyboard_focus;
 mod keyboard_shortcuts;
 mod layout_algorithm;
@@ -44,7 +43,7 @@ use derive_more::Debug;
 use log::warn;
 
 use massive_applications::prelude::*;
-use massive_applications::{InstanceId, ViewEvent, ViewId};
+use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
@@ -55,7 +54,6 @@ use massive_util::CollectingVec;
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
-use key_pairing::KeyPairing;
 use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
@@ -227,7 +225,6 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     keyboard_focus: KeyboardFocus,
-    key_pairing: KeyPairing<(InstanceId, ViewId), ViewEvent>,
 
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
@@ -310,7 +307,6 @@ impl DesktopSystem {
 
             event_router,
             keyboard_focus: KeyboardFocus::default(),
-            key_pairing: KeyPairing::default(),
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
@@ -536,9 +532,6 @@ impl DesktopSystem {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
         self.keyboard_focus.assert_not_referenced(target);
-        if let DesktopTarget::Instance(instance, InstancePart::View(view)) = *target {
-            self.key_pairing.assert_not_holding(&(instance, view));
-        }
 
         let parent = self
             .aggregates

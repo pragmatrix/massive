@@ -25,6 +25,7 @@ use crate::desktop_system::{
     LayoutContext, Shortcut, TargetLayout, fullscreen_scale, place_container_children, view_size,
 };
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
+use crate::view_presenter::ViewPresenter;
 
 /// What an instance was started as (ADR 0014). A `Primary` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
@@ -151,16 +152,9 @@ enum InstancePresenterState {
     /// No view yet, animating in.
     WaitingForPrimaryView,
     Presenting {
-        view: PrimaryViewPresenter,
+        view: ViewPresenter,
     },
     Disappearing,
-}
-
-#[derive(Debug)]
-struct PrimaryViewPresenter {
-    creation_info: ViewCreationInfo,
-    window_state: ViewWindowState,
-    view_size: SizePx,
 }
 
 #[derive(Debug)]
@@ -322,11 +316,7 @@ impl InstancePresenter {
         let view_size = view_creation_info.size();
 
         self.state = InstancePresenterState::Presenting {
-            view: PrimaryViewPresenter {
-                creation_info: view_creation_info.clone(),
-                window_state: ViewWindowState::default(),
-                view_size,
-            },
+            view: ViewPresenter::new(view_creation_info),
         };
 
         if let Some(background) = &mut self.background {
@@ -386,7 +376,18 @@ impl InstancePresenter {
     }
 
     pub fn primary_view_id(&self) -> Option<ViewId> {
-        Some(self.state.view()?.creation_info.id)
+        Some(self.state.view()?.id())
+    }
+
+    /// `None` while the instance presents no view, before it appears or while it disappears.
+    pub fn presented_view(&mut self, view_id: ViewId) -> Option<&mut ViewPresenter> {
+        let view = self.state.view_mut()?;
+        assert_eq!(
+            view.id(),
+            view_id,
+            "Event for a view the instance doesn't present"
+        );
+        Some(view)
     }
 
     pub fn set_view_layout(
@@ -446,7 +447,7 @@ impl InstancePresenter {
         });
     }
 
-    fn presenting_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
+    fn presenting_view(&self, view_id: ViewId) -> Result<&ViewPresenter> {
         let Some(view) = self.state.view() else {
             bail!("Instance presenter is not presenting a view.")
         };
@@ -458,7 +459,7 @@ impl InstancePresenter {
         Ok(view)
     }
 
-    fn presented_view_mut(&mut self, view_id: ViewId) -> Result<&mut PrimaryViewPresenter> {
+    fn presented_view_mut(&mut self, view_id: ViewId) -> Result<&mut ViewPresenter> {
         let Some(view) = self.state.view_mut() else {
             bail!("A view needs to be updated, but instance presenter is not presenting a view.")
         };
@@ -710,7 +711,7 @@ impl InstanceBackground {
 }
 
 impl InstancePresenterState {
-    fn view(&self) -> Option<&PrimaryViewPresenter> {
+    fn view(&self) -> Option<&ViewPresenter> {
         match self {
             Self::WaitingForPrimaryView => None,
             Self::Presenting { view } => Some(view),
@@ -718,7 +719,7 @@ impl InstancePresenterState {
         }
     }
 
-    fn view_mut(&mut self) -> Option<&mut PrimaryViewPresenter> {
+    fn view_mut(&mut self) -> Option<&mut ViewPresenter> {
         match self {
             Self::WaitingForPrimaryView => None,
             Self::Presenting { view } => Some(view),

@@ -11,6 +11,7 @@ mod instance_manager;
 mod instance_presenter;
 mod projects;
 mod targeted_event;
+mod view_presenter;
 mod window_state;
 
 pub use aggregates::*;
