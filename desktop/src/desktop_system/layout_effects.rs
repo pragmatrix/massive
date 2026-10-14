@@ -95,18 +95,7 @@ impl DesktopSystem {
             .collect();
         // The view may be rotated or in perspective, so the candidate window aligns with the
         // bounding box of the projected corners.
-        let area = projected.map(|corners| {
-            let bounds = corners
-                .into_iter()
-                .map(|corner| Rect::from((corner, corner)))
-                .reduce(Rect::join)
-                .unwrap()
-                .rounded_out();
-            BoxPx::new(
-                (bounds.left as i32, bounds.top as i32).into(),
-                (bounds.right as i32, bounds.bottom as i32).into(),
-            )
-        });
+        let area = projected.map(surface_bounds);
         WindowIme { view, area }
     }
 
@@ -348,5 +337,45 @@ impl Aggregates {
             focused_instance,
             title_bar_metrics: self.instance_title_bar_metrics,
         }
+    }
+}
+
+/// The pixel box covering all points.
+///
+/// Not built with `Rect::join`, which skips empty rects and so ignores every single point.
+fn surface_bounds(points: Vec<Point>) -> BoxPx {
+    assert!(!points.is_empty());
+    let (min, max) = points.iter().fold(
+        (
+            (f64::INFINITY, f64::INFINITY),
+            (f64::NEG_INFINITY, f64::NEG_INFINITY),
+        ),
+        |((min_x, min_y), (max_x, max_y)), p| {
+            (
+                (min_x.min(p.x), min_y.min(p.y)),
+                (max_x.max(p.x), max_y.max(p.y)),
+            )
+        },
+    );
+    BoxPx::new(
+        (min.0.floor() as i32, min.1.floor() as i32).into(),
+        (max.0.ceil() as i32, max.1.ceil() as i32).into(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_bounds_cover_every_point() {
+        let corners = [(34.5, 148.5), (48.5, 148.5), (48.5, 177.5), (34.5, 177.5)]
+            .map(|(x, y)| Point::new(x, y))
+            .to_vec();
+
+        assert_eq!(
+            surface_bounds(corners),
+            BoxPx::new((34, 148).into(), (49, 178).into())
+        );
     }
 }
