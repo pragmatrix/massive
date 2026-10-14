@@ -77,7 +77,7 @@ pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
-use crate::instance_manager::InstanceManager;
+use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
     InstancePresenter, InstanceTitleBarMetrics, ViewWindowState, instance_extent,
 };
@@ -508,7 +508,7 @@ impl DesktopSystem {
         }
     }
 
-    pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {
+    pub fn focused_view_window_state(&self) -> Result<Option<(ViewPath, ViewWindowState)>> {
         let Some(instance) = self.focused_path().instance() else {
             return Ok(None);
         };
@@ -520,7 +520,10 @@ impl DesktopSystem {
             return Ok(None);
         };
 
-        Ok(Some(instance_presenter.view_window_state(view)?.clone()))
+        Ok(Some((
+            (instance, view).into(),
+            instance_presenter.view_window_state(view)?.clone(),
+        )))
     }
 
     /// Remove the target from the hierarchy. Specific target aggregates are left

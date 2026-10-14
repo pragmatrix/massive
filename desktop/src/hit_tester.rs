@@ -1,26 +1,18 @@
-use massive_geometry::{
-    Contains, PerspectiveDivide, Point, Rect, RectPx, SizedTransform, Transform, Vector3, Vector4,
-};
-use massive_layout::{LayoutTopology, Placement};
+use massive_geometry::{Contains, Point, SizedTransform, Vector3};
 use massive_renderer::RenderGeometry;
-use massive_scene::LocationSpace;
 
+use crate::coordinate_mapper::{CoordinateMapper, PlacementSource};
 use crate::projects::{RuntimeConfiguration, launcher_mode};
-use crate::{DesktopTarget, HitTester, OrderedHierarchy};
+use crate::{DesktopTarget, HitTest, OrderedHierarchy};
 
-pub(crate) trait PlacementSource {
-    fn placement(
-        &self,
-        target: &DesktopTarget,
-        hierarchy: &OrderedHierarchy<DesktopTarget>,
-    ) -> Placement<Transform, 2>;
-}
-
-pub(crate) struct AggregateHitTester<'a> {
+/// Decides which target the pointer is over: which targets take part, overflowing children and
+/// overlays, and the nearest hit. Mapping pointer positions into targets is the mapper's.
+pub struct HitTester<'a> {
+    /// Walked to find the targets to test. The mapper holds the same hierarchy for its own
+    /// purpose, and getting it through the mapper would hide this dependency.
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-    placements: &'a dyn PlacementSource,
     configuration: &'a RuntimeConfiguration,
-    geometry: &'a RenderGeometry,
+    mapper: CoordinateMapper<'a>,
 }
 
 #[derive(Debug)]
@@ -30,7 +22,7 @@ pub struct HitTestResult {
     pub surface_depth: f64,
 }
 
-impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
+impl HitTest<DesktopTarget> for HitTester<'_> {
     fn hit_test(
         &self,
         screen_pos: Point,
@@ -56,7 +48,7 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
     }
 }
 
-impl<'a> AggregateHitTester<'a> {
+impl<'a> HitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,
@@ -65,14 +57,13 @@ impl<'a> AggregateHitTester<'a> {
     ) -> Self {
         Self {
             hierarchy,
-            placements,
             configuration,
-            geometry,
+            mapper: CoordinateMapper::new(hierarchy, placements, geometry),
         }
     }
 
     fn hit_test_target_plane(&self, screen_pos: Point, target: &DesktopTarget) -> Option<Vector3> {
-        let hit_surface = self.resolve_hit_surface(target)?;
+        let hit_surface = self.mapper.surface(target)?;
         self.hit_test_surface(screen_pos, &hit_surface)
     }
 
@@ -128,10 +119,10 @@ impl<'a> AggregateHitTester<'a> {
         root: &DesktopTarget,
         allow_overflow_children: bool,
     ) -> Option<HitTestResult> {
-        let hit_surface = self.resolve_hit_surface(root)?;
+        let hit_surface = self.mapper.surface(root)?;
         let local_pos = self.hit_test_surface(screen_pos, &hit_surface)?;
         let hit_world_pos = hit_surface.transform.transform_point(local_pos);
-        let hit_depth = self.hit_depth(hit_world_pos);
+        let hit_depth = self.mapper.depth(hit_world_pos);
         let is_inside_root = hit_surface
             .size
             .to_rect()
@@ -169,52 +160,7 @@ impl<'a> AggregateHitTester<'a> {
         None
     }
 
-    fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<SizedTransform> {
-        let placement = self.placements.placement(target, self.hierarchy);
-        if !placement.visible {
-            return None;
-        }
-        let rect_px: RectPx = placement.rect.into();
-        let size = Rect::from(rect_px).size();
-
-        let transform = self.hit_test_transform(target, placement);
-        Some(SizedTransform::new(size, transform))
-    }
-
-    fn hit_test_surface(&self, screen_pos: Point, hit_surface: &SizedTransform) -> Option<Vector3> {
-        // Detail: All hit-tested targets currently live in world space. Derive the space from the
-        // resolved location when camera-space content becomes interactive.
-        self.geometry.unproject_to_model_z0(
-            screen_pos,
-            &hit_surface.transform.to_matrix4(),
-            LocationSpace::World,
-        )
-    }
-
-    /// Returns a transform whose model space is the target's local coordinate system.
-    /// Un-projecting through this transform yields target-local coordinates.
-    fn hit_test_transform(
-        &self,
-        target: &DesktopTarget,
-        placement: Placement<Transform, 2>,
-    ) -> Transform {
-        let rect_px: RectPx = placement.rect.into();
-        let local_center = Rect::from(rect_px).size().to_rect().center();
-
-        // The layout root — the parentless project — uses an origin-based transform
-        // (IDENTITY in the common case). Derive its origin from the rectangle offset
-        // directly.
-        if self.hierarchy.parent_of(target).is_none() {
-            let offset = placement.rect.offset;
-            return Transform::from_xy(offset[0] as f64, offset[1] as f64);
-        }
-
-        placement.transform.to_origin_space(local_center)
-    }
-
-    fn hit_depth(&self, world_pos: Vector3) -> f64 {
-        let vp = self.geometry.view_projection();
-        let clip = vp * Vector4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
-        clip.perspective_divide().map_or(f64::INFINITY, |ndc| ndc.z)
+    fn hit_test_surface(&self, screen_pos: Point, surface: &SizedTransform) -> Option<Vector3> {
+        self.mapper.to_local(screen_pos, surface)
     }
 }

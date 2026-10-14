@@ -442,9 +442,10 @@ fn finalize_desktop_frame(
     }
     submission.submit_to(window_context.renderer)?;
 
-    window_context
-        .presentation_state
-        .delta_sync(system.window_presentation_state()?, window_context.window);
+    window_context.presentation_state.sync(
+        system.window_presentation_state(window_context.renderer.geometry().surface_size())?,
+        window_context.window,
+    );
     Ok(())
 }
 

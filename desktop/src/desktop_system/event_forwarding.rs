@@ -1,6 +1,6 @@
 use anyhow::Result;
 use log::warn;
-use massive_applications::ViewEvent;
+use massive_applications::{InstanceId, ViewEvent, ViewId};
 
 use super::{Aggregates, Commands, DesktopSystem, DesktopTarget, InstancePart, ProjectPart};
 use crate::instance_manager::InstanceManager;
@@ -61,18 +61,44 @@ impl DesktopSystem {
                 return launcher.process(event, &params.params);
             }
             DesktopTarget::Instance(instance, InstancePart::View(view_id)) => {
-                // Hit testing already returned view-local coordinates.
-                if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
-                {
-                    // This might happen when an instance ends, but we haven't yet received the
-                    // information.
-                    warn!("Sending view event {event:?} failed with {e}");
+                for event in self.view_events_for((instance, view_id), event) {
+                    // Hit testing already returned view-local coordinates.
+                    if let Err(e) =
+                        instance_manager.send_view_event((instance, view_id), event.clone())
+                    {
+                        // This might happen when an instance ends, but we haven't yet received the
+                        // information.
+                        warn!("Sending view event {event:?} failed with {e}");
+                    }
                 }
             }
             _ => {}
         }
 
         Ok(Commands::Empty)
+    }
+
+    /// The events the view receives for `event`; its presenter keeps its key presses and releases
+    /// paired.
+    fn view_events_for(&mut self, view: (InstanceId, ViewId), event: ViewEvent) -> Vec<ViewEvent> {
+        let (instance, view_id) = view;
+        let presented = self
+            .aggregates
+            .instances
+            .get_mut(&instance)
+            .and_then(|instance| instance.presented_view_mut(view_id));
+        match presented {
+            Some(view) => view.pair_key_events(event),
+            None => {
+                // Keyboard focus only reaches presented views; hiding a view moves the focus away
+                // in the same change application.
+                assert!(
+                    !matches!(event, ViewEvent::KeyboardInput { .. }),
+                    "Key event for a view that isn't presented: {event:?}"
+                );
+                vec![event]
+            }
+        }
     }
 
     fn remember_unfocused_project_slot(&mut self, target: &DesktopTarget) {

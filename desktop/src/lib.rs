@@ -1,5 +1,6 @@
 mod aggregates;
 mod application_registry;
+mod coordinate_mapper;
 pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_presenter;
@@ -11,6 +12,7 @@ mod instance_manager;
 mod instance_presenter;
 mod projects;
 mod targeted_event;
+mod view_presenter;
 mod window_state;
 
 pub use aggregates::*;
@@ -19,7 +21,7 @@ pub use desktop::Desktop;
 pub use desktop_environment::*;
 pub use desktop_system::DesktopTarget;
 pub use event_router::EventRouter;
-pub use event_router::HitTester;
+pub use event_router::HitTest;
 pub use event_router::{PointerFocusChange, PointerFocusTarget, RouterOutput, RouterStep};
 pub use massive_shapes::{FontPolicy, ShapingEngineKind};
 pub use targeted_event::EventTransition;

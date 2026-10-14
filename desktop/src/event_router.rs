@@ -120,7 +120,7 @@ where
     pub fn process(
         &mut self,
         input_event: &Event<ViewEvent>,
-        hit_tester: &impl HitTester<T>,
+        hit_tester: &impl HitTest<T>,
     ) -> Result<RouterOutput<T>> {
         let view_event = input_event.event();
 
@@ -358,7 +358,7 @@ where
     /// otherwise the current position may be off?
     pub fn hit_test_and_set_pointer_focus(
         &mut self,
-        hit_tester: &dyn HitTester<T>,
+        hit_tester: &dyn HitTest<T>,
         device_id: DeviceId,
     ) -> Result<Option<PointerFocusChange<T>>> {
         let target = {
@@ -406,7 +406,7 @@ where
 }
 
 // Architecture: The two functions can probably be combined into one. But is this a good thing?
-pub trait HitTester<Target> {
+pub trait HitTest<Target> {
     /// Return the topmost hit at screen_pos in the target's coordinate system.
     ///
     /// If target is set, returns the hit inside the specific Target's coordinate system only.

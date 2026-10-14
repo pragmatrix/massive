@@ -16,11 +16,11 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use termwiz::escape;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent};
+use winit::event::ElementState;
 
 use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
-use massive_applications::{ApplicationEvent, ViewEvent};
+use massive_applications::{ApplicationEvent, KeyEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};

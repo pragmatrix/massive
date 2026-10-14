@@ -1,7 +1,7 @@
-use massive_applications::ViewEvent;
+use massive_applications::{KeyEvent, ViewEvent};
 use massive_geometry::{Quaternion, Size, SizePx, Transform, Vector3, VectorPx};
 
-use winit::event::{ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase};
+use winit::event::{ElementState, Modifiers, MouseButton, MouseScrollDelta, TouchPhase};
 use winit::keyboard::{Key, NamedKey};
 
 enum ActiveGesture {

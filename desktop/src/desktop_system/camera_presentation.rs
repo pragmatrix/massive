@@ -66,4 +66,9 @@ impl CameraPresentation {
     pub fn proceed(&mut self) -> &PixelCamera {
         self.presented.proceed()
     }
+
+    /// The camera the presentation ends at once its animation finished.
+    pub fn target(&self) -> &PixelCamera {
+        self.presented.target()
+    }
 }

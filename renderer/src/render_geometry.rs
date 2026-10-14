@@ -164,6 +164,35 @@ impl RenderGeometry {
         ray.intersect_plane(&plane)
     }
 
+    /// Projects a model-local point to surface pixels.
+    ///
+    /// Returns `None` for points on the camera plane, which have no projection.
+    pub fn project_to_surface(
+        &self,
+        model_pos: Vector3,
+        model: &Matrix4,
+        space: LocationSpace,
+    ) -> Option<Point> {
+        let projections = self.view_projections();
+        let projection = match space {
+            LocationSpace::World => projections.world,
+            LocationSpace::Camera => projections.camera,
+        };
+        let clip = projection * *model * model_pos.extend(1.0);
+        let ndc = clip.perspective_divide()?;
+        Some(self.ndc_to_screen((ndc.x, ndc.y).into()))
+    }
+
+    /// Map normalized WGPU device coordinates to screen pixel coordinates.
+    fn ndc_to_screen(&self, ndc: Point) -> Point {
+        let surface_size = self.surface_size();
+
+        // NDC -> Screen (flip Y)
+        let x = (ndc.x + 1.0) / 2.0 * surface_size.width as f64;
+        let y = (1.0 - ndc.y) / 2.0 * surface_size.height as f64;
+        (x, y).into()
+    }
+
     /// Map screen pixel coordinates to normalized WGPU device coordinates.
     fn screen_to_ndc(&self, pos_px: Point) -> Point {
         let surface_size = self.surface_size();
@@ -255,5 +284,29 @@ mod tests {
         for distance in [0.001, 0.05, 10.0, 500.0] {
             assert!((ratio(distance) / reference - 1.0).abs() < 1e-9);
         }
+    }
+
+    /// The IME candidate window is placed through `project_to_surface`, the pointer is hit-tested
+    /// through `unproject_to_model_z0`; both must agree on the Y flip and the surface scaling.
+    #[test]
+    fn projection_inverts_unprojection() {
+        let fovy = PixelCamera::DEFAULT_FOVY;
+        let camera = PixelCamera::look_at(
+            Transform::from_xy(120.0, -40.0),
+            PixelCamera::pixel_perfect_distance(fovy) * 1.7,
+            fovy,
+        );
+        let geometry = RenderGeometry::new(SizePx::new(1000, 700), camera);
+        let model = Transform::from_xy(-300.0, 200.0).to_matrix4();
+
+        let screen_pos = Point::new(130.0, 610.0);
+        let model_pos = geometry
+            .unproject_to_model_z0(screen_pos, &model, LocationSpace::World)
+            .unwrap();
+        let projected = geometry
+            .project_to_surface(model_pos, &model, LocationSpace::World)
+            .unwrap();
+
+        assert!((projected - screen_pos).length() < 1e-6);
     }
 }

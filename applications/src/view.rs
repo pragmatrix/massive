@@ -3,7 +3,7 @@ use derive_more::{From, Into};
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
-use massive_geometry::{BoxPx, Size, SizePx};
+use massive_geometry::{BoxPx, Rect, Size, SizePx};
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 
@@ -19,6 +19,7 @@ pub struct View {
     location: Handle<Location>,
     title: String,
     cursor: CursorIcon,
+    ime_area: Option<Rect>,
 }
 
 impl Drop for View {
@@ -47,6 +48,7 @@ impl View {
             location,
             title: String::new(),
             cursor: CursorIcon::default(),
+            ime_area: None,
         })
     }
 
@@ -93,6 +95,17 @@ impl View {
         self.cursor = cursor;
         submit(InstanceChange::View(self.id, ViewChange::SetCursor(cursor)));
     }
+
+    /// Declares the view-local area where text is entered; `Some` enables the IME while the view
+    /// is focused and places its candidate window next to the area.
+    pub fn set_ime_area(&mut self, area: Option<Rect>) {
+        if self.ime_area == area {
+            return;
+        }
+
+        self.ime_area = area;
+        submit(InstanceChange::View(self.id, ViewChange::SetImeArea(area)));
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -127,6 +140,8 @@ pub enum ViewChange {
     SetTitle(String),
     /// Set the cursor icon for the view.
     SetCursor(CursorIcon),
+    /// Set the view-local text input area, `None` disables the IME.
+    SetImeArea(Option<Rect>),
 }
 
 #[derive(Debug, From, Into)]

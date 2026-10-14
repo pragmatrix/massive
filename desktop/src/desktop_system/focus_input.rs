@@ -13,7 +13,7 @@ use super::{
 };
 use crate::desktop_system::TargetLayout;
 use crate::event_router::RouterStep;
-use crate::hit_tester::AggregateHitTester;
+use crate::hit_tester::HitTester;
 use crate::instance_manager::InstanceManager;
 use crate::projects::LaunchProfileId;
 use crate::targeted_event::EventTransition;
@@ -25,7 +25,7 @@ impl DesktopSystem {
         event: &Event<ViewEvent>,
         render_geometry: &RenderGeometry,
     ) -> Result<Changes> {
-        let hit_tester = AggregateHitTester::new(
+        let hit_tester = HitTester::new(
             &self.aggregates.hierarchy,
             &self.layout_state,
             &self.aggregates.configuration,

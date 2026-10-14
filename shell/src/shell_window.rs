@@ -9,11 +9,12 @@ use tokio::sync::mpsc::WeakUnboundedSender;
 use tokio::sync::oneshot;
 
 use wgpu::rwh;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::EventLoopProxy;
 use winit::window::{CursorIcon, Window, WindowId};
 
 use massive_applications::{ApplicationMessage, PresentationId, ViewId};
-use massive_geometry::SizePx;
+use massive_geometry::{BoxPx, SizePx};
 
 use crate::WindowRendererBuilder;
 use crate::shell::ShellCommand;
@@ -76,6 +77,20 @@ impl ShellWindow {
     // Note: This may schedule work on the main thread, so callers should avoid redundant updates.
     pub fn set_cursor_visible(&self, visible: bool) {
         self.shared.window().set_cursor_visible(visible);
+    }
+
+    /// Disallowing discards a pending composition.
+    pub fn set_ime_allowed(&self, allowed: bool) {
+        self.shared.window().set_ime_allowed(allowed);
+    }
+
+    /// The area in surface pixels the IME places its candidate window next to.
+    pub fn set_ime_cursor_area(&self, area: BoxPx) {
+        let window = self.shared.window();
+        window.set_ime_cursor_area(
+            PhysicalPosition::new(area.min.x, area.min.y),
+            PhysicalSize::new(area.width(), area.height()),
+        );
     }
 
     pub fn is_fullscreen(&self) -> bool {

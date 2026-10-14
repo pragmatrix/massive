@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
-use winit::event::{self, DeviceId, ElementState, KeyEvent, WindowEvent};
+use winit::event::{self, DeviceId, ElementState, WindowEvent};
 use winit::keyboard::Key;
 
 use massive_geometry::{Point, SizePx, Vector};
 use massive_input::{AggregationEvent, InputEvent};
+
+use crate::KeyEvent;
 
 /// The events a view can receive.
 ///
@@ -26,7 +28,7 @@ pub enum ViewEvent {
     Occluded(bool),
     KeyboardInput {
         device_id: DeviceId,
-        event: event::KeyEvent,
+        event: KeyEvent,
         is_synthetic: bool,
     },
     /// Modifiers are not updated when the target has neither pointer nor keyboard focus, but are
@@ -103,7 +105,7 @@ impl ViewEvent {
                 is_synthetic,
             } => Some(Self::KeyboardInput {
                 device_id: *device_id,
-                event: event.clone(),
+                event: event.into(),
                 is_synthetic: *is_synthetic,
             }),
             WindowEvent::Ime(ime) => Some(Self::Ime(ime.clone())),
