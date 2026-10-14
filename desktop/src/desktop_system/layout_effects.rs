@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::warn;
 
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::{InstanceId, ViewEvent, ViewId};
 use massive_geometry::{BoxPx, PixelCamera, Point, Rect, SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
 use massive_renderer::RenderGeometry;
@@ -13,7 +13,7 @@ use super::{
     LayoutContext, TargetLayout, TransactionEffectsMode,
 };
 use crate::hit_tester::AggregateHitTester;
-use crate::instance_manager::InstanceManager;
+use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::TITLE_SEPARATOR;
 use crate::window_state::WindowPresentationState;
 
@@ -55,17 +55,8 @@ impl DesktopSystem {
     ) -> Result<WindowPresentationState> {
         let (view_path, view_window_state) = self.focused_view_window_state()?.unzip();
         let view_window_state = view_window_state.unwrap_or_default();
-        let ime = view_path.zip(view_window_state.ime_area);
-        let ime_view = ime.map(|(view_path, _)| view_path.view);
-        let input_area = self.input_area(
-            ime.map(|(view_path, area)| {
-                (
-                    DesktopTarget::view(view_path.instance, view_path.view),
-                    area,
-                )
-            }),
-            surface_size,
-        );
+        let (ime_view, input_area) =
+            self.window_ime(view_path.zip(view_window_state.ime_area), surface_size);
         let title = self.window_title(view_window_state.title);
         let cursor = view_window_state.cursor;
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
@@ -77,6 +68,24 @@ impl DesktopSystem {
             ime_view,
             input_area,
         })
+    }
+
+    /// The view the IME composes for, and where macOS places its text input UI. Only a focused
+    /// view that declares an IME area gets the IME, so a composition never reaches a view that
+    /// can't take text.
+    fn window_ime(
+        &self,
+        focused_ime: Option<(ViewPath, Rect)>,
+        surface_size: SizePx,
+    ) -> (Option<ViewId>, Option<BoxPx>) {
+        let ime_view = focused_ime.map(|(view_path, _)| view_path.view);
+        let ime_target = focused_ime.map(|(view_path, area)| {
+            (
+                DesktopTarget::view(view_path.instance, view_path.view),
+                area,
+            )
+        });
+        (ime_view, self.input_area(ime_target, surface_size))
     }
 
     /// The focused view's IME area, or else the whole focused target, so the caps lock indicator
