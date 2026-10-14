@@ -1,10 +1,8 @@
-//! Views receive key presses and releases in pairs.
-//!
-//! The desktop consumes the presses of its shortcuts but not their releases, and the keyboard focus
-//! may move while a key is held. Applications that track held keys (the Kitty keyboard protocol
-//! reports releases) would otherwise see releases without presses, or keys that never come up.
+//! Views receive key presses and releases in pairs, also when the desktop consumes a press or the
+//! focus moves while a key is held.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::hash::Hash;
 
 use winit::keyboard::PhysicalKey;
@@ -23,7 +21,7 @@ impl<V, E> Default for KeyPairing<V, E> {
     }
 }
 
-impl<V: Eq + Hash, E> KeyPairing<V, E> {
+impl<V: Eq + Hash + fmt::Debug, E> KeyPairing<V, E> {
     /// A repeat replaces the press, so the release is synthesized from the latest one.
     pub fn pressed(&mut self, view: V, key: PhysicalKey, press: E) {
         self.held.entry(view).or_default().insert(key, press);
@@ -39,6 +37,14 @@ impl<V: Eq + Hash, E> KeyPairing<V, E> {
             self.held.remove(view);
         }
         was_held
+    }
+
+    /// A view loses the focus before it is removed, which releases its keys.
+    pub fn assert_not_holding(&self, view: &V) {
+        assert!(
+            !self.held.contains_key(view),
+            "Removed view {view:?} still holds keys"
+        );
     }
 
     /// The presses the view still holds while it loses the focus; their releases are due now,

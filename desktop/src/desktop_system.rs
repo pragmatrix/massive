@@ -79,7 +79,7 @@ pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
-use crate::instance_manager::InstanceManager;
+use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
     InstancePresenter, InstanceTitleBarMetrics, ViewWindowState, instance_extent,
 };
@@ -512,7 +512,7 @@ impl DesktopSystem {
         }
     }
 
-    pub fn focused_view_window_state(&self) -> Result<Option<(DesktopTarget, ViewWindowState)>> {
+    pub fn focused_view_window_state(&self) -> Result<Option<(ViewPath, ViewWindowState)>> {
         let Some(instance) = self.focused_path().instance() else {
             return Ok(None);
         };
@@ -524,9 +524,8 @@ impl DesktopSystem {
             return Ok(None);
         };
 
-        let target = DesktopTarget::Instance(instance, InstancePart::View(view));
         Ok(Some((
-            target,
+            (instance, view).into(),
             instance_presenter.view_window_state(view)?.clone(),
         )))
     }
@@ -537,6 +536,9 @@ impl DesktopSystem {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
         self.keyboard_focus.assert_not_referenced(target);
+        if let DesktopTarget::Instance(instance, InstancePart::View(view)) = *target {
+            self.key_pairing.assert_not_holding(&(instance, view));
+        }
 
         let parent = self
             .aggregates

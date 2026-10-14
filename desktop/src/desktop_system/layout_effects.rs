@@ -53,14 +53,19 @@ impl DesktopSystem {
         &self,
         surface_size: SizePx,
     ) -> Result<WindowPresentationState> {
-        let (view_target, view_window_state) = self.focused_view_window_state()?.unzip();
+        let (view_path, view_window_state) = self.focused_view_window_state()?.unzip();
         let view_window_state = view_window_state.unwrap_or_default();
-        let ime = view_target.zip(view_window_state.ime_area);
-        let ime_view = ime.as_ref().map(|(target, _)| match *target {
-            DesktopTarget::Instance(_, InstancePart::View(view)) => view,
-            _ => panic!("IME area of a non-view target: {target:?}"),
-        });
-        let input_area = self.input_area(ime, surface_size);
+        let ime = view_path.zip(view_window_state.ime_area);
+        let ime_view = ime.map(|(view_path, _)| view_path.view);
+        let input_area = self.input_area(
+            ime.map(|(view_path, area)| {
+                (
+                    DesktopTarget::view(view_path.instance, view_path.view),
+                    area,
+                )
+            }),
+            surface_size,
+        );
         let title = self.window_title(view_window_state.title);
         let cursor = view_window_state.cursor;
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
