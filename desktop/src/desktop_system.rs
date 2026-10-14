@@ -508,7 +508,7 @@ impl DesktopSystem {
         }
     }
 
-    pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {
+    pub fn focused_view_window_state(&self) -> Result<Option<(DesktopTarget, ViewWindowState)>> {
         let Some(instance) = self.focused_path().instance() else {
             return Ok(None);
         };
@@ -520,7 +520,11 @@ impl DesktopSystem {
             return Ok(None);
         };
 
-        Ok(Some(instance_presenter.view_window_state(view)?.clone()))
+        let target = DesktopTarget::Instance(instance, InstancePart::View(view));
+        Ok(Some((
+            target,
+            instance_presenter.view_window_state(view)?.clone(),
+        )))
     }
 
     /// Remove the target from the hierarchy. Specific target aggregates are left

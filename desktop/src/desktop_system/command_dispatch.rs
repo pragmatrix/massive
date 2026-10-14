@@ -858,6 +858,9 @@ impl DesktopSystem {
                     debug!("Setting cursor: {cursor}");
                     instance.set_view_cursor(view_path.view, cursor)?;
                 }
+                ViewChange::SetImeArea(area) => {
+                    instance.set_view_ime_area(view_path.view, area)?;
+                }
             }
         }
 

@@ -71,6 +71,18 @@ impl<'a> AggregateHitTester<'a> {
         }
     }
 
+    /// Projects a target-local point to surface pixels through the same surface the pointer is
+    /// hit-tested on, so both directions agree. `None` if the target is not visible.
+    pub fn project_to_surface(&self, target: &DesktopTarget, local_pos: Point) -> Option<Point> {
+        let surface = self.resolve_hit_surface(target)?;
+        let projected = self.geometry.project_to_surface(
+            Vector3::new(local_pos.x, local_pos.y, 0.0),
+            &surface.transform.to_matrix4(),
+            LocationSpace::World,
+        );
+        Some(projected.expect("A visible target's surface lies in front of the camera"))
+    }
+
     fn hit_test_target_plane(&self, screen_pos: Point, target: &DesktopTarget) -> Option<Vector3> {
         let hit_surface = self.resolve_hit_surface(target)?;
         self.hit_test_surface(screen_pos, &hit_surface)

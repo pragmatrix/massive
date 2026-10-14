@@ -175,6 +175,8 @@ struct InstanceMovement {
 pub struct ViewWindowState {
     pub title: String,
     pub cursor: CursorIcon,
+    /// View-local text input area; `Some` enables the IME while the view is focused.
+    pub ime_area: Option<Rect>,
 }
 
 impl InstancePresenter {
@@ -369,6 +371,12 @@ impl InstancePresenter {
     pub fn set_view_cursor(&mut self, view_id: ViewId, cursor: CursorIcon) -> Result<()> {
         let view = self.presented_view_mut(view_id)?;
         view.window_state.cursor = cursor;
+        Ok(())
+    }
+
+    pub fn set_view_ime_area(&mut self, view_id: ViewId, area: Option<Rect>) -> Result<()> {
+        let view = self.presented_view_mut(view_id)?;
+        view.window_state.ime_area = area;
         Ok(())
     }
 

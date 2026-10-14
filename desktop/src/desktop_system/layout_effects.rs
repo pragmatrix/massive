@@ -2,8 +2,9 @@ use anyhow::Result;
 use log::warn;
 
 use massive_applications::{InstanceId, ViewEvent};
-use massive_geometry::{PixelCamera, SizePx, SizedTransform};
+use massive_geometry::{BoxPx, PixelCamera, Point, Rect, SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
+use massive_renderer::RenderGeometry;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
@@ -11,9 +12,10 @@ use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart,
     LayoutContext, TargetLayout, TransactionEffectsMode,
 };
+use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::TITLE_SEPARATOR;
-use crate::window_state::WindowPresentationState;
+use crate::window_state::{WindowIme, WindowPresentationState};
 
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
@@ -47,8 +49,16 @@ impl DesktopSystem {
         }
     }
 
-    pub fn window_presentation_state(&self) -> Result<WindowPresentationState> {
-        let view_window_state = self.focused_view_window_state()?.unwrap_or_default();
+    pub fn window_presentation_state(
+        &self,
+        render_geometry: &RenderGeometry,
+    ) -> Result<WindowPresentationState> {
+        let (view_target, view_window_state) = self.focused_view_window_state()?.unzip();
+        let view_window_state = view_window_state.unwrap_or_default();
+        let ime = view_target.and_then(|target| {
+            let area = view_window_state.ime_area?;
+            Some(self.window_ime(&target, area, render_geometry))
+        });
         let title = self.window_title(view_window_state.title);
         let cursor = view_window_state.cursor;
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
@@ -57,7 +67,47 @@ impl DesktopSystem {
             title,
             cursor_visible,
             cursor,
+            ime,
         })
+    }
+
+    /// Projects the view-local IME area every frame, so the candidate window follows camera and
+    /// layout movements.
+    fn window_ime(
+        &self,
+        view_target: &DesktopTarget,
+        area: Rect,
+        render_geometry: &RenderGeometry,
+    ) -> WindowIme {
+        let DesktopTarget::Instance(_, InstancePart::View(view)) = *view_target else {
+            panic!("IME area of a non-view target: {view_target:?}");
+        };
+        let hit_tester = AggregateHitTester::new(
+            &self.aggregates.hierarchy,
+            &self.layout_state,
+            &self.aggregates.configuration,
+            render_geometry,
+        );
+        let projected: Option<Vec<Point>> = area
+            .to_quad()
+            .into_iter()
+            .map(|corner| hit_tester.project_to_surface(view_target, corner))
+            .collect();
+        // The view may be rotated or in perspective, so the candidate window aligns with the
+        // bounding box of the projected corners.
+        let area = projected.map(|corners| {
+            let bounds = corners
+                .into_iter()
+                .map(|corner| Rect::from((corner, corner)))
+                .reduce(Rect::join)
+                .unwrap()
+                .rounded_out();
+            BoxPx::new(
+                (bounds.left as i32, bounds.top as i32).into(),
+                (bounds.right as i32, bounds.bottom as i32).into(),
+            )
+        });
+        WindowIme { view, area }
     }
 
     fn window_title(&self, terminal_title: String) -> String {

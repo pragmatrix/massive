@@ -2,7 +2,8 @@ use derive_more::Constructor;
 
 use winit::window::CursorIcon;
 
-use massive_geometry::SizePx;
+use massive_applications::ViewId;
+use massive_geometry::{BoxPx, SizePx};
 use massive_shell::ShellWindow;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Constructor)]
@@ -16,6 +17,17 @@ pub struct WindowPresentationState {
     pub title: String,
     pub cursor_visible: bool,
     pub cursor: CursorIcon,
+    /// `None` disables the IME.
+    pub ime: Option<WindowIme>,
+}
+
+/// The IME is bound to the focused view, so a composition never continues in another view.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct WindowIme {
+    pub view: ViewId,
+    /// The input area in surface pixels; `None` while the view is not visible, which keeps the
+    /// last position.
+    pub area: Option<BoxPx>,
 }
 
 impl Default for WindowPresentationState {
@@ -25,6 +37,7 @@ impl Default for WindowPresentationState {
             // Usually, when the Window opens, the cursor is visible.
             cursor_visible: true,
             cursor: CursorIcon::default(),
+            ime: None,
         }
     }
 }
@@ -40,7 +53,25 @@ impl WindowPresentationState {
         if self.cursor != new_state.cursor {
             window.set_cursor(new_state.cursor);
         }
+        if self.ime != new_state.ime {
+            Self::sync_ime(self.ime, new_state.ime, window);
+        }
 
         *self = new_state
+    }
+
+    fn sync_ime(current: Option<WindowIme>, new: Option<WindowIme>, window: &ShellWindow) {
+        if current.map(|ime| ime.view) != new.map(|ime| ime.view) {
+            // Disallowing discards the composition pending in the view that lost the focus.
+            if current.is_some() {
+                window.set_ime_allowed(false);
+            }
+            if new.is_some() {
+                window.set_ime_allowed(true);
+            }
+        }
+        if let Some(area) = new.and_then(|ime| ime.area) {
+            window.set_ime_cursor_area(area);
+        }
     }
 }
