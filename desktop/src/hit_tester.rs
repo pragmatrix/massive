@@ -8,6 +8,8 @@ use crate::{DesktopTarget, HitTester, OrderedHierarchy};
 /// Decides which target the pointer is over: which targets take part, overflowing children and
 /// overlays, and the nearest hit. Mapping pointer positions into targets is the mapper's.
 pub(crate) struct AggregateHitTester<'a> {
+    /// Walked to find the targets to test. The mapper holds the same hierarchy for its own
+    /// purpose, and getting it through the mapper would hide this dependency.
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     configuration: &'a RuntimeConfiguration,
     mapper: CoordinateMapper<'a>,
