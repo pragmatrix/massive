@@ -12,7 +12,7 @@ use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart,
     LayoutContext, TargetLayout, TransactionEffectsMode,
 };
-use crate::hit_tester::AggregateHitTester;
+use crate::coordinate_translator::CoordinateTranslator;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::TITLE_SEPARATOR;
 use crate::window_state::WindowPresentationState;
@@ -98,28 +98,20 @@ impl DesktopSystem {
         // Projected through the camera's target, so the area moves once instead of following an
         // animation; placements are layout targets already.
         let geometry = RenderGeometry::new(surface_size, *self.camera.target());
-        let hit_tester = AggregateHitTester::new(
-            &self.aggregates.hierarchy,
-            &self.layout_state,
-            &self.aggregates.configuration,
-            &geometry,
-        );
-        let (target, area) = match ime {
-            Some(ime) => ime,
-            None => {
-                let target = self.focused_target()?;
-                let size = hit_tester.surface_size(&target)?;
-                (target, Rect::from_size(size))
-            }
+        let translator =
+            CoordinateTranslator::new(&self.aggregates.hierarchy, &self.layout_state, &geometry);
+        let (target, ime_area) = match ime {
+            Some((target, area)) => (target, Some(area)),
+            None => (self.focused_target()?, None),
         };
-        let projected: Option<Vec<Point>> = area
+        let surface = translator.surface(&target)?;
+        let area = ime_area.unwrap_or_else(|| Rect::from_size(surface.size));
+        let corners = area
             .to_quad()
             .into_iter()
-            .map(|corner| hit_tester.project_to_surface(&target, corner))
+            .map(|corner| translator.to_surface(corner, &surface))
             .collect();
-        // The target may be rotated or in perspective, so the area is the bounding box of the
-        // projected corners.
-        projected.map(surface_bounds)
+        Some(surface_bounds(corners))
     }
 
     fn window_title(&self, terminal_title: String) -> String {

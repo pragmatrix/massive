@@ -1,5 +1,6 @@
 mod aggregates;
 mod application_registry;
+mod coordinate_translator;
 pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_presenter;
