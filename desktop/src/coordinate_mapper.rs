@@ -11,7 +11,7 @@ use massive_scene::LocationSpace;
 
 use crate::{DesktopTarget, OrderedHierarchy};
 
-pub(crate) trait PlacementSource {
+pub trait PlacementSource {
     fn placement(
         &self,
         target: &DesktopTarget,
@@ -21,7 +21,7 @@ pub(crate) trait PlacementSource {
 
 /// Built per use from the current layout and render geometry, by the hit tester and for the
 /// window's IME area.
-pub(crate) struct CoordinateMapper<'a> {
+pub struct CoordinateMapper<'a> {
     /// Combines the relative placements into absolute ones and finds the layout root.
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     placements: &'a dyn PlacementSource,

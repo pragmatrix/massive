@@ -12,7 +12,7 @@ use massive_geometry::SizePx;
 use crate::instance_presenter::ViewWindowState;
 
 #[derive(Debug)]
-pub(crate) struct ViewPresenter {
+pub struct ViewPresenter {
     pub creation_info: ViewCreationInfo,
     pub window_state: ViewWindowState,
     pub view_size: SizePx,
