@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use winit::event::ElementState;
 use winit::keyboard::PhysicalKey;
 
-use massive_applications::{ViewCreationInfo, ViewEvent, ViewId};
+use massive_applications::{KeyEvent, ViewCreationInfo, ViewEvent, ViewId};
 use massive_geometry::SizePx;
 
 use crate::instance_presenter::ViewWindowState;
@@ -16,7 +16,7 @@ pub(crate) struct ViewPresenter {
     pub creation_info: ViewCreationInfo,
     pub window_state: ViewWindowState,
     pub view_size: SizePx,
-    held_keys: HeldKeys<ViewEvent>,
+    held_keys: HeldKeys,
 }
 
 impl ViewPresenter {
@@ -69,40 +69,33 @@ impl ViewPresenter {
     }
 }
 
-/// winit's `KeyEvent` can't be constructed outside winit, so the release is the press turned around.
+/// A held key's release, delivered when the view loses the focus before the key comes up.
 fn synthesized_release(press: ViewEvent) -> ViewEvent {
     let ViewEvent::KeyboardInput {
-        device_id,
-        mut event,
-        ..
+        device_id, event, ..
     } = press
     else {
         panic!("A held key is not a key event: {press:?}");
     };
-    event.state = ElementState::Released;
-    event.repeat = false;
-    event.text = None;
     ViewEvent::KeyboardInput {
         device_id,
-        event,
+        event: KeyEvent {
+            state: ElementState::Released,
+            repeat: false,
+            text: None,
+            ..event
+        },
         is_synthetic: true,
     }
 }
 
-/// The presses a view received and has not seen released yet; generic over the press, because
-/// winit's `KeyEvent` can't be built in tests.
-#[derive(Debug)]
-struct HeldKeys<E>(HashMap<PhysicalKey, E>);
+/// The presses a view received and has not seen released yet.
+#[derive(Debug, Default)]
+struct HeldKeys(HashMap<PhysicalKey, ViewEvent>);
 
-impl<E> Default for HeldKeys<E> {
-    fn default() -> Self {
-        Self(HashMap::new())
-    }
-}
-
-impl<E> HeldKeys<E> {
+impl HeldKeys {
     /// A repeat replaces the press, so the release is synthesized from the latest one.
-    fn pressed(&mut self, key: PhysicalKey, press: E) {
+    fn pressed(&mut self, key: PhysicalKey, press: ViewEvent) {
         self.0.insert(key, press);
     }
 
@@ -112,38 +105,89 @@ impl<E> HeldKeys<E> {
     }
 
     /// The view loses the focus, so the releases of its held keys are due now.
-    fn drain(&mut self) -> Vec<E> {
+    fn drain(&mut self) -> Vec<ViewEvent> {
         self.0.drain().map(|(_, press)| press).collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use winit::keyboard::KeyCode;
+    use uuid::Uuid;
+    use winit::event::DeviceId;
+    use winit::keyboard::{Key, KeyCode, KeyLocation};
+
+    use massive_applications::ViewRole;
+    use massive_geometry::BoxPx;
 
     use super::*;
 
     const A: PhysicalKey = PhysicalKey::Code(KeyCode::KeyA);
     const T: PhysicalKey = PhysicalKey::Code(KeyCode::KeyT);
 
-    #[test]
-    fn a_release_without_its_press_is_dropped() {
-        let mut held = HeldKeys::<&str>::default();
-        // The desktop consumed the press of Cmd+T.
-        assert!(!held.released(T));
+    fn presenter() -> ViewPresenter {
+        ViewPresenter::new(&ViewCreationInfo {
+            id: Uuid::new_v4().into(),
+            role: ViewRole::Primary,
+            extents: BoxPx::from_size((100, 100).into()),
+        })
+    }
 
-        held.pressed(A, "a");
-        assert!(held.released(A));
-        assert!(!held.released(A));
+    fn key(physical_key: PhysicalKey, state: ElementState) -> ViewEvent {
+        ViewEvent::KeyboardInput {
+            device_id: DeviceId::dummy(),
+            event: KeyEvent {
+                physical_key,
+                logical_key: Key::Character("a".into()),
+                text: None,
+                location: KeyLocation::Standard,
+                state,
+                repeat: false,
+                key_without_modifiers: None,
+            },
+            is_synthetic: false,
+        }
     }
 
     #[test]
-    fn losing_the_focus_releases_the_held_keys() {
-        let mut held = HeldKeys::<&str>::default();
-        held.pressed(A, "a");
+    fn a_release_without_its_press_is_dropped() {
+        let mut view = presenter();
+        // The desktop consumed the press of Cmd+T.
+        assert!(
+            view.paired_events(key(T, ElementState::Released))
+                .is_empty()
+        );
 
-        assert_eq!(held.drain(), vec!["a"]);
+        view.paired_events(key(A, ElementState::Pressed));
+        assert_eq!(view.paired_events(key(A, ElementState::Released)).len(), 1);
+        assert!(
+            view.paired_events(key(A, ElementState::Released))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn losing_the_focus_releases_the_held_keys_first() {
+        let mut view = presenter();
+        view.paired_events(key(A, ElementState::Pressed));
+
+        let events = view.paired_events(ViewEvent::Focused(false));
+        let [
+            ViewEvent::KeyboardInput {
+                event: release,
+                is_synthetic: true,
+                ..
+            },
+            ViewEvent::Focused(false),
+        ] = events.as_slice()
+        else {
+            panic!("Expected the release before the focus loss: {events:?}");
+        };
+        assert_eq!(release.physical_key, A);
+        assert_eq!(release.state, ElementState::Released);
         // The physical release arrives after the focus moved on.
-        assert!(!held.released(A));
+        assert!(
+            view.paired_events(key(A, ElementState::Released))
+                .is_empty()
+        );
     }
 }
