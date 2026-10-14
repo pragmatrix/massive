@@ -19,7 +19,7 @@ const DISTANCE_FIELD_MAGNITUDE: usize = 4;
 
 // we need to pad around the original glyph to allow our maximum distance of
 // SK_DistanceFieldMagnitude texels away from any edge
-pub(crate) const DISTANCE_FIELD_PAD: usize = 4;
+pub const DISTANCE_FIELD_PAD: usize = 4;
 
 #[derive(Debug)]
 struct DFData {
@@ -379,7 +379,7 @@ fn pack_distance_field_val<const DISTANCE_MAGNITUDE: usize>(dist: f32) -> u8 {
 
 // assumes a padded 8-bit image and distance field
 // width and height are the original width and height of the image
-pub(crate) unsafe fn generate_distance_field_from_image(
+pub unsafe fn generate_distance_field_from_image(
     distance_field: &mut [u8],
     copy_ptr: &[u8],
     width: usize,

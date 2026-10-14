@@ -756,7 +756,7 @@ fn launcher_title(launcher_name: &str, kind: InstanceKind) -> String {
 }
 
 /// The extent of an instance for a regular `panel_size`: its title bar above the panel (ADR 0019).
-pub(crate) fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> SizePx {
+pub fn instance_extent(panel_size: SizePx, title_bar_height: u32) -> SizePx {
     SizePx::new(panel_size.width, panel_size.height + title_bar_height)
 }
 

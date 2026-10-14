@@ -60,17 +60,17 @@ use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
-pub(crate) use commands::{DesktopCommand, ProjectCommand};
-pub(crate) use effects::Effects;
-pub(crate) use fullscreen::{fullscreen_scale, view_size};
-pub(crate) use key_delivery::{KeyContext, KeyHandler, KeyOutcome};
-pub(crate) use key_input::KeyInput;
-pub(crate) use keyboard_focus::InputFocus;
-pub(crate) use keyboard_shortcuts::Shortcut;
-pub(crate) use layout_algorithm::{
+pub use commands::{DesktopCommand, ProjectCommand};
+pub use effects::Effects;
+pub use fullscreen::{fullscreen_scale, view_size};
+pub use key_delivery::{KeyContext, KeyHandler, KeyOutcome};
+pub use key_input::KeyInput;
+pub use keyboard_focus::InputFocus;
+pub use keyboard_shortcuts::Shortcut;
+pub use layout_algorithm::{
     expand_cross_axis_child_sizes, measure_container, place_container_children,
 };
-pub(crate) use massive_applications::SlotShift;
+pub use massive_applications::SlotShift;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 

@@ -42,7 +42,7 @@ const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
 /// Band-mode panels are packed with no per-child spacing; the layout call site
 /// dispatches on the configuration's mode but the spacing value stays with the
 /// presentation geometry it feeds.
-pub(crate) const CHILD_SPACING: i32 = 0;
+pub const CHILD_SPACING: i32 = 0;
 
 #[derive(Debug, Clone, Copy)]
 struct VisorLayoutSummary {

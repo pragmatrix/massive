@@ -5,7 +5,7 @@ use massive_applications::ViewEvent;
 
 /// A key event reduced to what key handlers decide on, plus the event to hand to an application.
 #[derive(Debug)]
-pub(crate) struct KeyInput {
+pub struct KeyInput {
     pub logical_key: Key,
     pub state: ElementState,
     pub repeat: bool,

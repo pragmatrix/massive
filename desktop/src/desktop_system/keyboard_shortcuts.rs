@@ -8,7 +8,7 @@ use super::Direction;
 use super::key_input::KeyInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Shortcut {
+pub enum Shortcut {
     /// Enter, with any modifiers but Cmd.
     Enter,
     CommandEnter,
