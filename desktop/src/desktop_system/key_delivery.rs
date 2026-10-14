@@ -16,12 +16,12 @@ use crate::projects::RuntimeConfiguration;
 use crate::targeted_event::EventTransition;
 
 /// A level of the keyboard focus path that may consume a key.
-pub(crate) trait KeyHandler: fmt::Debug {
+pub trait KeyHandler: fmt::Debug {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome;
 }
 
 #[derive(Debug)]
-pub(crate) enum KeyOutcome {
+pub enum KeyOutcome {
     /// The level has no use for the key; it continues to the next level.
     Pass,
     /// The level took the key and asks for these commands.
@@ -31,7 +31,7 @@ pub(crate) enum KeyOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) struct KeyLevel<'a> {
+pub struct KeyLevel<'a> {
     pub target: FocusableTarget,
     pub handler: &'a dyn KeyHandler,
 }
@@ -162,7 +162,7 @@ impl KeyHandler for ApplicationKeys {
 
 /// What the desktop's key handlers read while deciding.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct KeyContext<'a> {
+pub struct KeyContext<'a> {
     /// Whether the receiving level is the keyboard focus itself; keys also pass through the levels
     /// above it.
     pub is_focused: bool,

@@ -132,7 +132,7 @@ impl Frame {
 /// mapping lives here, with the frame that submits under it. Instance teardown maps its detached
 /// cycle end the same way: the last pacing of the instance is the pacing its final submission
 /// carries.
-pub(crate) fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
+pub fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
     match cycle_end {
         CycleEnd::Animating => RenderPacing::Smooth,
         CycleEnd::Settled => RenderPacing::Fast,

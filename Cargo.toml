@@ -30,6 +30,9 @@ edition = "2024"
 # generated code, which trips this lint. Allow workspace-wide until a newer derive_more
 # release fixes the generated code, then remove this.
 redundant_field_names = { level = "allow", priority = -1 }
+# The module declaration decides how far an item reaches; `pub(crate)` inside a private module
+# repeats it.
+redundant_pub_crate = "warn"
 
 [workspace.metadata]
 # For trunk
