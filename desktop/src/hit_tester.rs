@@ -3,11 +3,11 @@ use massive_renderer::RenderGeometry;
 
 use crate::coordinate_mapper::{CoordinateMapper, PlacementSource};
 use crate::projects::{RuntimeConfiguration, launcher_mode};
-use crate::{DesktopTarget, HitTester, OrderedHierarchy};
+use crate::{DesktopTarget, HitTest, OrderedHierarchy};
 
 /// Decides which target the pointer is over: which targets take part, overflowing children and
 /// overlays, and the nearest hit. Mapping pointer positions into targets is the mapper's.
-pub(crate) struct AggregateHitTester<'a> {
+pub(crate) struct HitTester<'a> {
     /// Walked to find the targets to test. The mapper holds the same hierarchy for its own
     /// purpose, and getting it through the mapper would hide this dependency.
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
@@ -22,7 +22,7 @@ pub struct HitTestResult {
     pub surface_depth: f64,
 }
 
-impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
+impl HitTest<DesktopTarget> for HitTester<'_> {
     fn hit_test(
         &self,
         screen_pos: Point,
@@ -48,7 +48,7 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
     }
 }
 
-impl<'a> AggregateHitTester<'a> {
+impl<'a> HitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,
