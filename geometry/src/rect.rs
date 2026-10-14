@@ -122,6 +122,10 @@ impl Rect {
         l < r && t < b
     }
 
+    /// The smallest rect containing both.
+    ///
+    /// Empty rects are skipped, so this cannot compute the bounds of points: a zero-sized rect
+    /// at a point contributes nothing.
     pub fn joined(&self, other: impl Into<Self>) -> Self {
         let other = other.into();
         if other.is_empty() {
