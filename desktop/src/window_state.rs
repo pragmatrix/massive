@@ -43,7 +43,7 @@ impl Default for WindowPresentationState {
 }
 
 impl WindowPresentationState {
-    pub fn delta_sync(&mut self, new_state: WindowPresentationState, window: &ShellWindow) {
+    pub fn sync(&mut self, new_state: WindowPresentationState, window: &ShellWindow) {
         if self.title != new_state.title {
             window.set_title(&new_state.title);
         }

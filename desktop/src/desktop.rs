@@ -442,7 +442,7 @@ fn finalize_desktop_frame(
     }
     submission.submit_to(window_context.renderer)?;
 
-    window_context.presentation_state.delta_sync(
+    window_context.presentation_state.sync(
         system.window_presentation_state(window_context.renderer.geometry())?,
         window_context.window,
     );
