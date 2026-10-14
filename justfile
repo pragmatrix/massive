@@ -39,3 +39,8 @@ flame:
 
 run:
 	cd .. && cargo run 
+
+# The lint and format checks of .github/workflows/qa.yaml, to run before pushing.
+qa:
+	cargo fmt -- --check
+	cargo clippy --all-targets -- -D warnings
