@@ -90,7 +90,8 @@ impl DesktopSystem {
         match presented {
             Some(view) => view.pair_key_events(event),
             None => {
-                // Keyboard focus only reaches presented views, and removal moves it away first.
+                // Keyboard focus only reaches presented views; hiding a view moves the focus away
+                // in the same change application.
                 assert!(
                     !matches!(event, ViewEvent::KeyboardInput { .. }),
                     "Key event for a view that isn't presented: {event:?}"

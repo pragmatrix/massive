@@ -357,7 +357,7 @@ impl Aggregates {
 
 /// The pixel box macOS places its text input UI next to, from a target's projected corners: a
 /// rotated or perspective target doesn't project to an axis-aligned rect, so its bounding box is
-/// the area. Not built with `Rect::join`, which skips empty rects and so ignores every point.
+/// the area. Not built with `Rect::joined`, which skips empty rects and so ignores every point.
 fn surface_bounds(points: Vec<Point>) -> BoxPx {
     assert!(!points.is_empty());
     let (min, max) = points.iter().fold(

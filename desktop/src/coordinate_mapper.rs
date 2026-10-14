@@ -11,6 +11,7 @@ use massive_scene::LocationSpace;
 
 use crate::{DesktopTarget, OrderedHierarchy};
 
+/// The layout's relative placements, which the mapper combines into target surfaces.
 pub trait PlacementSource {
     fn placement(
         &self,
