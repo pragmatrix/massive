@@ -79,8 +79,7 @@ impl ShellWindow {
         self.shared.window().set_cursor_visible(visible);
     }
 
-    /// Disallowing discards a pending composition, so a dead key pressed in one view does not
-    /// compose with the next key in another.
+    /// Disallowing discards a pending composition.
     pub fn set_ime_allowed(&self, allowed: bool) {
         self.shared.window().set_ime_allowed(allowed);
     }
