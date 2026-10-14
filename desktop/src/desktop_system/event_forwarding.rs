@@ -1,6 +1,8 @@
 use anyhow::Result;
 use log::warn;
-use massive_applications::ViewEvent;
+use winit::event::ElementState;
+
+use massive_applications::{InstanceId, ViewEvent, ViewId};
 
 use super::{Aggregates, Commands, DesktopSystem, DesktopTarget, InstancePart, ProjectPart};
 use crate::instance_manager::InstanceManager;
@@ -61,18 +63,58 @@ impl DesktopSystem {
                 return launcher.process(event, &params.params);
             }
             DesktopTarget::Instance(instance, InstancePart::View(view_id)) => {
-                // Hit testing already returned view-local coordinates.
-                if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
-                {
-                    // This might happen when an instance ends, but we haven't yet received the
-                    // information.
-                    warn!("Sending view event {event:?} failed with {e}");
+                for event in self.paired_key_events((instance, view_id), event) {
+                    // Hit testing already returned view-local coordinates.
+                    if let Err(e) =
+                        instance_manager.send_view_event((instance, view_id), event.clone())
+                    {
+                        // This might happen when an instance ends, but we haven't yet received the
+                        // information.
+                        warn!("Sending view event {event:?} failed with {e}");
+                    }
                 }
             }
             _ => {}
         }
 
         Ok(Commands::Empty)
+    }
+
+    /// The events the view receives for `event`, so its key presses and releases come in pairs.
+    fn paired_key_events(
+        &mut self,
+        view: (InstanceId, ViewId),
+        event: ViewEvent,
+    ) -> Vec<ViewEvent> {
+        match &event {
+            ViewEvent::KeyboardInput { event: key, .. } => {
+                let physical_key = key.physical_key;
+                match key.state {
+                    ElementState::Pressed => {
+                        self.key_pairing.pressed(view, physical_key, event.clone());
+                        vec![event]
+                    }
+                    ElementState::Released => {
+                        if self.key_pairing.released(&view, physical_key) {
+                            vec![event]
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                }
+            }
+            ViewEvent::Focused(false) => {
+                let mut events: Vec<ViewEvent> = self
+                    .key_pairing
+                    .unfocused(&view)
+                    .into_iter()
+                    .map(synthesized_release)
+                    .collect();
+                events.push(event);
+                events
+            }
+            _ => vec![event],
+        }
     }
 
     fn remember_unfocused_project_slot(&mut self, target: &DesktopTarget) {
@@ -98,5 +140,25 @@ impl DesktopSystem {
             .get_mut(&project)
             .expect("project has a presenter")
             .last_focused_placement = Some(placement);
+    }
+}
+
+/// winit's `KeyEvent` can't be constructed outside winit, so the release is the press turned around.
+fn synthesized_release(press: ViewEvent) -> ViewEvent {
+    let ViewEvent::KeyboardInput {
+        device_id,
+        mut event,
+        ..
+    } = press
+    else {
+        panic!("A held key is not a key event: {press:?}");
+    };
+    event.state = ElementState::Released;
+    event.repeat = false;
+    event.text = None;
+    ViewEvent::KeyboardInput {
+        device_id,
+        event,
+        is_synthetic: true,
     }
 }
