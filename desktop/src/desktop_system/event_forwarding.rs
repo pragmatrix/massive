@@ -61,7 +61,7 @@ impl DesktopSystem {
                 return launcher.process(event, &params.params);
             }
             DesktopTarget::Instance(instance, InstancePart::View(view_id)) => {
-                for event in self.paired_key_events((instance, view_id), event) {
+                for event in self.view_events_for((instance, view_id), event) {
                     // Hit testing already returned view-local coordinates.
                     if let Err(e) =
                         instance_manager.send_view_event((instance, view_id), event.clone())
@@ -78,12 +78,9 @@ impl DesktopSystem {
         Ok(Commands::Empty)
     }
 
-    /// The events the view receives for `event`, paired by its presenter.
-    fn paired_key_events(
-        &mut self,
-        view: (InstanceId, ViewId),
-        event: ViewEvent,
-    ) -> Vec<ViewEvent> {
+    /// The events the view receives for `event`; its presenter keeps its key presses and releases
+    /// paired.
+    fn view_events_for(&mut self, view: (InstanceId, ViewId), event: ViewEvent) -> Vec<ViewEvent> {
         let (instance, view_id) = view;
         let presented = self
             .aggregates
@@ -91,7 +88,7 @@ impl DesktopSystem {
             .get_mut(&instance)
             .and_then(|instance| instance.presented_view(view_id));
         match presented {
-            Some(view) => view.paired_events(event),
+            Some(view) => view.pair_key_events(event),
             None => {
                 // Keyboard focus only reaches presented views, and removal moves it away first.
                 assert!(

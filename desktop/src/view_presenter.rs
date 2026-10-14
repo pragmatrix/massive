@@ -33,10 +33,13 @@ impl ViewPresenter {
         self.creation_info.id
     }
 
-    /// The events the view receives for `event`, so its key presses and releases come in pairs:
-    /// the desktop consumes the presses of its shortcuts, and the focus may move while a key is
-    /// held.
-    pub fn paired_events(&mut self, event: ViewEvent) -> Vec<ViewEvent> {
+    /// The events the view receives for `event`, with every key release matched by a press.
+    ///
+    /// Without pairing, a view sees the release of a shortcut whose press the desktop consumed
+    /// (Cmd+T), and a key held while the focus moves comes up in another view. Applications that
+    /// track held keys, such as terminals reporting releases, would see stray releases or keys
+    /// stuck down; so unmatched releases are dropped, and losing the focus releases held keys.
+    pub fn pair_key_events(&mut self, event: ViewEvent) -> Vec<ViewEvent> {
         match &event {
             ViewEvent::KeyboardInput { event: key, .. } => {
                 let physical_key = key.physical_key;
@@ -153,14 +156,17 @@ mod tests {
         let mut view = presenter();
         // The desktop consumed the press of Cmd+T.
         assert!(
-            view.paired_events(key(T, ElementState::Released))
+            view.pair_key_events(key(T, ElementState::Released))
                 .is_empty()
         );
 
-        view.paired_events(key(A, ElementState::Pressed));
-        assert_eq!(view.paired_events(key(A, ElementState::Released)).len(), 1);
+        view.pair_key_events(key(A, ElementState::Pressed));
+        assert_eq!(
+            view.pair_key_events(key(A, ElementState::Released)).len(),
+            1
+        );
         assert!(
-            view.paired_events(key(A, ElementState::Released))
+            view.pair_key_events(key(A, ElementState::Released))
                 .is_empty()
         );
     }
@@ -168,9 +174,9 @@ mod tests {
     #[test]
     fn losing_the_focus_releases_the_held_keys_first() {
         let mut view = presenter();
-        view.paired_events(key(A, ElementState::Pressed));
+        view.pair_key_events(key(A, ElementState::Pressed));
 
-        let events = view.paired_events(ViewEvent::Focused(false));
+        let events = view.pair_key_events(ViewEvent::Focused(false));
         let [
             ViewEvent::KeyboardInput {
                 event: release,
@@ -186,7 +192,7 @@ mod tests {
         assert_eq!(release.state, ElementState::Released);
         // The physical release arrives after the focus moved on.
         assert!(
-            view.paired_events(key(A, ElementState::Released))
+            view.pair_key_events(key(A, ElementState::Released))
                 .is_empty()
         );
     }
