@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use uuid::Uuid;
 use winit::keyboard::ModifiersState;
@@ -117,6 +117,9 @@ impl InstanceRoot {
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
+/// A view change arriving before the primary view appears or after the instance began to
+/// disappear.
+const NOT_PRESENTING: &str = "Instance presenter is not presenting a view";
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -351,7 +354,7 @@ impl InstancePresenter {
     }
 
     pub fn set_view_title(&mut self, view_id: ViewId, title: String) -> Result<()> {
-        let view = self.presented_view_mut(view_id)?;
+        let view = self.presented_view_mut(view_id).context(NOT_PRESENTING)?;
         view.window_state.title = title.clone();
         self.title_bar
             .set_text(&title_bar_text(&title, &self.launcher_title));
@@ -359,34 +362,33 @@ impl InstancePresenter {
     }
 
     pub fn set_view_cursor(&mut self, view_id: ViewId, cursor: CursorIcon) -> Result<()> {
-        let view = self.presented_view_mut(view_id)?;
+        let view = self.presented_view_mut(view_id).context(NOT_PRESENTING)?;
         view.window_state.cursor = cursor;
         Ok(())
     }
 
     pub fn set_view_ime_area(&mut self, view_id: ViewId, area: Option<Rect>) -> Result<()> {
-        let view = self.presented_view_mut(view_id)?;
+        let view = self.presented_view_mut(view_id).context(NOT_PRESENTING)?;
         view.window_state.ime_area = area;
         Ok(())
     }
 
     /// This fails if the view is not presented.
     pub fn view_window_state(&self, view_id: ViewId) -> Result<&ViewWindowState> {
-        self.presenting_view(view_id).map(|view| &view.window_state)
+        self.presented_view(view_id)
+            .map(|view| &view.window_state)
+            .context(NOT_PRESENTING)
     }
 
     pub fn primary_view_id(&self) -> Option<ViewId> {
         Some(self.state.view()?.id())
     }
 
-    /// `None` while the instance presents no view, before it appears or while it disappears.
-    pub fn presented_view(&mut self, view_id: ViewId) -> Option<&mut ViewPresenter> {
+    /// `None` while the instance presents no view, before it appears or while it disappears. An
+    /// instance presents at most one view, so asking for another one is a bug.
+    pub fn presented_view_mut(&mut self, view_id: ViewId) -> Option<&mut ViewPresenter> {
         let view = self.state.view_mut()?;
-        assert_eq!(
-            view.id(),
-            view_id,
-            "Event for a view the instance doesn't present"
-        );
+        assert_eq!(view.id(), view_id, "The instance presents another view");
         Some(view)
     }
 
@@ -395,7 +397,7 @@ impl InstancePresenter {
         view_id: ViewId,
         layout: SizedTransform,
     ) -> Result<Option<SizePx>> {
-        let view = self.presented_view_mut(view_id)?;
+        let view = self.presented_view_mut(view_id).context(NOT_PRESENTING)?;
         let new_size = SizePx::new(layout.size.width as u32, layout.size.height as u32);
         let resize = (view.view_size != new_size).then_some(new_size);
         view.view_size = new_size;
@@ -447,28 +449,10 @@ impl InstancePresenter {
         });
     }
 
-    fn presenting_view(&self, view_id: ViewId) -> Result<&ViewPresenter> {
-        let Some(view) = self.state.view() else {
-            bail!("Instance presenter is not presenting a view.")
-        };
-
-        if view.creation_info.id != view_id {
-            bail!("Invalid view: It's not related to anything we present");
-        }
-
-        Ok(view)
-    }
-
-    fn presented_view_mut(&mut self, view_id: ViewId) -> Result<&mut ViewPresenter> {
-        let Some(view) = self.state.view_mut() else {
-            bail!("A view needs to be updated, but instance presenter is not presenting a view.")
-        };
-
-        if view.creation_info.id != view_id {
-            bail!("Invalid view: It's not related to anything we present");
-        }
-
-        Ok(view)
+    fn presented_view(&self, view_id: ViewId) -> Option<&ViewPresenter> {
+        let view = self.state.view()?;
+        assert_eq!(view.id(), view_id, "The instance presents another view");
+        Some(view)
     }
 }
 

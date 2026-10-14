@@ -86,7 +86,7 @@ impl DesktopSystem {
             .aggregates
             .instances
             .get_mut(&instance)
-            .and_then(|instance| instance.presented_view(view_id));
+            .and_then(|instance| instance.presented_view_mut(view_id));
         match presented {
             Some(view) => view.pair_key_events(event),
             None => {
