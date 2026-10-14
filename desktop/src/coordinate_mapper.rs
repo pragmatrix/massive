@@ -21,13 +21,13 @@ pub(crate) trait PlacementSource {
 
 /// Built per use from the current layout and render geometry, by the hit tester and for the
 /// window's IME area.
-pub(crate) struct CoordinateTranslator<'a> {
+pub(crate) struct CoordinateMapper<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     placements: &'a dyn PlacementSource,
     geometry: &'a RenderGeometry,
 }
 
-impl<'a> CoordinateTranslator<'a> {
+impl<'a> CoordinateMapper<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,

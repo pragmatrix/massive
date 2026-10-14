@@ -12,7 +12,7 @@ use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart,
     LayoutContext, TargetLayout, TransactionEffectsMode,
 };
-use crate::coordinate_translator::CoordinateTranslator;
+use crate::coordinate_mapper::CoordinateMapper;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::TITLE_SEPARATOR;
 use crate::window_state::WindowPresentationState;
@@ -98,18 +98,18 @@ impl DesktopSystem {
         // Projected through the camera's target, so the area moves once instead of following an
         // animation; placements are layout targets already.
         let geometry = RenderGeometry::new(surface_size, *self.camera.target());
-        let translator =
-            CoordinateTranslator::new(&self.aggregates.hierarchy, &self.layout_state, &geometry);
+        let mapper =
+            CoordinateMapper::new(&self.aggregates.hierarchy, &self.layout_state, &geometry);
         let (target, ime_area) = match ime {
             Some((target, area)) => (target, Some(area)),
             None => (self.focused_target()?, None),
         };
-        let surface = translator.surface(&target)?;
+        let surface = mapper.surface(&target)?;
         let area = ime_area.unwrap_or_else(|| Rect::from_size(surface.size));
         let corners = area
             .to_quad()
             .into_iter()
-            .map(|corner| translator.to_surface(corner, &surface))
+            .map(|corner| mapper.to_surface(corner, &surface))
             .collect();
         Some(surface_bounds(corners))
     }

@@ -1,16 +1,16 @@
 use massive_geometry::{Contains, Point, SizedTransform, Vector3};
 use massive_renderer::RenderGeometry;
 
-use crate::coordinate_translator::{CoordinateTranslator, PlacementSource};
+use crate::coordinate_mapper::{CoordinateMapper, PlacementSource};
 use crate::projects::{RuntimeConfiguration, launcher_mode};
 use crate::{DesktopTarget, HitTester, OrderedHierarchy};
 
 /// Decides which target the pointer is over: which targets take part, overflowing children and
-/// overlays, and the nearest hit. Mapping pointer positions into targets is the translator's.
+/// overlays, and the nearest hit. Mapping pointer positions into targets is the mapper's.
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     configuration: &'a RuntimeConfiguration,
-    translator: CoordinateTranslator<'a>,
+    mapper: CoordinateMapper<'a>,
 }
 
 #[derive(Debug)]
@@ -56,12 +56,12 @@ impl<'a> AggregateHitTester<'a> {
         Self {
             hierarchy,
             configuration,
-            translator: CoordinateTranslator::new(hierarchy, placements, geometry),
+            mapper: CoordinateMapper::new(hierarchy, placements, geometry),
         }
     }
 
     fn hit_test_target_plane(&self, screen_pos: Point, target: &DesktopTarget) -> Option<Vector3> {
-        let hit_surface = self.translator.surface(target)?;
+        let hit_surface = self.mapper.surface(target)?;
         self.hit_test_surface(screen_pos, &hit_surface)
     }
 
@@ -117,10 +117,10 @@ impl<'a> AggregateHitTester<'a> {
         root: &DesktopTarget,
         allow_overflow_children: bool,
     ) -> Option<HitTestResult> {
-        let hit_surface = self.translator.surface(root)?;
+        let hit_surface = self.mapper.surface(root)?;
         let local_pos = self.hit_test_surface(screen_pos, &hit_surface)?;
         let hit_world_pos = hit_surface.transform.transform_point(local_pos);
-        let hit_depth = self.translator.depth(hit_world_pos);
+        let hit_depth = self.mapper.depth(hit_world_pos);
         let is_inside_root = hit_surface
             .size
             .to_rect()
@@ -159,6 +159,6 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn hit_test_surface(&self, screen_pos: Point, surface: &SizedTransform) -> Option<Vector3> {
-        self.translator.to_local(screen_pos, surface)
+        self.mapper.to_local(screen_pos, surface)
     }
 }

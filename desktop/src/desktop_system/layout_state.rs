@@ -8,7 +8,7 @@ use massive_layout::{
 
 use super::DesktopTarget;
 use crate::OrderedHierarchy;
-use crate::coordinate_translator::PlacementSource;
+use crate::coordinate_mapper::PlacementSource;
 
 #[derive(Debug, Clone)]
 pub struct MeasureOutcome {
