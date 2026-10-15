@@ -118,7 +118,7 @@ Y and Z; AZERTY swaps A/Q and Z/W) but stay one key press away.
 
 | Key | Where it is |
 |---|---|
-| 1 … 0 | French (AZERTY): Shift + the top row; the unshifted keys type `& é " ' ( § è ! ç à` |
+| 1 … 0 | French and Belgian (AZERTY) only: Shift + the top row; the unshifted keys type `& é " ' ( § è ! ç à`. macOS layouts likely carry a Cmd layer that reports Cmd+`ç` as Cmd+9, which is why Cmd+digit works there in other apps (not verified). The desktop matches shortcuts by the character winit reports, so whether a Cmd+digit binding works on AZERTY depends on whether winit reports `9` or `ç` with Cmd held. Untested; if it reports `ç`, match digits by physical key |
 | = | German, Spanish, Italian, Nordic: Shift+0 |
 | . | French: Shift+; |
 | / | German, Spanish, Italian, Nordic: Shift+7; French: Shift+: |
@@ -161,7 +161,8 @@ compose characters (Opt+C types `ç`), so its users won't type those in the term
 - **Cmd+1 … 9, Cmd+N, Cmd+K, Cmd+, and Cmd+=/-** are free, yet nearly every comparable
   application binds them the same way. A user will try them first; they are the strongest
   candidates for go to instance N, a new project, clearing scrollback, settings and font size.
-  Cmd+1 … 9 and Cmd+= need Shift on some layouts (†); other apps accept Cmd++ for Cmd+= there.
+  Cmd+= needs Shift on most European layouts, where other apps accept Cmd++ instead; Cmd+1 … 9
+  may need care on AZERTY (†, see [Layouts](#layouts)).
 - **Cmd+D** splits a pane in three of the terminals. On the desktop, the closest meaning is
   starting an instance next to the focused one, which Cmd+T already does.
 - **Cmd+M** is free only because the shell has no Window menu; macOS users expect it to minimize.
