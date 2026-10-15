@@ -214,6 +214,7 @@ impl DesktopLayoutState {
             target,
             ChildPlacement::new(
                 parent_size,
+                parent_entry.measured.size,
                 &self.child_measurements,
                 &mut self.child_placements,
             ),
@@ -353,8 +354,7 @@ mod tests {
         }
 
         fn place_children(&self, _id: &DesktopTarget, children: ChildPlacement<'_, Transform, 2>) {
-            let (_, child_measurements, placements) = children.into();
-            for (placement, child) in placements.iter_mut().zip(child_measurements) {
+            for (placement, child) in children.placements.iter_mut().zip(children.measurements) {
                 *placement = Placement::new(
                     Transform::default(),
                     LayoutRect::new(self.child_offset, child.size),

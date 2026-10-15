@@ -510,13 +510,15 @@ impl TargetLayout for InstancePresenter {
         context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        let (parent_size, children, placements) = children.into();
         match part {
-            InstancePart::Instance => {
-                self.place_title_bar_and_view(context, parent_size, children, placements)
-            }
+            InstancePart::Instance => self.place_title_bar_and_view(
+                context,
+                children.parent_size,
+                children.measurements,
+                children.placements,
+            ),
             InstancePart::TitleBar | InstancePart::View(_) => {
-                assert!(placements.is_empty(), "{part:?} is a leaf")
+                assert!(children.placements.is_empty(), "{part:?} is a leaf")
             }
         }
     }

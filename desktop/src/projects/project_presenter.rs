@@ -125,15 +125,14 @@ impl TargetLayout for ProjectPresenter {
         context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        let (parent_size, children, placements) = children.into();
         match part {
             ProjectPart::Project => {
                 let padding = (PROJECT_PADDING, PROJECT_PADDING).into();
                 let mut child_sizes: Vec<_> = expand_cross_axis_child_sizes(
                     LayoutAxis::VERTICAL,
                     padding,
-                    parent_size,
-                    children,
+                    children.parent_size,
+                    children.measurements,
                 )
                 .collect();
                 assert_eq!(
@@ -145,9 +144,8 @@ impl TargetLayout for ProjectPresenter {
                 // tracks in it.
                 expand_main_axis_child_size(
                     LayoutAxis::VERTICAL,
-                    padding,
-                    PROJECT_HEADER_SPACING,
-                    parent_size,
+                    children.parent_size,
+                    children.parent_measured_size,
                     &mut child_sizes,
                     1,
                 );
@@ -156,13 +154,17 @@ impl TargetLayout for ProjectPresenter {
                     PROJECT_HEADER_SPACING as i32,
                     Offset::from(padding.leading),
                     child_sizes,
-                    placements,
+                    children.placements,
                 );
             }
-            ProjectPart::Header => assert!(placements.is_empty(), "{part:?} is a leaf"),
-            ProjectPart::Matrix => {
-                place_matrix_children(self.id, context, parent_size, children, placements)
-            }
+            ProjectPart::Header => assert!(children.placements.is_empty(), "{part:?} is a leaf"),
+            ProjectPart::Matrix => place_matrix_children(
+                self.id,
+                context,
+                children.parent_size,
+                children.measurements,
+                children.placements,
+            ),
         }
     }
 

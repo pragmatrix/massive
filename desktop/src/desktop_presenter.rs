@@ -104,19 +104,18 @@ impl TargetLayout for DesktopPresenter {
         _context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        let (parent_size, children, placements) = children.into();
         let child_sizes = expand_cross_axis_child_sizes(
             LayoutAxis::VERTICAL,
             Default::default(),
-            parent_size,
-            children,
+            children.parent_size,
+            children.measurements,
         );
         place_container_children(
             LayoutAxis::VERTICAL,
             0,
             Offset::default(),
             child_sizes,
-            placements,
+            children.placements,
         );
     }
 

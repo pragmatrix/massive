@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use derive_more::{Constructor, Into};
+use derive_more::Constructor;
 
 use crate::dimensional_types::{Offset, Rect, Size};
 
@@ -49,17 +49,23 @@ impl<const RANK: usize> From<Size<RANK>> for MeasuredLayout<RANK> {
 }
 
 /// The input and output of placing a parent's children: one placement slot per measured child, so
-/// an algorithm can't produce a different count.
-#[derive(Debug, Into)]
+/// an algorithm can't produce a different count. Algorithms destructure it by name, so the two
+/// sizes can't be swapped; `non_exhaustive` keeps other crates from building it past `new`.
+#[derive(Debug)]
+#[non_exhaustive]
 pub struct ChildPlacement<'a, T, const RANK: usize> {
-    parent_size: Size<RANK>,
-    measurements: &'a [MeasuredLayout<RANK>],
-    placements: &'a mut [Placement<T, RANK>],
+    pub parent_size: Size<RANK>,
+    /// What the parent measured itself as, so placement reuses its measured span instead of
+    /// deriving it again; `parent_size` exceeds it by what a stretched parent gained.
+    pub parent_measured_size: Size<RANK>,
+    pub measurements: &'a [MeasuredLayout<RANK>],
+    pub placements: &'a mut [Placement<T, RANK>],
 }
 
 impl<'a, T, const RANK: usize> ChildPlacement<'a, T, RANK> {
     pub fn new(
         parent_size: Size<RANK>,
+        parent_measured_size: Size<RANK>,
         measurements: &'a [MeasuredLayout<RANK>],
         placements: &'a mut [Placement<T, RANK>],
     ) -> Self {
@@ -70,6 +76,7 @@ impl<'a, T, const RANK: usize> ChildPlacement<'a, T, RANK> {
         );
         Self {
             parent_size,
+            parent_measured_size,
             measurements,
             placements,
         }

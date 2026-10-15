@@ -287,14 +287,13 @@ impl TargetLayout for LauncherPresenter {
         context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        let (_, children, placements) = children.into();
         match context.configuration[self.id].mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
                 Offset::default(),
-                children.iter().map(|child| child.size),
-                placements,
+                children.measurements.iter().map(|child| child.size),
+                children.placements,
             ),
             LauncherMode::Visor => {
                 let index_of = |instance: Option<InstanceId>| {
@@ -307,11 +306,11 @@ impl TargetLayout for LauncherPresenter {
                 let expanded = index_of(context.focused_instance).is_some();
                 let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
                 self.place_visor_children(
-                    children,
+                    children.measurements,
                     center_index,
                     expanded,
                     context.default_panel_size,
-                    placements,
+                    children.placements,
                 );
             }
         }
