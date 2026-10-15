@@ -20,6 +20,13 @@ widths. Slots are left-aligned within their columns; column widths and row
 heights are the maximum presented extents, with existing spacing preserved.
 Launcher sizing and application viewport sizes are unchanged.
 
+A nested project stretches to its column and row tracks, in layout space,
+extent $t / s$ for a track $t$, so the presented project fills its slot; its
+intrinsic size still sets the shared scale. Its header stays on top, and its
+matrix takes the gained height and centers its tracks vertically in it, on
+whole pixels. An empty project, one without slots, measures its matrix as one
+instance extent, like an empty launcher, so it stays readable on its own.
+
 ## Layout dependency direction
 
 Measure project scenes bottom-up using cached child measurements. A project's
