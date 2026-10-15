@@ -166,3 +166,6 @@ compose characters (Opt+C types `ç`), so its users won't type those in the term
 - **Cmd+D** splits a pane in three of the terminals. On the desktop, the closest meaning is
   starting an instance next to the focused one, which Cmd+T already does.
 - **Cmd+M** is free only because the shell has no Window menu; macOS users expect it to minimize.
+  For a single-window app it adds little over Cmd+H, which hides the whole app and comes back
+  with Cmd+Tab, while a minimized window does not. Keyboard users mostly hide; Cmd+M is often hit
+  by accident next to Cmd+N. (An impression, not measured.)
