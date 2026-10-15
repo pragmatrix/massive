@@ -61,6 +61,8 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
             .configuration
             .boot_launcher()
             .expect("the test configuration has a startup launcher");
+        // Submitting the frame runs the queued movements that move the launcher's scene transform.
+        drop(frame.submission::<SceneChange>());
         let location = system.aggregates.launchers[&launcher].location();
         let resolved = massive_scene::TransformResolver::default()
             .resolve(&location.to_ref())
@@ -78,7 +80,6 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
             "the scene draws the launcher at {resolved:?}, but the model places it at {expected:?}"
         );
 
-        drop(frame.submission::<SceneChange>());
         Ok(())
     })
     .await

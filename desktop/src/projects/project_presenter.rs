@@ -112,7 +112,10 @@ impl TargetLayout for ProjectPresenter {
                 .into();
                 MeasuredLayout::new(size, [true, false])
             }
-            ProjectPart::Matrix => measure_matrix(self.id, context, children).into(),
+            // The matrix stretches across the project's width to center its columns in it.
+            ProjectPart::Matrix => {
+                MeasuredLayout::new(measure_matrix(self.id, context, children), [true, false])
+            }
         }
     }
 

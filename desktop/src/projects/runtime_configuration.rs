@@ -672,15 +672,6 @@ impl RuntimeConfiguration {
             .and_then(|project| project.content_at(placement))
     }
 
-    /// The placement of `content` within `project`'s matrix.
-    pub fn placement_of_content(
-        &self,
-        project: ProjectId,
-        content: impl Into<SlotContent>,
-    ) -> Option<MatrixPlacement> {
-        self.project(project)?.placement_of_content(content)
-    }
-
     /// All launchers of the project, kept in matrix-placement order (the
     /// aggregate invariant).
     pub fn launchers_ordered(&self, project: ProjectId) -> impl Iterator<Item = &Launcher> + '_ {
