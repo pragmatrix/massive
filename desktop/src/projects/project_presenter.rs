@@ -10,8 +10,8 @@ use massive_scene::prelude::*;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
-    ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
-    place_container_children,
+    ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
+    expand_main_axis_child_size, measure_container, place_container_children,
 };
 use crate::projects::{MatrixPlacement, ProjectId};
 
@@ -99,7 +99,7 @@ impl TargetLayout for ProjectPresenter {
                     PROJECT_HEADER_SPACING,
                     children.iter().map(|child| child.size),
                 );
-                // A project fills its slot; its matrix centers the content in the gained height.
+                // A project fills its slot (ADR 0023).
                 MeasuredLayout::new(size, [true, true])
             }
             // The header stretches across the project's width.
@@ -112,7 +112,10 @@ impl TargetLayout for ProjectPresenter {
                 .into();
                 MeasuredLayout::new(size, [true, false])
             }
-            ProjectPart::Matrix => measure_matrix(self.id, context, children).into(),
+            // The matrix stretches across the project's width to center its columns in it.
+            ProjectPart::Matrix => {
+                MeasuredLayout::new(measure_matrix(self.id, context, children), [true, false])
+            }
         }
     }
 
@@ -122,38 +125,47 @@ impl TargetLayout for ProjectPresenter {
         context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        let (parent_size, children, placements) = children.into();
         match part {
             ProjectPart::Project => {
                 let padding = (PROJECT_PADDING, PROJECT_PADDING).into();
                 let mut child_sizes: Vec<_> = expand_cross_axis_child_sizes(
                     LayoutAxis::VERTICAL,
                     padding,
-                    parent_size,
-                    children,
+                    children.parent_size,
+                    children.measurements,
                 )
                 .collect();
-                let [header, matrix] = child_sizes.as_mut_slice() else {
-                    panic!("a project holds a header and a matrix");
-                };
-                // The matrix takes the height a stretched project gains, so pointer hits there land
-                // in the project.
-                let matrix_height = parent_size[1].saturating_sub(
-                    padding.leading[1] + header[1] + PROJECT_HEADER_SPACING + padding.trailing[1],
+                assert_eq!(
+                    child_sizes.len(),
+                    2,
+                    "a project holds a header and a matrix"
                 );
-                matrix[1] = max(matrix[1], matrix_height);
+                // The matrix takes the height a stretched project gains, so it can center its
+                // tracks in it.
+                expand_main_axis_child_size(
+                    LayoutAxis::VERTICAL,
+                    children.parent_size,
+                    children.parent_measured_size,
+                    &mut child_sizes,
+                    1,
+                );
                 place_container_children(
                     LayoutAxis::VERTICAL,
                     PROJECT_HEADER_SPACING as i32,
                     Offset::from(padding.leading),
                     child_sizes,
-                    placements,
+                    children.placements,
                 );
             }
-            ProjectPart::Header => assert!(placements.is_empty(), "{part:?} is a leaf"),
-            ProjectPart::Matrix => {
-                place_matrix_children(self.id, context, parent_size, children, placements)
-            }
+            ProjectPart::Header => assert!(children.placements.is_empty(), "{part:?} is a leaf"),
+            ProjectPart::Matrix => place_matrix_children(
+                self.id,
+                context,
+                children.parent_size,
+                children.parent_measured_size,
+                children.measurements,
+                children.placements,
+            ),
         }
     }
 

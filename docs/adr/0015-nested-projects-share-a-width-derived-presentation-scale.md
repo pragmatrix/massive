@@ -1,6 +1,6 @@
 # Nested projects share a width-derived presentation scale
 
-## Status: accepted
+## Status: superseded by [ADR 0023](./0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)
 
 Nested projects in a parent should preserve their relative visual sizes while
 remaining readable. Each parent therefore applies one shared project scale to

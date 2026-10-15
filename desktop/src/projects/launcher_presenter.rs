@@ -287,14 +287,13 @@ impl TargetLayout for LauncherPresenter {
         context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        let (_, children, placements) = children.into();
         match context.configuration[self.id].mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
                 Offset::default(),
-                children.iter().map(|child| child.size),
-                placements,
+                children.measurements.iter().map(|child| child.size),
+                children.placements,
             ),
             LauncherMode::Visor => {
                 let index_of = |instance: Option<InstanceId>| {
@@ -307,11 +306,11 @@ impl TargetLayout for LauncherPresenter {
                 let expanded = index_of(context.focused_instance).is_some();
                 let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
                 self.place_visor_children(
-                    children,
+                    children.measurements,
                     center_index,
                     expanded,
                     context.default_panel_size,
-                    placements,
+                    children.placements,
                 );
             }
         }
@@ -337,8 +336,8 @@ impl TargetLayout for LauncherPresenter {
 }
 
 /// A launcher spans an instance's extent, title bar included (ADR 0019). An empty one stretches to
-/// its matrix row, while instances give it an intrinsic size, so the first instance takes the top
-/// of the cell; bands measure from their instances like any horizontal container.
+/// its matrix row, while instances give it an intrinsic size, which the matrix centers in its slot
+/// (ADR 0023); bands measure from their instances like any horizontal container.
 fn measure_launcher(
     launcher: LaunchProfileId,
     context: &LayoutContext,
@@ -511,7 +510,7 @@ mod tests {
     use crate::projects::persistence::parse_configuration;
 
     /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
-    /// vertically, so the first instance takes the top of the cell (ADR 0019).
+    /// vertically, so one holding instances keeps their intrinsic size (ADR 0019).
     #[test]
     fn launchers_measure_with_the_instance_extent() {
         let configuration = parse_configuration(

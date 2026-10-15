@@ -28,6 +28,10 @@ _Avoid_: cell, launcher cell, tile, container, occupied
 A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
 _Avoid_: coordinates
 
+**Slot extent**:
+The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.
+_Avoid_: cell, slot size, default size
+
 **Project focus slot**:
 The one slot in a project through which the most recently keyboard-focused target descends. Each project on the focus path remembers only its own immediate slot; nested projects continue the path independently. If no remembered slot is available, focus falls back to the first launcher found depth-first in matrix order, or to the project itself when no launcher exists in its subtree. Zooming in on a project restores its focus slot one level deep; entering it follows the focus slots down to a leaf.
 _Avoid_: recent instance per project, focus history path
@@ -37,7 +41,7 @@ A project's layout in its own pixel coordinates, including the presentation of i
 _Avoid_: slot size, presented extent
 
 **Shared project scale**:
-The uniform presentation scale a parent assigns to all its direct nested projects, across every column. It is determined by the widest intrinsic project scene relative to the preferred default panel width, never enlarges projects, and does not constrain their presented heights.
+The uniform presentation scale a parent assigns to all its direct nested projects, across every column: the largest scale that fits both the widest and the tallest intrinsic project scene into one slot extent. It never enlarges projects.
 _Avoid_: per-slot zoom, camera zoom, viewport resize
 
 **Startup launcher**:

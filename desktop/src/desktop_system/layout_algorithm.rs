@@ -54,6 +54,22 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
     }
 }
 
+/// Gives the child at `index` the extent along `axis` a stretched container gained beyond its
+/// measured size, so it fills its main axis without deriving its stacked span again.
+pub fn expand_main_axis_child_size(
+    axis: LayoutAxis,
+    parent_size: Size<2>,
+    parent_measured_size: Size<2>,
+    child_sizes: &mut [Size<2>],
+    index: usize,
+) {
+    let axis_index: usize = axis.into();
+    // A re-measured container is placed once at its previous size before its parent re-places it,
+    // so `parent_size` can lag the measured size.
+    child_sizes[index][axis_index] +=
+        parent_size[axis_index].saturating_sub(parent_measured_size[axis_index]);
+}
+
 /// The size of children stacked along `axis`: their extents and the spacing between them along it,
 /// the largest extent across it.
 pub fn measure_container(
