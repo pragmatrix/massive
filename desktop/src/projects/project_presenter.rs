@@ -92,13 +92,16 @@ impl TargetLayout for ProjectPresenter {
         children: &[MeasuredLayout<2>],
     ) -> MeasuredLayout<2> {
         match part {
-            ProjectPart::Project => measure_container(
-                LayoutAxis::VERTICAL,
-                (PROJECT_PADDING, PROJECT_PADDING).into(),
-                PROJECT_HEADER_SPACING,
-                children.iter().map(|child| child.size),
-            )
-            .into(),
+            ProjectPart::Project => {
+                let size = measure_container(
+                    LayoutAxis::VERTICAL,
+                    (PROJECT_PADDING, PROJECT_PADDING).into(),
+                    PROJECT_HEADER_SPACING,
+                    children.iter().map(|child| child.size),
+                );
+                // A project fills its slot; its matrix centers the content in the gained height.
+                MeasuredLayout::new(size, [true, true])
+            }
             // The header stretches across the project's width.
             ProjectPart::Header => {
                 let measured = self.header.measured_size();
@@ -123,12 +126,22 @@ impl TargetLayout for ProjectPresenter {
         match part {
             ProjectPart::Project => {
                 let padding = (PROJECT_PADDING, PROJECT_PADDING).into();
-                let child_sizes = expand_cross_axis_child_sizes(
+                let mut child_sizes: Vec<_> = expand_cross_axis_child_sizes(
                     LayoutAxis::VERTICAL,
                     padding,
                     parent_size,
                     children,
+                )
+                .collect();
+                let [header, matrix] = child_sizes.as_mut_slice() else {
+                    panic!("a project holds a header and a matrix");
+                };
+                // The matrix takes the height a stretched project gains, so pointer hits there land
+                // in the project.
+                let matrix_height = parent_size[1].saturating_sub(
+                    padding.leading[1] + header[1] + PROJECT_HEADER_SPACING + padding.trailing[1],
                 );
+                matrix[1] = max(matrix[1], matrix_height);
                 place_container_children(
                     LayoutAxis::VERTICAL,
                     PROJECT_HEADER_SPACING as i32,
@@ -138,7 +151,9 @@ impl TargetLayout for ProjectPresenter {
                 );
             }
             ProjectPart::Header => assert!(placements.is_empty(), "{part:?} is a leaf"),
-            ProjectPart::Matrix => place_matrix_children(self.id, context, children, placements),
+            ProjectPart::Matrix => {
+                place_matrix_children(self.id, context, parent_size, children, placements)
+            }
         }
     }
 
