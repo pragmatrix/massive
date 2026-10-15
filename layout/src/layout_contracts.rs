@@ -49,11 +49,14 @@ impl<const RANK: usize> From<Size<RANK>> for MeasuredLayout<RANK> {
 }
 
 /// The input and output of placing a parent's children: one placement slot per measured child, so
-/// an algorithm can't produce a different count. Algorithms destructure it by name, so the two
+/// an algorithm can't produce a different count. Algorithms read its fields by name, so the two
 /// sizes can't be swapped; `non_exhaustive` keeps other crates from building it past `new`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ChildPlacement<'a, T, const RANK: usize> {
+    /// The size the parent is placed at. A re-measured parent places its children once at its
+    /// previous size, before its own parent places it again, so for that pass this can be smaller
+    /// than `parent_measured_size`.
     pub parent_size: Size<RANK>,
     /// What the parent measured itself as, so placement reuses its measured span instead of
     /// deriving it again; `parent_size` exceeds it by what a stretched parent gained.

@@ -79,8 +79,8 @@ fn slot_extent(context: &LayoutContext) -> SizePx {
 }
 
 /// Where content spanning `span` starts to sit centered in `extent`, on whole pixels so it stays on
-/// the pixel grid. A re-measured matrix is placed once at its previous size before its project
-/// re-places it, so `extent` can lag the span.
+/// the pixel grid. A matrix's `extent` can lag its span for one pass
+/// (`ChildPlacement::parent_size`).
 fn centering_offset(extent: u32, span: u32) -> i32 {
     (extent.saturating_sub(span) / 2) as i32
 }

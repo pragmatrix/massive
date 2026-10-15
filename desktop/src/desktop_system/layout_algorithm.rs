@@ -64,8 +64,7 @@ pub fn expand_main_axis_child_size(
     index: usize,
 ) {
     let axis_index: usize = axis.into();
-    // A re-measured container is placed once at its previous size before its parent re-places it,
-    // so `parent_size` can lag the measured size.
+    // `parent_size` can lag the measured size for one pass (`ChildPlacement::parent_size`).
     child_sizes[index][axis_index] +=
         parent_size[axis_index].saturating_sub(parent_measured_size[axis_index]);
 }
