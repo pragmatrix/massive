@@ -59,6 +59,14 @@ measured size stays unchanged.
   whose rows stay within the default size is worth that cost.
 - Bands and their instances render smaller in a matrix than in focus.
 
+## Under discussion
+
+The shared project scale. It equals the smallest scale any single sibling
+needs, so one tall project shrinks a sibling that alone would fill its slot,
+such as a project with a single launcher, to the same small scale. Per-project
+fitting, rejected below, is the alternative being weighed against keeping the
+siblings' relative sizes visible.
+
 ## Considered options
 
 - Per-slot fitting for projects gives siblings different scales, obscuring

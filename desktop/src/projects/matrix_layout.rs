@@ -118,6 +118,7 @@ fn matrix_slots(
         .map(|slot| (slot.content(), slot.placement))
         .collect();
     // ADR 0023: a parent-wide scale preserves the relative sizes of sibling projects.
+    // Architecture: the shared scale is under discussion, see ADR 0023, "Under discussion".
     let largest_project = contents
         .clone()
         .zip(children)
