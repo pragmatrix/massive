@@ -99,7 +99,7 @@ impl TargetLayout for ProjectPresenter {
                     PROJECT_HEADER_SPACING,
                     children.iter().map(|child| child.size),
                 );
-                // A project fills its slot (ADR 0015).
+                // A project fills its slot (ADR 0023).
                 MeasuredLayout::new(size, [true, true])
             }
             // The header stretches across the project's width.

@@ -206,7 +206,7 @@ to it.
   the placement the camera, hover outline and hit test read.
 - The presentation scale is applied once, by the slot's placement; the nested
   presenter must not apply it again. Its value is defined by
-  [ADR 0015](0015-nested-projects-share-a-width-derived-presentation-scale.md).
+  [ADR 0023](0023-matrix-slots-share-one-slot-extent-and-center-their-content.md).
 
 ### Requests and CLI
 

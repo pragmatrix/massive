@@ -1,6 +1,6 @@
 //! The geometry of a project's matrix: slots on columns of one slot width and on rows as tall as
 //! their tallest slot, each slot's content scaled to fit one slot extent and centered in its slot
-//! (ADR 0015).
+//! (ADR 0023).
 
 use std::array;
 use std::cmp::max;
@@ -117,7 +117,7 @@ fn matrix_slots(
         .iter()
         .map(|slot| (slot.content(), slot.placement))
         .collect();
-    // ADR 0015: a parent-wide scale preserves the relative sizes of sibling projects.
+    // ADR 0023: a parent-wide scale preserves the relative sizes of sibling projects.
     let largest_project = contents
         .clone()
         .zip(children)
@@ -156,7 +156,7 @@ fn matrix_slots(
         .collect()
 }
 
-/// ADR 0015: content shrinks to fit a slot's extent, like a full-screen instance fits the window,
+/// ADR 0023: content shrinks to fit a slot's extent, like a full-screen instance fits the window,
 /// so no slot widens its column or grows its row beyond the default size.
 fn presentation_scale(slot_extent: SizePx, scene_size: SizePx) -> f64 {
     fullscreen_scale(slot_extent, scene_size).min(1.0)

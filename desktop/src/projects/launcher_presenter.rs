@@ -337,8 +337,8 @@ impl TargetLayout for LauncherPresenter {
 }
 
 /// A launcher spans an instance's extent, title bar included (ADR 0019). An empty one stretches to
-/// its matrix row, while instances give it an intrinsic size, so the first instance takes the top
-/// of the cell; bands measure from their instances like any horizontal container.
+/// its matrix row, while instances give it an intrinsic size, which the matrix centers in its slot
+/// (ADR 0023); bands measure from their instances like any horizontal container.
 fn measure_launcher(
     launcher: LaunchProfileId,
     context: &LayoutContext,
@@ -511,7 +511,7 @@ mod tests {
     use crate::projects::persistence::parse_configuration;
 
     /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
-    /// vertically, so the first instance takes the top of the cell (ADR 0019).
+    /// vertically, so one holding instances keeps their intrinsic size (ADR 0019).
     #[test]
     fn launchers_measure_with_the_instance_extent() {
         let configuration = parse_configuration(
