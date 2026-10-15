@@ -7,17 +7,23 @@ use massive_geometry::{Quaternion, Rect, RectPx, SizePx, Transform};
 use massive_layout::{MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size};
 
 use crate::desktop_system::LayoutContext;
+use crate::instance_presenter::instance_extent;
 use crate::projects::{MatrixPlacement, ProjectId, SlotContent};
 
 const MATRIX_COLUMN_SPACING: u32 = 10;
 const MATRIX_ROW_SPACING: u32 = 10;
 
-/// The size the tracks span, column and row spacing included.
+/// The size the tracks span, column and row spacing included. An empty matrix spans one instance
+/// extent, like an empty launcher, so an empty project stays as readable as one holding a launcher.
 pub fn measure_matrix(
     project: ProjectId,
     context: &LayoutContext,
     children: &[MeasuredLayout<2>],
 ) -> Size<2> {
+    if children.is_empty() {
+        return instance_extent(context.default_panel_size, context.title_bar_metrics.height)
+            .into();
+    }
     // Shared presented extents keep measured matrix bounds consistent with placement.
     let (columns, rows) = matrix_tracks(matrix_slots(project, context, children));
     [
@@ -27,15 +33,20 @@ pub fn measure_matrix(
     .into()
 }
 
+/// Places the slots on their tracks, the tracks vertically centered in the matrix's `size`, which
+/// exceeds their span when the project is stretched to its own slot.
 pub fn place_matrix_children(
     project: ProjectId,
     context: &LayoutContext,
+    size: Size<2>,
     children: &[MeasuredLayout<2>],
     placements: &mut [Placement<Transform, 2>],
 ) {
     let slots = matrix_slots(project, context, children);
     // Every slot sizes the tracks before any slot can be placed, so the slots are produced twice.
     let (columns, rows) = matrix_tracks(slots.clone());
+    // Whole pixels keep the slots' content on the pixel grid.
+    let top = (size[1].saturating_sub(tracks_span(&rows, MATRIX_ROW_SPACING)) / 2) as i32;
 
     for ((slot, measurement), placement) in slots.zip(children).zip(placements) {
         let offset = Offset::from([
@@ -44,9 +55,9 @@ pub fn place_matrix_children(
                 slot.placement.column as usize,
                 MATRIX_COLUMN_SPACING,
             ),
-            track_offset(&rows, slot.placement.row as usize, MATRIX_ROW_SPACING),
+            top + track_offset(&rows, slot.placement.row as usize, MATRIX_ROW_SPACING),
         ]);
-        let layout_size = expand_to_row(&slot, measurement, &rows);
+        let layout_size = expand_to_slot(&slot, measurement, [&columns, &rows]);
         let rect: RectPx = LayoutRect::new(offset, layout_size).into();
         let rect = Rect::from(rect);
         // The exact scaled center preserves left alignment despite rounded track extents.
@@ -113,13 +124,20 @@ fn presentation_scale(preferred_width: u32, scene_width: u32) -> f64 {
     preferred_width as f64 / scene_width as f64
 }
 
-/// The slot's layout size, its height stretched to its row's track when it expands vertically.
-fn expand_to_row(slot: &MatrixSlot, measurement: &MeasuredLayout<2>, rows: &[u32]) -> Size<2> {
+/// The slot's layout size, stretched to its column's and row's tracks along the axes it expands.
+fn expand_to_slot(
+    slot: &MatrixSlot,
+    measurement: &MeasuredLayout<2>,
+    tracks: [&[u32]; 2],
+) -> Size<2> {
+    let indices = [slot.placement.column, slot.placement.row];
     let mut size = slot.layout_size;
-    if measurement.expandable_axes[1] {
-        // Tracks hold presented extents; only unscaled launchers expand, so they equal layout ones.
-        assert_eq!(slot.scale, 1.0, "only unscaled slots expand");
-        size[1] = max(size[1], rows[slot.placement.row as usize]);
+    for axis in 0..2 {
+        if measurement.expandable_axes[axis] {
+            // Tracks hold presented extents; flooring the unscaled extent keeps it inside the track.
+            let track = tracks[axis][indices[axis] as usize];
+            size[axis] = max(size[axis], (track as f64 / slot.scale).floor() as u32);
+        }
     }
     size
 }
@@ -157,7 +175,32 @@ fn track_offset(tracks: &[u32], index: usize, spacing: u32) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::OrderedHierarchy;
+    use crate::instance_presenter::InstanceTitleBarMetrics;
+    use crate::projects::persistence::parse_configuration;
+
+    /// An empty project keeps an instance's extent, so it stays readable without siblings.
+    #[test]
+    fn an_empty_matrix_spans_one_instance_extent() {
+        let configuration =
+            parse_configuration(Path::new("/config/desktop.json"), r#"{ "slots": [] }"#).unwrap();
+        let hierarchy = OrderedHierarchy::default();
+        let context = LayoutContext {
+            hierarchy: &hierarchy,
+            configuration: &configuration,
+            default_panel_size: SizePx::new(800, 600),
+            window_size: SizePx::new(800, 600),
+            focused_instance: None,
+            title_bar_metrics: InstanceTitleBarMetrics::from_scale_factor(1.0),
+        };
+        assert_eq!(
+            measure_matrix(ProjectId::new(), &context, &[]),
+            instance_extent(context.default_panel_size, context.title_bar_metrics.height).into()
+        );
+    }
 
     #[test]
     fn presentation_scale_fits_width_without_enlarging() {
@@ -172,21 +215,39 @@ mod tests {
     }
 
     #[test]
-    fn only_vertically_expandable_slots_stretch_to_their_row() {
+    fn slots_stretch_only_along_their_expandable_axes() {
         let layout_size = Size([100, 50]);
         let slot = MatrixSlot {
             layout_size,
             size: layout_size,
             scale: 1.0,
-            placement: MatrixPlacement { column: 0, row: 1 },
+            placement: MatrixPlacement { column: 1, row: 1 },
         };
-        let rows = [400, 300];
+        let tracks: [&[u32]; 2] = [&[500, 200], &[400, 300]];
 
-        let expandable = MeasuredLayout::new(layout_size, [false, true]);
-        assert_eq!(expand_to_row(&slot, &expandable, &rows), Size([100, 300]));
+        let vertical = MeasuredLayout::new(layout_size, [false, true]);
+        assert_eq!(expand_to_slot(&slot, &vertical, tracks), Size([100, 300]));
+        let both = MeasuredLayout::new(layout_size, [true, true]);
+        assert_eq!(expand_to_slot(&slot, &both, tracks), Size([200, 300]));
         assert_eq!(
-            expand_to_row(&slot, &layout_size.into(), &rows),
+            expand_to_slot(&slot, &layout_size.into(), tracks),
             layout_size
         );
+    }
+
+    /// A scaled slot stretches in layout space, so its presented extent fills the track.
+    #[test]
+    fn scaled_slots_stretch_to_the_unscaled_track() {
+        let layout_size = Size([100, 50]);
+        let slot = MatrixSlot {
+            layout_size,
+            size: Size([50, 25]),
+            scale: 0.5,
+            placement: MatrixPlacement { column: 0, row: 0 },
+        };
+        let tracks: [&[u32]; 2] = [&[201], &[301]];
+
+        let both = MeasuredLayout::new(layout_size, [true, true]);
+        assert_eq!(expand_to_slot(&slot, &both, tracks), Size([402, 602]));
     }
 }
