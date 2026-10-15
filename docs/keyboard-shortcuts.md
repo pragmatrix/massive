@@ -1,0 +1,167 @@
+# Keyboard shortcuts
+
+Which keys the massive desktop, the shell and the terminal client use, which ones are free,
+and what comparable applications use them for. This list is for picking a key for a new
+command without colliding with a habit users already have.
+
+Status: 2026-10-15. WezTerm's defaults were checked against `wezterm/wezterm-gui/src/commands.rs`
+and winit's menu against winit 0.30. The other applications are listed from their documented
+defaults on macOS.
+
+**Tags:** mac = macOS convention · Term = Terminal.app · iT = iTerm2 · Gh = Ghostty · Wz =
+WezTerm · Kt = Kitty · VS = VS Code · Ob = Obsidian · Br = Safari and Chrome · Fi = Finder · MC =
+Mission Control and macOS window tiling · Aero = AeroSpace
+
+† marks a key that is hard to reach outside the US and UK layouts: its character needs Shift
+or Option, or is a dead key, on common European layouts (see [Layouts](#layouts)). Every key in
+use or planned today is reachable on all of them.
+
+## In use
+
+Desktop shortcuts are matched in `desktop/src/desktop_system/keyboard_shortcuts.rs` and
+delivered top down; the level that consumes one decides its meaning (ADR 0020).
+
+| Key | Owner | Action | Elsewhere |
+|---|---|---|---|
+| Enter | desktop (project, launcher) | Enter the focused project; start an instance from the focused launcher | — |
+| Shift+Enter | desktop (launcher) | Start an assistant instance | — |
+| Cmd+Enter | desktop (project, launcher, instance) | Zoom into the focused target; reaches the application when the instance is fully zoomed in | full screen (iT, Gh) · new window/split (Kt) · insert line below (VS) |
+| Cmd+T | desktop (instance, launcher) | Start an instance next to the focused one | new tab (mac, all terminals, Br, Fi, Ob) |
+| Cmd+Shift+T | desktop (instance, launcher) | Start an assistant instance | reopen closed tab (Br, VS, Ob) |
+| Cmd+W | desktop (instance) | Close the instance | close tab or window (mac, everywhere) |
+| Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
+| Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
+| Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
+| Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |
+| Cmd+Ctrl+F | shell (View menu) | Toggle full screen | full screen (mac) |
+| Cmd+Q | shell (winit app menu) | Quit | quit (mac) |
+| Cmd+H | shell (winit app menu) | Hide the app | hide (mac) |
+| Cmd+Opt+H | shell (winit app menu) | Hide others | hide others (mac) |
+| Cmd+C | terminal client | Copy the selection | copy (mac) |
+| Cmd+V | terminal client | Paste | paste (mac) |
+| Cmd+click | terminal client | Open a hyperlink; links are highlighted while Cmd is held | open link (iT, Gh, VS; Wz and Kt use a plain click) · open in new tab (Br, Ob) |
+
+Cmd+Shift+W is not a desktop shortcut; it passes to the application. The terminal client drops
+every Cmd chord it doesn't bind, except for applications that enabled the Kitty keyboard protocol,
+which receive it.
+
+## Planned
+
+From the terminal client's find proposal, not implemented:
+
+| Key | Action | Elsewhere |
+|---|---|---|
+| Cmd+F | Open find, or select the query | find (everywhere) |
+| Cmd+G / Cmd+Shift+G | Older / newer match | find next / previous (mac, Br, VS, Gh) · graph view (Ob) |
+| Cmd+E | Search for the selection | use selection for find (mac, VS) · toggle edit/preview (Ob) · eject (Fi) |
+| Cmd+Opt+C / Cmd+Opt+R | Toggle case and regex in the find field | case and regex toggles in find (VS) |
+
+## Free: Cmd + letter
+
+| Key | Usually |
+|---|---|
+| Cmd+A | select all (mac) |
+| Cmd+B | bold (mac text, Ob) · toggle sidebar (VS) · bookmarks (Br) |
+| Cmd+D | split pane (Term, iT, Gh) · bookmark (Br) · add next occurrence (VS) · duplicate (Fi) |
+| Cmd+I | get info (Fi) · italic (Ob) · inspector (Term) · inline chat (VS) |
+| Cmd+J | toggle panel (VS) · view options (Fi) · downloads (Chrome) |
+| Cmd+K | clear scrollback (Term, iT, Gh, Wz, Kt) · insert link (Ob) · chord prefix (VS) · connect to server (Fi) |
+| Cmd+L | address bar (Br) · select line (VS) |
+| Cmd+M | minimize (mac, Wz); the shell has no Window menu, so nothing minimizes today |
+| Cmd+N | new window (mac, all terminals, Br, Fi) · new note (Ob) |
+| Cmd+O | open (mac, Fi) · quick switcher (Ob) |
+| Cmd+P | print (mac) · quick open (VS) · command palette (Ob) |
+| Cmd+R | reload (Br) · reload configuration (Wz) · show original (Fi) |
+| Cmd+S | save (mac) |
+| Cmd+U | view source (Chrome) · undo cursor (VS) |
+| Cmd+X | cut (mac) |
+| Cmd+Y | history (Br) · Quick Look (Fi) |
+| Cmd+Z | undo (mac) |
+
+## Free: Cmd + digit and punctuation
+
+| Key | Usually |
+|---|---|
+| Cmd+1 … Cmd+8 † | go to tab N (terminals, Br, Ob) · focus editor group N (VS) · view mode (Fi, 1–4) |
+| Cmd+9 † | last tab (Br, Wz) |
+| Cmd+0 † | reset font size or zoom (Wz, Kt, Gh, Br) · focus sidebar (VS) |
+| Cmd+= † / Cmd+- | bigger / smaller font or zoom (mac, terminals, Br, VS) |
+| Cmd+, | settings (mac, Gh, Kt, VS, Ob) |
+| Cmd+. † | cancel (mac dialogs) · quick fix (VS) |
+| Cmd+/ † | toggle comment (VS) · find cursor (iT) |
+| Cmd+[ / Cmd+] † | back / forward (Br, Fi) · previous / next split (iT, Gh) · outdent / indent (VS) |
+| Cmd+\ † | split editor (VS) |
+| Cmd+; † | autocomplete (iT) |
+| Cmd+` † | cycle the app's windows (mac, provided by a Window menu) |
+
+## Free: common variants
+
+| Key | Usually |
+|---|---|
+| Cmd+Shift+[ / ] † | previous / next tab (mac, terminals, Br, VS) |
+| Cmd+Shift+D | split down (iT, Gh) |
+| Cmd+Shift+Enter | zoom split (iT, Gh) · insert line above (VS) |
+| Cmd+Shift+F | search everything (VS, Ob) |
+| Cmd+Shift+N | new folder (Fi) · private window (Br) |
+| Cmd+Shift+P | command palette (VS, Gh) |
+| Cmd+Shift+Z | redo (mac) |
+| Cmd+Shift+. † | show hidden files (Fi) |
+| Cmd+Opt+←/→ | previous / next tab (Chrome, VS) · back / forward (Ob) |
+| Cmd+Opt+arrows | go to split (iT, Gh) |
+| Cmd+Opt+1 … 9 † | go to window N (iT) |
+| Cmd+Opt+I | developer tools (Br) · inspector (Gh) |
+
+## Layouts
+
+Where the † keys sit on common Mac layouts other than US and UK. Letters move too (QWERTZ swaps
+Y and Z; AZERTY swaps A/Q and Z/W) but stay one key press away.
+
+| Key | Where it is |
+|---|---|
+| 1 … 0 | French (AZERTY): Shift + the top row; the unshifted keys type `& é " ' ( § è ! ç à` |
+| = | German, Spanish, Italian, Nordic: Shift+0 |
+| . | French: Shift+; |
+| / | German, Spanish, Italian, Nordic: Shift+7; French: Shift+: |
+| ; | German, Spanish, Italian, Nordic: Shift+, |
+| [ ] | German: Opt+5 / Opt+6; Nordic: Opt+8 / Opt+9; French, Spanish, Italian, Swiss: other Option combinations |
+| \ | German, Nordic: Opt+Shift+7; most other layouts: an Option combination |
+| ` | a dead key on German, French, Spanish, Italian and Nordic layouts |
+
+## Taken by the system
+
+These never reach the application, or reach it only when the user disabled them. A new binding should avoid
+them.
+
+| Key | System use |
+|---|---|
+| Cmd+Space | Spotlight, or the launcher that replaces it (Raycast, Alfred) |
+| Cmd+Opt+Space | Finder search window |
+| Ctrl+Space / Ctrl+Opt+Space | previous / next input source, with more than one enabled; it then never reaches a tmux prefix or Emacs's set-mark |
+| Cmd+Tab | app switcher |
+| Cmd+Shift+3 / 4 / 5 | screenshots |
+| Cmd+Ctrl+Q | lock screen |
+| Cmd+Ctrl+Space | character viewer |
+| Cmd+Opt+Esc | force quit |
+| Cmd+Opt+D | toggle Dock hiding |
+| Ctrl+←/→ | previous / next Space (MC) |
+| Ctrl+↑ / Ctrl+↓ | Mission Control / App Exposé (MC) |
+| Ctrl+1 … 9 | switch to Space N (MC, off by default) |
+| Globe+Ctrl+arrows, Globe+Ctrl+F | tile the window, fill the screen (MC, macOS 15) |
+| Opt+H/J/K/L, Opt+1 … 9, Opt+Shift+… | focus, workspaces, moves (Aero, when installed) |
+
+Stage Manager has no default shortcuts. AeroSpace's Opt bindings take keys that otherwise
+compose characters (Opt+C types `ç`), so its users won't type those in the terminal client either.
+
+## Collisions with habits
+
+- **Cmd+Enter** zooms on the desktop, but means full screen in iTerm2 and Ghostty. Users coming from those
+  terminals will expect full screen; Cmd+Ctrl+F covers it.
+- **Cmd+arrows** navigate the desktop, so shells don't get the line start/end that Ghostty
+  sends, and Cmd+↑/↓ can't jump between prompts as in Ghostty and Terminal.app.
+- **Cmd+1 … 9, Cmd+N, Cmd+K, Cmd+, and Cmd+=/-** are free, yet nearly every comparable
+  application binds them the same way. A user will try them first; they are the strongest
+  candidates for go to instance N, a new project, clearing scrollback, settings and font size.
+  Cmd+1 … 9 and Cmd+= need Shift on some layouts (†); other apps accept Cmd++ for Cmd+= there.
+- **Cmd+D** splits a pane in three of the terminals. On the desktop, the closest meaning is
+  starting an instance next to the focused one, which Cmd+T already does.
+- **Cmd+M** is free only because the shell has no Window menu; macOS users expect it to minimize.
