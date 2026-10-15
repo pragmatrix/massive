@@ -162,6 +162,7 @@ impl TargetLayout for ProjectPresenter {
                 self.id,
                 context,
                 children.parent_size,
+                children.parent_measured_size,
                 children.measurements,
                 children.placements,
             ),

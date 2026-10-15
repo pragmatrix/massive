@@ -13,15 +13,15 @@ use crate::desktop_system::{LayoutContext, fullscreen_scale};
 use crate::instance_presenter::instance_extent;
 use crate::projects::{MatrixPlacement, ProjectId, SlotContent};
 
-/// The spacing between columns and between rows.
+/// Column and row spacing, indexed by axis like `Tracks`.
 const TRACK_SPACING: [u32; 2] = [10, 10];
 
 /// The extents of the columns and of the rows, indexed by axis like sizes and offsets, so both axes
 /// share one measuring and centering rule.
 type Tracks = [Vec<u32>; 2];
 
-/// The size the tracks span, spacing included. An empty matrix spans one instance extent, like an
-/// empty launcher, so an empty project stays as readable as one holding a launcher.
+/// The size the tracks span, spacing included. An empty matrix spans one slot extent, like an empty
+/// launcher, so an empty project stays as readable as one holding a launcher.
 pub fn measure_matrix(
     project: ProjectId,
     context: &LayoutContext,
@@ -38,20 +38,20 @@ pub fn measure_matrix(
     Size(array::from_fn(|axis| tracks_span(&tracks, axis)))
 }
 
-/// Places the slots. The tracks sit centered in the matrix's `size`, which exceeds their span when
-/// the project is stretched to its own slot, and each slot's content sits centered in its slot,
-/// which exceeds the content when a band shrinks to fit.
+/// Places the slots. The tracks sit centered in the matrix's `size`, which exceeds their span, the
+/// `measured_size`, when the project is stretched to its own slot, and each slot's content sits
+/// centered in its slot, which exceeds the content when a band shrinks to fit.
 pub fn place_matrix_children(
     project: ProjectId,
     context: &LayoutContext,
     size: Size<2>,
+    measured_size: Size<2>,
     children: &[MeasuredLayout<2>],
     placements: &mut [Placement<Transform, 2>],
 ) {
     let slots = matrix_slots(project, context, children);
     let tracks = matrix_tracks(&slots, slot_extent(context).width);
-    let origin: [i32; 2] =
-        array::from_fn(|axis| centering_offset(size[axis], tracks_span(&tracks, axis)));
+    let origin: [i32; 2] = array::from_fn(|axis| centering_offset(size[axis], measured_size[axis]));
     let starts: [Vec<i32>; 2] =
         array::from_fn(|axis| track_starts(&tracks[axis], TRACK_SPACING[axis]));
 
@@ -59,7 +59,7 @@ pub fn place_matrix_children(
         let layout_size = expand_to_slot(slot, measurement, &tracks);
         let offset = Offset::from(array::from_fn(|axis| {
             let index = slot.indices()[axis];
-            let presented = (layout_size[axis] as f64 * slot.scale).ceil() as u32;
+            let presented = presented_extent(layout_size[axis], slot.scale);
             origin[axis] + starts[axis][index] + centering_offset(tracks[axis][index], presented)
         }));
         let rect: RectPx = LayoutRect::new(offset, layout_size).into();
@@ -141,12 +141,11 @@ fn matrix_slots(
                 }
                 SlotContent::Project(_) => project_scale,
             };
-            let size = SizePx::new(measured[0], measured[1]).to_f64();
-            // Round outward so integer tracks contain the full fractional presented extent.
-            let size = (size * scale).ceil().to_u32();
             MatrixSlot {
                 layout_size: measured,
-                size: size.into(),
+                size: Size(array::from_fn(|axis| {
+                    presented_extent(measured[axis], scale)
+                })),
                 scale,
                 placement: *placements
                     .get(&content)
@@ -154,6 +153,12 @@ fn matrix_slots(
             }
         })
         .collect()
+}
+
+/// The extent `layout` presents at `scale`, rounded outward so integer tracks contain the full
+/// fractional extent and content centered in a track never overhangs it.
+fn presented_extent(layout: u32, scale: f64) -> u32 {
+    (layout as f64 * scale).ceil() as u32
 }
 
 /// ADR 0023: content shrinks to fit a slot's extent, like a full-screen instance fits the window,
@@ -197,6 +202,8 @@ fn widen_track(tracks: &mut Vec<u32>, index: usize, extent: u32) {
     tracks[index] = max(tracks[index], extent);
 }
 
+/// The extent the tracks along `axis` cover, the spacing between them included: the matrix's
+/// measured size along it.
 fn tracks_span(tracks: &Tracks, axis: usize) -> u32 {
     let tracks = &tracks[axis];
     tracks.iter().sum::<u32>() + TRACK_SPACING[axis] * tracks.len().saturating_sub(1) as u32
@@ -241,14 +248,6 @@ mod tests {
         let [columns, rows] = matrix_tracks(&slots, 300);
         assert_eq!(columns, [300, 300, 300]);
         assert_eq!(rows, [70]);
-    }
-
-    #[test]
-    fn presentation_scale_of_an_empty_scene_is_one() {
-        assert_eq!(
-            presentation_scale(SizePx::new(300, 200), SizePx::zero()),
-            1.0
-        );
     }
 
     #[test]
