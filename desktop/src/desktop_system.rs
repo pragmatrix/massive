@@ -68,7 +68,8 @@ pub use key_input::KeyInput;
 pub use keyboard_focus::InputFocus;
 pub use keyboard_shortcuts::Shortcut;
 pub use layout_algorithm::{
-    expand_cross_axis_child_sizes, measure_container, place_container_children,
+    expand_cross_axis_child_sizes, expand_main_axis_child_size, measure_container,
+    place_container_children,
 };
 pub use massive_applications::SlotShift;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};

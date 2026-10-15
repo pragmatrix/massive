@@ -10,8 +10,8 @@ use massive_scene::prelude::*;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
-    ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
-    place_container_children,
+    ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
+    expand_main_axis_child_size, measure_container, place_container_children,
 };
 use crate::projects::{MatrixPlacement, ProjectId};
 
@@ -99,7 +99,7 @@ impl TargetLayout for ProjectPresenter {
                     PROJECT_HEADER_SPACING,
                     children.iter().map(|child| child.size),
                 );
-                // A project fills its slot; its matrix centers the content in the gained height.
+                // A project fills its slot (ADR 0015).
                 MeasuredLayout::new(size, [true, true])
             }
             // The header stretches across the project's width.
@@ -133,15 +133,21 @@ impl TargetLayout for ProjectPresenter {
                     children,
                 )
                 .collect();
-                let [header, matrix] = child_sizes.as_mut_slice() else {
-                    panic!("a project holds a header and a matrix");
-                };
-                // The matrix takes the height a stretched project gains, so pointer hits there land
-                // in the project.
-                let matrix_height = parent_size[1].saturating_sub(
-                    padding.leading[1] + header[1] + PROJECT_HEADER_SPACING + padding.trailing[1],
+                assert_eq!(
+                    child_sizes.len(),
+                    2,
+                    "a project holds a header and a matrix"
                 );
-                matrix[1] = max(matrix[1], matrix_height);
+                // The matrix takes the height a stretched project gains, so it can center its
+                // tracks in it.
+                expand_main_axis_child_size(
+                    LayoutAxis::VERTICAL,
+                    padding,
+                    PROJECT_HEADER_SPACING,
+                    parent_size,
+                    &mut child_sizes,
+                    1,
+                );
                 place_container_children(
                     LayoutAxis::VERTICAL,
                     PROJECT_HEADER_SPACING as i32,
