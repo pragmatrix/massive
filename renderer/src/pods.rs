@@ -66,13 +66,6 @@ pub struct Immediates {
 const_assert_eq!(offset_of!(Immediates, alpha), 80);
 const_assert_eq!(size_of::<Immediates>(), 96);
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct TextureSize(pub [f32; 2], pub [u32; 2]);
-
-// WebGL uniform requirement
-const_assert_eq!(size_of::<TextureSize>() % 16, 0);
-
 /// RGBA color
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]

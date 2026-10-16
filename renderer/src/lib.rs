@@ -12,7 +12,6 @@ mod render_submission;
 mod renderer;
 mod scene;
 mod shape_renderer;
-mod size_buffer;
 mod stats;
 mod text_layer;
 mod tools;
@@ -29,7 +28,6 @@ pub use render_device::*;
 pub use render_geometry::{RenderGeometry, ViewProjections};
 pub use render_submission::*;
 pub use renderer::{PresentationMode, Renderer};
-pub use size_buffer::*;
 pub use transactions::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
