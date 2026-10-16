@@ -7,32 +7,32 @@ use massive_geometry::{Rect, SizePx};
 
 use crate::Shape;
 
-/// Draws the `source` pixel rect of an image into `rect`, so a caller can show any part of an
+/// Draws the `region` of `source`, in its pixels, into `rect`, so a caller can show any part of an
 /// image, for example the cells of a terminal image that are still visible.
 #[derive(Debug, Clone)]
 pub struct Image {
     pub rect: Rect,
-    /// In image pixels; fractional values sample between pixels.
-    pub source: Rect,
-    pub pixels: Arc<dyn ImageSource>,
+    /// In the source's pixels; fractional values sample between pixels.
+    pub region: Rect,
+    pub source: Arc<dyn ImageSource>,
 }
 
 impl Image {
-    pub fn new(rect: Rect, source: Rect, pixels: Arc<dyn ImageSource>) -> Self {
+    pub fn new(rect: Rect, region: Rect, source: Arc<dyn ImageSource>) -> Self {
         Self {
             rect,
+            region,
             source,
-            pixels,
         }
     }
 }
 
 impl PartialEq for Image {
-    // Pixels compare by identity, comparing megabytes would make every scene diff expensive.
+    // Sources compare by identity, comparing megabytes would make every scene diff expensive.
     fn eq(&self, other: &Self) -> bool {
         self.rect == other.rect
-            && self.source == other.source
-            && Arc::ptr_eq(&self.pixels, &other.pixels)
+            && self.region == other.region
+            && Arc::ptr_eq(&self.source, &other.source)
     }
 }
 

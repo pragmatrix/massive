@@ -120,12 +120,12 @@ impl ImageRenderer {
         context: &PreparationContext,
         image: &Image,
     ) -> Option<wgpu::BindGroup> {
-        let key = Arc::as_ptr(&image.pixels) as *const () as usize;
+        let key = Arc::as_ptr(&image.source) as *const () as usize;
         if let Some(texture) = self.textures.get(&key) {
             return texture.bind_group.clone();
         }
 
-        let bind_group = upload_texture(context, image.pixels.as_ref(), self.max_texture_dimension)
+        let bind_group = upload_texture(context, image.source.as_ref(), self.max_texture_dimension)
             .map(|view| {
                 self.bind_group_layout
                     .create_bind_group(context.device, &view, &self.sampler)
@@ -133,7 +133,7 @@ impl ImageRenderer {
         self.textures.insert(
             key,
             ImageTexture {
-                source: Arc::downgrade(&image.pixels),
+                source: Arc::downgrade(&image.source),
                 bind_group: bind_group.clone(),
             },
         );
@@ -153,7 +153,7 @@ struct ImageTexture {
 }
 
 fn image_vertices(image: &Image) -> [TextureVertex; 4] {
-    let (r, s) = (&image.rect, &image.source);
+    let (r, s) = (&image.rect, &image.region);
     let vertex = |x: f64, y: f64, u: f64, v: f64| {
         TextureVertex::new(Vector3::new(x, y, 0.0), (u as f32, v as f32))
     };

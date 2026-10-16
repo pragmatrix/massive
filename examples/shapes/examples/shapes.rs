@@ -158,7 +158,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    // An image drawn whole, its right half drawn from a source sub-rect, and a coarser image in
+    // An image drawn whole, its right half drawn from a region, and a coarser image in
     // the same visual, so the batch needs a second segment.
     let pixels: Arc<dyn ImageSource> = Arc::new(gradient_pixels(64));
     shapes.push(
