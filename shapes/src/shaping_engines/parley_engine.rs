@@ -14,7 +14,7 @@ use parley::{
 
 use crate::engine::{
     EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
-    ShapingEngine, ShapingEngineKind, ShapingRequest, covering_metadata,
+    ShapingEngine, ShapingEngineKind, ShapingRequest, TextStyle, covering_metadata,
 };
 use crate::font_validation::validate_font_file;
 use crate::shaping_engines::parley_scratch::ParleyScratch;
@@ -396,6 +396,9 @@ pub(crate) fn shape_line(
     builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
         request.default_attributes.weight.0 as f32,
     )));
+    builder.push_default(StyleProperty::FontStyle(parley_style(
+        request.default_attributes.style,
+    )));
     for (range, attrs) in &request.ranges {
         builder.push(
             StyleProperty::FontFamily(parley_family(&attrs.family)),
@@ -403,6 +406,10 @@ pub(crate) fn shape_line(
         );
         builder.push(
             StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
+            range.clone(),
+        );
+        builder.push(
+            StyleProperty::FontStyle(parley_style(attrs.style)),
             range.clone(),
         );
     }
@@ -441,6 +448,8 @@ pub(crate) fn shape_line(
         let face_id = face_id_from_parley_data(run.font());
         let font_size = run.font_size();
         let weight = TextWeight(run.font_attrs().weight.value() as u16);
+        // fontique suggests a skew exactly when the matched face lacks the requested italic.
+        let synthetic_italic = run.synthesis().skew().is_some();
         let mut cluster_origin = glyph_run.offset();
         for cluster in run.clusters() {
             // Zero-glyph clusters are a real Parley artifact (e.g. a lone ZWJ between
@@ -459,6 +468,7 @@ pub(crate) fn shape_line(
                 face_id,
                 font_size,
                 weight,
+                synthetic_italic,
                 x: glyph.x,
                 y: glyph.y,
             }));
@@ -504,6 +514,13 @@ fn parley_family<'a>(family: &TextFamily<'a>) -> FontFamily<'a> {
         TextFamily::SansSerif => GenericFamily::SansSerif.into(),
         TextFamily::Serif => GenericFamily::Serif.into(),
         TextFamily::Monospace => GenericFamily::Monospace.into(),
+    }
+}
+
+fn parley_style(style: TextStyle) -> parley::FontStyle {
+    match style {
+        TextStyle::Normal => parley::FontStyle::Normal,
+        TextStyle::Italic => parley::FontStyle::Italic,
     }
 }
 

@@ -11,7 +11,7 @@ mod text_shaper;
 pub use clip_box::*;
 pub use engine::{
     FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
-    ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily, covering_metadata,
+    ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily, TextStyle, covering_metadata,
     shaped_run_to_glyph_run,
 };
 pub use face_metrics::FaceMetrics;

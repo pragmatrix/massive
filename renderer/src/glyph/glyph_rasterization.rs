@@ -1,7 +1,7 @@
 use swash::FontRef;
 use swash::scale::image::Image as SwashImage;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
-use swash::zeno::{Format, Placement};
+use swash::zeno::{Angle, Format, Placement, Transform};
 
 use massive_geometry::{BoxPx, PointPx};
 use massive_shapes::FontData;
@@ -149,8 +149,15 @@ pub fn rasterize_glyph(
     ])
     // Select a subpixel format
     .format(Format::Alpha)
+    .transform(glyph_key.synthetic_italic.then(synthetic_italic_skew))
     // Render the image
     .render(&mut scaler, glyph_key.glyph_id)
+}
+
+/// The slant for a face without italic: 14°, the angle both shaping engines assume (cosmic-text
+/// renders it, fontique suggests it), so either engine's synthetic italic looks the same.
+fn synthetic_italic_skew() -> Transform {
+    Transform::skew(Angle::from_degrees(14.0), Angle::from_degrees(0.0))
 }
 
 pub fn render_sdf(image: &SwashImage) -> Option<SwashImage> {

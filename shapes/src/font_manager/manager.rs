@@ -232,7 +232,7 @@ impl FontRegistrySource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::{ShapedCluster, ShapedRun, ShapingRequest, TextAttributes};
+    use crate::engine::{ShapedCluster, ShapedRun, ShapingRequest, TextAttributes, TextStyle};
 
     /// A bundled monospace font so the tests don't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
@@ -750,6 +750,33 @@ mod tests {
                         cluster.byte_range,
                     );
                 }
+            }
+        }
+    }
+
+    /// The bundled font has no italic face, so an italic request must come back flagged for a
+    /// synthetic slant on both engines (each detects it differently), and an upright one must not.
+    #[test]
+    fn italic_without_an_italic_face_is_synthetic() {
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
+            let mut context = fonts.new_shaping_context();
+            for (style, expected) in [(TextStyle::Italic, true), (TextStyle::Normal, false)] {
+                let request = ShapingRequest::new(
+                    "ab",
+                    TextAttributes::named_family("JetBrains Mono").with_style(style),
+                );
+                let run = context
+                    .shape(&request, 16.0)
+                    .expect("shaping must produce a run");
+                assert!(
+                    run.glyphs
+                        .iter()
+                        .all(|glyph| glyph.synthetic_italic == expected),
+                    "{kind:?} {style:?}: synthetic_italic must be {expected}"
+                );
             }
         }
     }
