@@ -24,6 +24,8 @@ pub struct ImageRenderer {
     sampler: wgpu::Sampler,
     /// Keyed by the source's address.
     textures: HashMap<usize, ImageTexture>,
+    /// Read once, because the device's limits are fixed for its lifetime.
+    max_texture_dimension: u32,
 }
 
 impl ImageRenderer {
@@ -52,6 +54,7 @@ impl ImageRenderer {
             bind_group_layout,
             sampler: texture_sampler::linear_clamping(device),
             textures: HashMap::new(),
+            max_texture_dimension: device.limits().max_texture_dimension_2d,
         }
     }
 
@@ -122,10 +125,11 @@ impl ImageRenderer {
             return texture.bind_group.clone();
         }
 
-        let bind_group = upload_texture(context, image.pixels.as_ref()).map(|view| {
-            self.bind_group_layout
-                .create_bind_group(context.device, &view, &self.sampler)
-        });
+        let bind_group = upload_texture(context, image.pixels.as_ref(), self.max_texture_dimension)
+            .map(|view| {
+                self.bind_group_layout
+                    .create_bind_group(context.device, &view, &self.sampler)
+            });
         self.textures.insert(
             key,
             ImageTexture {
@@ -165,9 +169,10 @@ fn image_vertices(image: &Image) -> [TextureVertex; 4] {
 fn upload_texture(
     context: &PreparationContext,
     source: &dyn ImageSource,
+    max_dimension: u32,
 ) -> Option<wgpu::TextureView> {
     let mut view = None;
-    source.read(&mut |size, rgba| view = upload_rgba(context, size, rgba));
+    source.read(&mut |size, rgba| view = upload_rgba(context, size, rgba, max_dimension));
     view
 }
 
@@ -175,6 +180,7 @@ fn upload_rgba(
     context: &PreparationContext,
     size: SizePx,
     rgba: &[u8],
+    max_dimension: u32,
 ) -> Option<wgpu::TextureView> {
     let expected_len = size.width as usize * size.height as usize * 4;
     if rgba.len() != expected_len {
@@ -184,7 +190,6 @@ fn upload_rgba(
         );
         return None;
     }
-    let max_dimension = context.device.limits().max_texture_dimension_2d;
     if size.width > max_dimension || size.height > max_dimension {
         error!("Image of {size:?} exceeds the maximum texture dimension {max_dimension}");
         return None;
