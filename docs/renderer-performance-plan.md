@@ -152,6 +152,11 @@ enough.
     freed right after growth.
   - Because rectangles keep their position on growth, existing instance data stays
     valid.
+  - With bind groups shared, the render loop calls `set_bind_group` only when a draw's
+    group differs from the previous draw's (wgpu bind groups compare by identity). Text
+    then binds once per pipeline and decal order instead of once per visual, and
+    consecutive draws of the same image (batch segments) skip the rebind too. This
+    resolves the `Performance:` note in `render_pipeline_batches`.
 - **O2. A single atlas lookup.**
   - One map from `RasterizedGlyphKey` to `{ Sdf(rect, placement) | Color(rect,
     placement) | Empty }` replaces the two atlas probes and the empty-glyph set.
