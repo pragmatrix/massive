@@ -14,6 +14,7 @@ use massive_shapes::{FontRegistry, FontRegistrySource, GlyphRun, RunGlyph};
 use crate::glyph::glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding};
 use crate::glyph::{GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas};
 
+use crate::pods;
 use crate::renderer::{PreparationContext, RenderBatch};
 use crate::text_layer::atlas_renderer::AtlasRenderer;
 use crate::text_layer::{color_atlas, sdf_atlas};
@@ -75,10 +76,10 @@ impl TextLayerRenderer {
                 wgpu::include_wgsl!("sdf_atlas.wgsl"),
                 target_format,
             ),
-            color_renderer: AtlasRenderer::new::<color_atlas::TextureVertex>(
+            color_renderer: AtlasRenderer::new::<pods::TextureVertex>(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
-                wgpu::include_wgsl!("color_atlas.wgsl"),
+                wgpu::include_wgsl!("../texture.wgsl"),
                 target_format,
             ),
             max_quads_in_use: 0,

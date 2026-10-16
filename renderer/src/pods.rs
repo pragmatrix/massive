@@ -149,6 +149,35 @@ impl VertexLayout for ColorVertex {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct TextureVertex {
+    pub position: Vertex,
+    pub tex_coords: [f32; 2],
+}
+
+impl TextureVertex {
+    pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
+        Self {
+            position: position.into(),
+            tex_coords: [uv.0, uv.1],
+        }
+    }
+}
+
+impl VertexLayout for TextureVertex {
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+
+        VertexBufferLayout {
+            array_stride: size_of::<TextureVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &ATTRS,
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Color3(pub [f32; 3]);
 

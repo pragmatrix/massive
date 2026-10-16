@@ -8,10 +8,9 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use massive_geometry::Vector3;
 use massive_shapes::{Image, ImagePixels, Shape};
 
-use crate::pods::{self, AsBytes, VertexLayout};
+use crate::pods::{self, AsBytes, TextureVertex, VertexLayout};
 use crate::renderer::{BatchSegment, PreparationContext, RenderBatch};
-use crate::text_layer::{BindGroupLayout, TextureVertex};
-use crate::tools::{PipelineParams, PipelineVariant, texture_sampler};
+use crate::tools::{PipelineParams, PipelineVariant, TextureBindGroupLayout, texture_sampler};
 
 /// Draws [`Image`] shapes with one texture per image, so images neither evict glyphs from the
 /// atlases nor run into their size limit.
@@ -20,7 +19,7 @@ use crate::tools::{PipelineParams, PipelineVariant, texture_sampler};
 #[derive(Debug)]
 pub struct ImageRenderer {
     pipeline_params: PipelineParams,
-    bind_group_layout: BindGroupLayout,
+    bind_group_layout: TextureBindGroupLayout,
     sampler: wgpu::Sampler,
     /// Keyed by the pixels' address. The `Weak` keeps that allocation alive, so other pixels cannot
     /// reuse the address while the entry exists.
@@ -29,11 +28,9 @@ pub struct ImageRenderer {
 
 impl ImageRenderer {
     pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
-        let bind_group_layout = BindGroupLayout::new(device);
-        // The color atlas shader samples straight-alpha RGBA by pixel coordinates, which is what
-        // images need too, and it keeps their colors consistent with color emoji.
-        let shader =
-            device.create_shader_module(wgpu::include_wgsl!("text_layer/color_atlas.wgsl"));
+        let bind_group_layout = TextureBindGroupLayout::new(device);
+        // Shared with the color atlas, so images and color emoji blend alike.
+        let shader = device.create_shader_module(wgpu::include_wgsl!("texture.wgsl"));
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Image Pipeline Layout"),
             bind_group_layouts: &[Some(&*bind_group_layout)],

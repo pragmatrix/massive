@@ -1,12 +1,10 @@
 use bytemuck::Pod;
-use derive_more::Deref;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::bind_group_entries;
 use crate::glyph::GlyphAtlas;
 use crate::pods::{self, AsBytes, VertexLayout};
 use crate::renderer::{PreparationContext, RenderBatch};
-use crate::tools::{BindGroupLayoutBuilder, PipelineParams, PipelineVariant, texture_sampler};
+use crate::tools::{PipelineParams, PipelineVariant, TextureBindGroupLayout, texture_sampler};
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 
@@ -15,7 +13,7 @@ pub struct AtlasRenderer {
     pub atlas: GlyphAtlas,
     texture_sampler: wgpu::Sampler,
     pipeline_params: PipelineParams,
-    fs_bind_group_layout: BindGroupLayout,
+    fs_bind_group_layout: TextureBindGroupLayout,
 }
 
 impl AtlasRenderer {
@@ -25,7 +23,7 @@ impl AtlasRenderer {
         shader: wgpu::ShaderModuleDescriptor<'_>,
         target_format: wgpu::TextureFormat,
     ) -> Self {
-        let fs_bind_group_layout = BindGroupLayout::new(device);
+        let fs_bind_group_layout = TextureBindGroupLayout::new(device);
 
         let shader = device.create_shader_module(shader);
 
@@ -110,31 +108,4 @@ pub trait AtlasInstance {
     type Vertex: Pod;
 
     fn to_vertices(&self) -> [Self::Vertex; 4];
-}
-
-#[derive(Debug, Deref)]
-pub struct BindGroupLayout(wgpu::BindGroupLayout);
-
-impl BindGroupLayout {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let layout = BindGroupLayoutBuilder::fragment_stage()
-            .texture()
-            .sampler()
-            .build("Color Atlas Bind Group Layout", device);
-
-        Self(layout)
-    }
-
-    pub fn create_bind_group(
-        &self,
-        device: &wgpu::Device,
-        texture_view: &wgpu::TextureView,
-        texture_sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Color Atlas Bind Group"),
-            layout: &self.0,
-            entries: bind_group_entries!(0 => texture_view, 1 => texture_sampler),
-        })
-    }
 }
