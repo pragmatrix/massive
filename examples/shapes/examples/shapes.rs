@@ -158,7 +158,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    // An image drawn whole, and its right half drawn from a source sub-rect.
+    // An image drawn whole, its right half drawn from a source sub-rect, and a coarser image in
+    // the same visual, so the batch needs a second segment.
     let pixels = Arc::new(gradient_pixels(64));
     shapes.push(Shape::Image(Image::new(
         Rect::new((1000.0, 180.0), Size::new(128.0, 128.0)),
@@ -169,6 +170,11 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         Rect::new((1160.0, 180.0), Size::new(64.0, 128.0)),
         Rect::new((32.0, 0.0), Size::new(32.0, 64.0)),
         pixels,
+    )));
+    shapes.push(Shape::Image(Image::new(
+        Rect::new((1256.0, 180.0), Size::new(128.0, 128.0)),
+        Rect::new((0.0, 0.0), Size::new(8.0, 8.0)),
+        Arc::new(gradient_pixels(8)),
     )));
 
     // Compute bounding box of all shapes to derive page size and center transform.

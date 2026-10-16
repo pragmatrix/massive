@@ -10,6 +10,7 @@ workspace = true
 dump_edge = []
 
 [dependencies]
+smallvec.workspace = true
 massive-geometry = { workspace = true }
 massive-scene = { workspace = true }
 massive-shapes = { workspace = true }

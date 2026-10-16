@@ -98,11 +98,11 @@ impl AtlasRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Some(RenderBatch {
-            fs_bind_group: Some(fs_bind_group),
+        Some(RenderBatch::single(
             vertex_buffer,
-            count: instances.len(),
-        })
+            Some(fs_bind_group),
+            instances.len(),
+        ))
     }
 }
 

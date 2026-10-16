@@ -2,20 +2,21 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
 use log::warn;
+use smallvec::SmallVec;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use massive_geometry::Vector3;
 use massive_shapes::{Image, ImagePixels, Shape};
 
 use crate::pods::{self, AsBytes, VertexLayout};
-use crate::renderer::{PreparationContext, RenderBatch};
+use crate::renderer::{BatchSegment, PreparationContext, RenderBatch};
 use crate::text_layer::{BindGroupLayout, TextureVertex};
 use crate::tools::{PipelineParams, PipelineVariant, texture_sampler};
 
 /// Draws [`Image`] shapes with one texture per image, so images neither evict glyphs from the
 /// atlases nor run into their size limit.
 ///
-/// A batch binds one texture, so all images of one visual must share their [`ImagePixels`].
+/// Each run of images with the same pixels becomes one batch segment, so one draw call.
 #[derive(Debug)]
 pub struct ImageRenderer {
     pipeline_params: PipelineParams,
@@ -75,25 +76,45 @@ impl ImageRenderer {
         self.textures
             .retain(|_, (pixels, _)| pixels.strong_count() > 0);
 
-        let mut images = shapes
-            .iter()
-            .filter_map(|shape| match shape {
-                Shape::Image(image) => Some(image),
-                _ => None,
-            })
-            .peekable();
-        let pixels = images.peek()?.pixels.clone();
+        let images = shapes.iter().filter_map(|shape| match shape {
+            Shape::Image(image) => Some(image),
+            _ => None,
+        });
 
         let mut vertices = Vec::new();
+        let mut segments = SmallVec::new();
+        // The pixels of the previous image and whether they have a texture, so a run of images
+        // with the same pixels looks its texture up once.
+        let mut previous: Option<(&Arc<ImagePixels>, bool)> = None;
         for image in images {
-            assert!(
-                Arc::ptr_eq(&image.pixels, &pixels),
-                "All images of a visual must share their pixels"
-            );
-            vertices.extend(image_vertices(image));
+            let drawable = match previous {
+                Some((pixels, drawable)) if Arc::ptr_eq(pixels, &image.pixels) => drawable,
+                _ => {
+                    let bind_group = self.bind_group(context, &image.pixels);
+                    let drawable = bind_group.is_some();
+                    if let Some(bind_group) = bind_group {
+                        let start = vertices.len() / 4;
+                        segments.push(BatchSegment {
+                            fs_bind_group: Some(bind_group),
+                            quads: start..start,
+                        });
+                    }
+                    previous = Some((&image.pixels, drawable));
+                    drawable
+                }
+            };
+            if drawable {
+                vertices.extend(image_vertices(image));
+                let segment: &mut BatchSegment =
+                    segments.last_mut().expect("A drawable image has a segment");
+                segment.quads.end += 1;
+            }
         }
 
-        let fs_bind_group = self.bind_group(context, &pixels)?;
+        if segments.is_empty() {
+            return None;
+        }
+
         let vertex_buffer = context.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Image Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
@@ -101,9 +122,8 @@ impl ImageRenderer {
         });
 
         Some(RenderBatch {
-            fs_bind_group: Some(fs_bind_group),
             vertex_buffer,
-            count: vertices.len() / 4,
+            segments,
         })
     }
 

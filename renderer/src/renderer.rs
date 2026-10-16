@@ -1,9 +1,11 @@
+use std::ops::Range;
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use derive_more::Constructor;
 use itertools::Itertools;
 use log::{info, warn};
+use smallvec::{SmallVec, smallvec};
 use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
@@ -90,7 +92,7 @@ impl PipelineBatches {
     pub fn max_quads(&self) -> usize {
         self.batches
             .iter()
-            .filter_map(|b| b.as_ref().map(|rb| rb.count))
+            .filter_map(|b| b.as_ref().map(RenderBatch::quad_count))
             .max()
             .unwrap_or_default()
     }
@@ -98,10 +100,42 @@ impl PipelineBatches {
 
 #[derive(Debug)]
 pub struct RenderBatch {
-    pub fs_bind_group: Option<wgpu::BindGroup>,
-    /// Think of making count and vertex_buffer optional. This would remove all Option<RenderBatch>.
+    /// Think of making vertex_buffer optional. This would remove all Option<RenderBatch>.
     pub vertex_buffer: wgpu::Buffer,
-    pub count: usize,
+    /// Drawn in order, so a visual's shapes keep their order even when they sample different
+    /// textures. Inline for one, because all but image batches bind a single texture.
+    pub segments: SmallVec<[BatchSegment; 1]>,
+}
+
+/// A run of a batch's quads that shares one bind group, drawn with one draw call.
+#[derive(Debug)]
+pub struct BatchSegment {
+    pub fs_bind_group: Option<wgpu::BindGroup>,
+    pub quads: Range<usize>,
+}
+
+impl RenderBatch {
+    pub fn single(
+        vertex_buffer: wgpu::Buffer,
+        fs_bind_group: Option<wgpu::BindGroup>,
+        quad_count: usize,
+    ) -> Self {
+        Self {
+            vertex_buffer,
+            segments: smallvec![BatchSegment {
+                fs_bind_group,
+                quads: 0..quad_count,
+            }],
+        }
+    }
+
+    pub fn quad_count(&self) -> usize {
+        self.segments
+            .last()
+            .expect("A batch has at least one segment")
+            .quads
+            .end
+    }
 }
 
 /// The context provided to `prepare()` middleware functions.
@@ -503,17 +537,17 @@ impl Renderer {
                 _padding: [0.0; 3],
             };
             pass.set_immediates(0, push_constants.as_bytes());
-            // Performance: This test needs only done once per pipeline.
-            if let Some(bg) = &batch.fs_bind_group {
-                pass.set_bind_group(0, bg, &[]);
-            }
             pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
 
-            pass.draw_indexed(
-                0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-                0,
-                0..1,
-            )
+            for segment in &batch.segments {
+                // Performance: This test needs only done once per pipeline.
+                if let Some(bg) = &segment.fs_bind_group {
+                    pass.set_bind_group(0, bg, &[]);
+                }
+                let indices = segment.quads.start * QuadIndexBuffer::INDICES_PER_QUAD
+                    ..segment.quads.end * QuadIndexBuffer::INDICES_PER_QUAD;
+                pass.draw_indexed(indices.start as u32..indices.end as u32, 0, 0..1);
+            }
         }
     }
 
