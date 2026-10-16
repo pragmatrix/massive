@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use massive_applications::{
     ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
-    InstanceParameters, InstanceSubmission, ViewEvent, begin_frame,
+    InstanceSubmission, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
@@ -61,6 +61,12 @@ impl Desktop {
         // Load configuration
 
         let (configuration_persistence, configuration) = load_configuration(&env)?;
+        let boot_launcher = configuration
+            .boot_launcher()
+            .expect("the configuration load gives a launcher-less configuration one");
+        // The primary instance runs before any command, so it gets the boot launcher's
+        // parameters here, as a launcher passes them to every primary instance it starts.
+        let boot_parameters = configuration[boot_launcher].params.clone();
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -84,7 +90,7 @@ impl Desktop {
         instance_manager.spawn(
             primary_instance,
             primary_application,
-            CreationMode::New(InstanceParameters::new()),
+            CreationMode::New(boot_parameters.clone()),
             primary_root.view_parent(),
         )?;
 
@@ -129,9 +135,6 @@ impl Desktop {
         // placements come from this same instance the commands were read from.
         let project_setup_commands: Commands =
             to_commands(&configuration).map(DesktopCommand::Project);
-        let boot_launcher = configuration
-            .boot_launcher()
-            .expect("the configuration load gives a launcher-less configuration one");
 
         let mut system = DesktopSystem::new(env, default_size, title_bar_metrics, configuration)?;
 
@@ -143,7 +146,7 @@ impl Desktop {
             launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
-            parameters: InstanceParameters::new(),
+            parameters: boot_parameters,
             kind: InstanceKind::Primary,
         }]
         .into();
