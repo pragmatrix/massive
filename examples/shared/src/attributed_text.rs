@@ -318,6 +318,7 @@ mod tests {
                 face_id: FaceId::new(0),
                 font_size: 16.0,
                 weight: TextWeight::NORMAL,
+                synthetic_italic: false,
                 x: 0.0,
                 y: 0.0,
             });

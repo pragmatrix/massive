@@ -189,6 +189,9 @@ pub struct GlyphKey {
     /// The positioned crop window (sentinel-bounded box). Part of the rasterization identity:
     /// a glyph cropped differently is a different bitmap.
     pub clip_box: ClipBoxPx,
+    /// Slant the upright outline because the face has no italic; a different bitmap, so part
+    /// of the identity.
+    pub synthetic_italic: bool,
 }
 
 impl GlyphKey {
@@ -205,7 +208,15 @@ impl GlyphKey {
             font_size_bits: font_size.to_bits(),
             weight,
             clip_box,
+            synthetic_italic: false,
         }
+    }
+
+    /// Set from the shaped glyph's verdict; `new` stays upright so keys built outside shaping
+    /// never slant.
+    pub fn with_synthetic_italic(mut self, synthetic_italic: bool) -> Self {
+        self.synthetic_italic = synthetic_italic;
+        self
     }
 }
 

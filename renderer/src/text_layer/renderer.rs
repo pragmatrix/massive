@@ -217,7 +217,7 @@ impl TextLayerRenderer {
 
                 Ok(Some((rect_in_atlas, image_placement, AtlasKind::Color)))
             }
-            SwashContent::SubpixelMask => panic!("Unsupported Subpixel Mask"),
+            SwashContent::SubpixelMask => unreachable!("subpixel masks are not supported"),
         }
     }
 

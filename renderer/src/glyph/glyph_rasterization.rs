@@ -1,7 +1,7 @@
 use swash::FontRef;
 use swash::scale::image::Image as SwashImage;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
-use swash::zeno::{Format, Placement};
+use swash::zeno::{Angle, Format, Placement, Transform};
 
 use massive_geometry::{BoxPx, PointPx};
 use massive_shapes::FontData;
@@ -93,11 +93,7 @@ fn crop_image(image: SwashImage, clip_box: &ClipBoxPx) -> Option<SwashImage> {
     }
 
     // Crop region in image coordinates (row 0 = top of image at Y = ink max.y).
-    let pixel_size = match image.content {
-        SwashContent::Mask => 1,
-        SwashContent::SubpixelMask => 4,
-        SwashContent::Color => 4,
-    };
+    let pixel_size = bytes_per_pixel(image.content);
     let src_width = image.placement.width as usize;
     let col_start = (crop.min.x - ink.min.x) as usize;
     let row_start = (ink.max.y - crop.max.y) as usize;
@@ -139,7 +135,7 @@ pub fn rasterize_glyph(
         .build();
 
     // Select our source order
-    Render::new(&[
+    let image = Render::new(&[
         // Color outline with the first palette
         Source::ColorOutline(0),
         // Color bitmap with best fit selection mode
@@ -147,10 +143,133 @@ pub fn rasterize_glyph(
         // Standard scalable outline
         Source::Outline,
     ])
-    // Select a subpixel format
+    // Grayscale coverage only: subpixel (LCD) text is not supported.
     .format(Format::Alpha)
+    .transform(glyph_key.synthetic_italic.then(synthetic_italic_skew))
     // Render the image
-    .render(&mut scaler, glyph_key.glyph_id)
+    .render(&mut scaler, glyph_key.glyph_id)?;
+
+    // swash transforms outlines only; bitmap glyphs (Apple Color Emoji) come back upright.
+    let is_bitmap = matches!(image.source, Source::Bitmap(_) | Source::ColorBitmap(_));
+    Some(if glyph_key.synthetic_italic && is_bitmap {
+        shear_bitmap(image)
+    } else {
+        image
+    })
+}
+
+/// The slant for a face without italic: 14°, the angle both shaping engines assume (cosmic-text
+/// renders it, fontique suggests it), so either engine's synthetic italic looks the same.
+const SYNTHETIC_ITALIC_DEGREES: f32 = 14.0;
+
+fn synthetic_italic_skew() -> Transform {
+    Transform::skew(
+        Angle::from_degrees(SYNTHETIC_ITALIC_DEGREES),
+        Angle::from_degrees(0.0),
+    )
+}
+
+/// Slants a bitmap glyph like [`synthetic_italic_skew`] slants outlines: each row shifts right by
+/// its height above the baseline, linearly resampled. Color pixels are blended premultiplied so
+/// transparent neighbours don't darken the edges, and stay straight alpha as the atlas expects.
+fn shear_bitmap(image: SwashImage) -> SwashImage {
+    let Placement {
+        left,
+        top,
+        width,
+        height,
+    } = image.placement;
+    if width == 0 || height == 0 {
+        return image;
+    }
+    let channels = bytes_per_pixel(image.content);
+    let slant = SYNTHETIC_ITALIC_DEGREES.to_radians().tan();
+    // Row centers are Y-up from the baseline: row 0 is the top row.
+    let shift = |row: u32| (top as f32 - row as f32 - 0.5) * slant;
+    let new_left = left + shift(height - 1).floor() as i32;
+    let new_width = (left + width as i32 + shift(0).ceil() as i32 + 1 - new_left) as u32;
+
+    let mut data = vec![0u8; (new_width * height) as usize * channels];
+    for row in 0..height {
+        let source = &image.data[(row * width) as usize * channels..][..width as usize * channels];
+        let target =
+            &mut data[(row * new_width) as usize * channels..][..new_width as usize * channels];
+        // Source pixel coordinate sampled by target column 0.
+        let origin = (new_left - left) as f32 - shift(row);
+        for (column, pixel) in target.chunks_exact_mut(channels).enumerate() {
+            let position = origin + column as f32;
+            let index = position.floor();
+            let fraction = position - index;
+            let a = premultiplied(source, channels, index as i64);
+            let b = premultiplied(source, channels, index as i64 + 1);
+            let mixed: [f32; 4] = std::array::from_fn(|i| a[i] + (b[i] - a[i]) * fraction);
+            write_straight(pixel, mixed);
+        }
+    }
+
+    SwashImage {
+        source: image.source,
+        content: image.content,
+        placement: Placement {
+            left: new_left,
+            top,
+            width: new_width,
+            height,
+        },
+        data,
+    }
+}
+
+/// Glyph images are grayscale masks or RGBA; subpixel (LCD) masks are never produced because
+/// rasterization renders `Format::Alpha`.
+pub fn bytes_per_pixel(content: SwashContent) -> usize {
+    match content {
+        SwashContent::Mask => 1,
+        SwashContent::Color => 4,
+        SwashContent::SubpixelMask => unreachable!("subpixel masks are not supported"),
+    }
+}
+
+/// A row pixel as premultiplied RGBA (masks use the first component); outside the row is clear.
+fn premultiplied(row: &[u8], channels: usize, index: i64) -> [f32; 4] {
+    let Some(pixel) = usize::try_from(index)
+        .ok()
+        .and_then(|index| row.get(index * channels..(index + 1) * channels))
+    else {
+        return [0.0; 4];
+    };
+    match *pixel {
+        [r, g, b, a] => {
+            let alpha = a as f32 / 255.0;
+            [
+                r as f32 * alpha,
+                g as f32 * alpha,
+                b as f32 * alpha,
+                a as f32,
+            ]
+        }
+        [value] => [value as f32, 0.0, 0.0, 0.0],
+        _ => unreachable!("pixels are RGBA or single-channel masks"),
+    }
+}
+
+/// Writes a blended pixel back in the image's straight-alpha layout.
+fn write_straight(pixel: &mut [u8], [r, g, b, a]: [f32; 4]) {
+    match pixel {
+        [pr, pg, pb, pa] => {
+            let alpha = a / 255.0;
+            let straight = |c: f32| {
+                if alpha > 0.0 {
+                    (c / alpha).round() as u8
+                } else {
+                    0
+                }
+            };
+            (*pr, *pg, *pb, *pa) = (straight(r), straight(g), straight(b), a.round() as u8);
+        }
+        [value] => *value = r.round() as u8,
+        _ => unreachable!("pixels are RGBA or single-channel masks"),
+    }
 }
 
 pub fn render_sdf(image: &SwashImage) -> Option<SwashImage> {
@@ -193,11 +312,7 @@ pub fn render_sdf(image: &SwashImage) -> Option<SwashImage> {
 
 /// Pad an image by one pixel.
 pub fn pad_image(image: &SwashImage) -> SwashImage {
-    let pixel_size = match image.content {
-        SwashContent::Mask => 1,
-        SwashContent::SubpixelMask => 4,
-        SwashContent::Color => 4,
-    };
+    let pixel_size = bytes_per_pixel(image.content);
 
     let padded_data = pad_image_data(
         &image.data,
@@ -307,5 +422,56 @@ mod tests {
         assert_eq!(padded.placement.top, placement.top + 1);
         assert_eq!(padded.placement.width, placement.width + 2);
         assert_eq!(padded.placement.height, placement.height + 2);
+    }
+
+    /// Bitmap glyphs are slanted by resampling: a vertical bar must lean right (top rows shifted
+    /// further than bottom rows) while every row keeps its height above the baseline.
+    #[test]
+    fn shear_bitmap_leans_a_vertical_bar_right() {
+        let height = 20;
+        let image = SwashImage {
+            source: Source::ColorBitmap(StrikeWith::BestFit),
+            content: SwashContent::Color,
+            placement: Placement {
+                left: 0,
+                top: 16,
+                width: 1,
+                height,
+            },
+            data: [255, 0, 0, 255].repeat(height as usize),
+        };
+        let placement = image.placement;
+        let sheared = shear_bitmap(image);
+        assert_eq!(sheared.placement.top, placement.top);
+        assert_eq!(sheared.placement.height, height);
+
+        // The ink center of a row, in absolute x.
+        let ink_center = |row: u32| {
+            let width = sheared.placement.width as usize;
+            let pixels = &sheared.data[row as usize * width * 4..][..width * 4];
+            let (sum, weight) = pixels.as_chunks::<4>().0.iter().enumerate().fold(
+                (0.0, 0.0),
+                |(sum, weight), (x, pixel)| {
+                    let alpha = pixel[3] as f32;
+                    (sum + x as f32 * alpha, weight + alpha)
+                },
+            );
+            sheared.placement.left as f32 + sum / weight
+        };
+        // Blending straight alpha would darken the partly covered edge pixels toward black.
+        let edge = sheared
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .find(|p| p[3] > 0)
+            .unwrap();
+        assert_eq!(edge[0], 255, "edge pixels must keep the bar's color");
+        let lean = ink_center(0) - ink_center(height - 1);
+        let expected = (height - 1) as f32 * SYNTHETIC_ITALIC_DEGREES.to_radians().tan();
+        assert!(
+            (lean - expected).abs() < 0.1,
+            "lean {lean}, expected {expected}"
+        );
     }
 }

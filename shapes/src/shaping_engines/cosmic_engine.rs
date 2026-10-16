@@ -17,12 +17,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use cosmic_text::{Attrs, AttrsList, BufferLine, FontSystem, LineEnding, Shaping, Weight};
+use cosmic_text::{
+    Attrs, AttrsList, BufferLine, CacheKeyFlags, FontSystem, LineEnding, Shaping, Style, Weight,
+};
 use fontdb::Source;
 
 use crate::engine::{
     EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
-    ShapingEngine, ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
+    ShapingEngine, ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily, TextStyle,
 };
 use crate::font_validation::validate_font_file;
 use crate::shaping_engines::cosmic_scratch::CosmicScratch;
@@ -465,6 +467,9 @@ impl CosmicTextEngine {
                         face_id,
                         font_size,
                         weight: TextWeight(glyph.font_weight.0),
+                        synthetic_italic: glyph
+                            .cache_key_flags
+                            .contains(CacheKeyFlags::FAKE_ITALIC),
                         // Intra-cluster: this engine emits one glyph per cluster, so the
                         // glyph's own offset is 0 relative to the cluster origin.
                         x: 0.0,
@@ -589,6 +594,10 @@ impl CosmicTextEngine {
 fn attrs<'a>(attributes: &'a TextAttributes<'_>) -> Attrs<'a> {
     let base = Attrs::new()
         .weight(Weight(attributes.weight.0))
+        .style(match attributes.style {
+            TextStyle::Normal => Style::Normal,
+            TextStyle::Italic => Style::Italic,
+        })
         // Carry the caller's attribute identity through shaping; cosmic-text copies this onto
         // every ShapeGlyph. Always set (not conditioned on the request flag): the value is 0
         // for all non-metadata requests, and reading it back is free. Shapes each span

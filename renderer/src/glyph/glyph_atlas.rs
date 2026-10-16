@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
-use swash::scale::image::{Content as SwashContent, Image as SwashImage};
+use swash::scale::image::Image as SwashImage;
 use swash::zeno::Placement;
 
 use massive_geometry::SizePx;
@@ -16,7 +16,7 @@ use wgpu::{
     TextureViewDescriptor,
 };
 
-use crate::glyph::glyph_rasterization::RasterizedGlyphKey;
+use crate::glyph::glyph_rasterization::{RasterizedGlyphKey, bytes_per_pixel};
 
 pub struct GlyphAtlas {
     texture: AtlasTexture,
@@ -178,11 +178,7 @@ impl GlyphAtlas {
         let (x, y) = (pos.x as u32, pos.y as u32);
         let (width, height) = (image.placement.width, image.placement.height);
 
-        let bytes_per_pixel = match image.content {
-            SwashContent::Mask => 1,
-            SwashContent::SubpixelMask => panic!("Unsupported Subpixel Mask Image"),
-            SwashContent::Color => 4,
-        };
+        let bytes_per_pixel = bytes_per_pixel(image.content) as u32;
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {

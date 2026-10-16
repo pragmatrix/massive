@@ -125,11 +125,23 @@ impl From<String> for TextFamily<'_> {
     }
 }
 
+/// The slant text is shaped with.
+///
+/// Italic selects the family's italic face; where the matched face has none, the engine
+/// reports a synthetic slant on the glyphs ([`ShapedGlyph::synthetic_italic`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextStyle {
+    #[default]
+    Normal,
+    Italic,
+}
+
 /// The text attributes shaping honors.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextAttributes<'a> {
     pub family: TextFamily<'a>,
     pub weight: TextWeight,
+    pub style: TextStyle,
     pub color: Color,
     /// Caller-defined identity for this attribute set, echoed onto shaped clusters when the
     /// request enables the metadata mechanism (`ShapingRequest::with_metadata`); ignored
@@ -150,6 +162,7 @@ impl Default for TextAttributes<'_> {
         Self {
             family: TextFamily::SansSerif,
             weight: TextWeight::default(),
+            style: TextStyle::default(),
             color: Color::BLACK,
             metadata: 0,
         }
@@ -169,6 +182,11 @@ impl<'a> TextAttributes<'a> {
 
     pub fn with_weight(mut self, weight: TextWeight) -> Self {
         self.weight = weight;
+        self
+    }
+
+    pub fn with_style(mut self, style: TextStyle) -> Self {
+        self.style = style;
         self
     }
 
@@ -350,6 +368,8 @@ pub struct ShapedGlyph {
     pub face_id: FaceId,
     pub font_size: f32,
     pub weight: TextWeight,
+    /// The face lacks the requested italic, so rasterization must slant the upright glyph.
+    pub synthetic_italic: bool,
     pub x: f32,
     pub y: f32,
 }
@@ -460,7 +480,8 @@ pub fn shaped_run_to_glyph_run(
                     glyph.font_size,
                     glyph.weight,
                     ClipBoxPx::UNCLIPPED,
-                ),
+                )
+                .with_synthetic_italic(glyph.synthetic_italic),
             ));
         }
     }
