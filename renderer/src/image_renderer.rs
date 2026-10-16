@@ -16,7 +16,7 @@ use crate::tools::{PipelineParams, PipelineVariant, TextureBindGroupLayout, text
 /// Draws [`Image`] shapes with one texture per image, so images neither evict glyphs from the
 /// atlases nor run into their size limit.
 ///
-/// Each run of images with the same pixels becomes one batch segment, so one draw call.
+/// Each image becomes its own batch segment, so one draw call.
 #[derive(Debug)]
 pub struct ImageRenderer {
     pipeline_params: PipelineParams,
@@ -119,13 +119,13 @@ impl ImageRenderer {
     ) -> Option<wgpu::BindGroup> {
         let key = Arc::as_ptr(&image.pixels) as *const () as usize;
         if let Some(texture) = self.textures.get(&key) {
-            return Some(texture.bind_group.clone());
+            return texture.bind_group.clone();
         }
 
-        let view = upload_texture(context, image.pixels.as_ref())?;
-        let bind_group =
+        let bind_group = upload_texture(context, image.pixels.as_ref()).map(|view| {
             self.bind_group_layout
-                .create_bind_group(context.device, &view, &self.sampler);
+                .create_bind_group(context.device, &view, &self.sampler)
+        });
         self.textures.insert(
             key,
             ImageTexture {
@@ -133,7 +133,7 @@ impl ImageRenderer {
                 bind_group: bind_group.clone(),
             },
         );
-        Some(bind_group)
+        bind_group
     }
 }
 
@@ -143,7 +143,9 @@ struct ImageTexture {
     /// Keeps the source's allocation alive, so no other source can reuse the address this entry is
     /// keyed by.
     source: Weak<dyn ImageSource>,
-    bind_group: wgpu::BindGroup,
+    /// `None` when the upload failed, so it is neither retried nor reported again while the
+    /// source is drawn.
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 fn image_vertices(image: &Image) -> [TextureVertex; 4] {
