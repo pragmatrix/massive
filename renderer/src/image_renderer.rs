@@ -81,34 +81,24 @@ impl ImageRenderer {
             _ => None,
         });
 
-        let mut vertices = Vec::new();
-        let mut segments = SmallVec::new();
-        // The pixels of the previous image and whether they have a texture, so a run of images
-        // with the same pixels looks its texture up once.
-        let mut previous: Option<(&Arc<ImagePixels>, bool)> = None;
-        for image in images {
-            let drawable = match previous {
-                Some((pixels, drawable)) if Arc::ptr_eq(pixels, &image.pixels) => drawable,
-                _ => {
-                    let bind_group = self.bind_group(context, &image.pixels);
-                    let drawable = bind_group.is_some();
-                    if let Some(bind_group) = bind_group {
-                        let start = vertices.len() / 4;
-                        segments.push(BatchSegment {
-                            fs_bind_group: Some(bind_group),
-                            quads: start..start,
-                        });
-                    }
-                    previous = Some((&image.pixels, drawable));
-                    drawable
-                }
-            };
-            if drawable {
-                vertices.extend(image_vertices(image));
-                let segment: &mut BatchSegment =
-                    segments.last_mut().expect("A drawable image has a segment");
-                segment.quads.end += 1;
+        let image_count = images.clone().count();
+        let mut vertices = Vec::with_capacity(image_count * 4);
+        let mut segments = SmallVec::with_capacity(image_count);
+        let max_dimension = context.device.limits().max_texture_dimension_2d;
+        let drawable = images.filter(|image| {
+            let fits = fits_texture(image, max_dimension);
+            if !fits {
+                let size = image.pixels.size();
+                warn!("Image of {size:?} exceeds the maximum texture dimension {max_dimension}");
             }
+            fits
+        });
+        for (quad, image) in drawable.enumerate() {
+            segments.push(BatchSegment {
+                fs_bind_group: Some(self.bind_group(context, &image.pixels)),
+                quads: quad..quad + 1,
+            });
+            vertices.extend(image_vertices(image));
         }
 
         if segments.is_empty() {
@@ -127,23 +117,15 @@ impl ImageRenderer {
         })
     }
 
-    /// The bind group of the pixels' texture, uploading it the first time. `None` when the image
-    /// exceeds the device's texture size, which the caller cannot know.
+    /// The bind group of the pixels' texture, uploading it the first time.
     fn bind_group(
         &mut self,
         context: &PreparationContext,
         pixels: &Arc<ImagePixels>,
-    ) -> Option<wgpu::BindGroup> {
+    ) -> wgpu::BindGroup {
         let key = Arc::as_ptr(pixels) as usize;
         if let Some((_, bind_group)) = self.textures.get(&key) {
-            return Some(bind_group.clone());
-        }
-
-        let size = pixels.size();
-        let max_dimension = context.device.limits().max_texture_dimension_2d;
-        if size.width > max_dimension || size.height > max_dimension {
-            warn!("Image of {size:?} exceeds the maximum texture dimension {max_dimension}");
-            return None;
+            return bind_group.clone();
         }
 
         let view = upload_texture(context, pixels);
@@ -152,8 +134,14 @@ impl ImageRenderer {
                 .create_bind_group(context.device, &view, &self.sampler);
         self.textures
             .insert(key, (Arc::downgrade(pixels), bind_group.clone()));
-        Some(bind_group)
+        bind_group
     }
+}
+
+/// Whether the image's pixels fit into a texture of the device, which their producer cannot know.
+fn fits_texture(image: &Image, max_dimension: u32) -> bool {
+    let size = image.pixels.size();
+    size.width <= max_dimension && size.height <= max_dimension
 }
 
 fn image_vertices(image: &Image) -> [TextureVertex; 4] {
