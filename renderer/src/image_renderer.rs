@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-use log::warn;
+use log::error;
 use smallvec::SmallVec;
+
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use massive_geometry::Vector3;
-use massive_shapes::{Image, ImagePixels, Shape};
+use massive_geometry::{SizePx, Vector3};
+use massive_shapes::{Image, ImageSource, Shape};
 
 use crate::pods::{self, AsBytes, TextureVertex, VertexLayout};
 use crate::renderer::{BatchSegment, PreparationContext, RenderBatch};
@@ -21,9 +22,8 @@ pub struct ImageRenderer {
     pipeline_params: PipelineParams,
     bind_group_layout: TextureBindGroupLayout,
     sampler: wgpu::Sampler,
-    /// Keyed by the pixels' address. The `Weak` keeps that allocation alive, so other pixels cannot
-    /// reuse the address while the entry exists.
-    textures: HashMap<usize, (Weak<ImagePixels>, wgpu::BindGroup)>,
+    /// Keyed by the source's address.
+    textures: HashMap<usize, ImageTexture>,
 }
 
 impl ImageRenderer {
@@ -71,7 +71,7 @@ impl ImageRenderer {
     ) -> Option<RenderBatch> {
         // Pruned here because producers have no per-frame hook; the map holds a few entries.
         self.textures
-            .retain(|_, (pixels, _)| pixels.strong_count() > 0);
+            .retain(|_, texture| texture.source.strong_count() > 0);
 
         let images = shapes.iter().filter_map(|shape| match shape {
             Shape::Image(image) => Some(image),
@@ -81,18 +81,13 @@ impl ImageRenderer {
         let image_count = images.clone().count();
         let mut vertices = Vec::with_capacity(image_count * 4);
         let mut segments = SmallVec::with_capacity(image_count);
-        let max_dimension = context.device.limits().max_texture_dimension_2d;
-        let drawable = images.filter(|image| {
-            let fits = fits_texture(image, max_dimension);
-            if !fits {
-                let size = image.pixels.size();
-                warn!("Image of {size:?} exceeds the maximum texture dimension {max_dimension}");
-            }
-            fits
-        });
-        for (quad, image) in drawable.enumerate() {
+        for image in images {
+            let Some(bind_group) = self.bind_group(context, image) else {
+                continue;
+            };
+            let quad = segments.len();
             segments.push(BatchSegment {
-                fs_bind_group: Some(self.bind_group(context, &image.pixels)),
+                fs_bind_group: Some(bind_group),
                 quads: quad..quad + 1,
             });
             vertices.extend(image_vertices(image));
@@ -114,31 +109,41 @@ impl ImageRenderer {
         })
     }
 
-    /// The bind group of the pixels' texture, uploading it the first time.
+    /// The bind group of the image's texture, uploading it the first time its source is drawn.
+    /// `None` when the pixels do not match their size or exceed the device's texture size, which
+    /// their producer cannot know.
     fn bind_group(
         &mut self,
         context: &PreparationContext,
-        pixels: &Arc<ImagePixels>,
-    ) -> wgpu::BindGroup {
-        let key = Arc::as_ptr(pixels) as usize;
-        if let Some((_, bind_group)) = self.textures.get(&key) {
-            return bind_group.clone();
+        image: &Image,
+    ) -> Option<wgpu::BindGroup> {
+        let key = Arc::as_ptr(&image.pixels) as *const () as usize;
+        if let Some(texture) = self.textures.get(&key) {
+            return Some(texture.bind_group.clone());
         }
 
-        let view = upload_texture(context, pixels);
+        let view = upload_texture(context, image.pixels.as_ref())?;
         let bind_group =
             self.bind_group_layout
                 .create_bind_group(context.device, &view, &self.sampler);
-        self.textures
-            .insert(key, (Arc::downgrade(pixels), bind_group.clone()));
-        bind_group
+        self.textures.insert(
+            key,
+            ImageTexture {
+                source: Arc::downgrade(&image.pixels),
+                bind_group: bind_group.clone(),
+            },
+        );
+        Some(bind_group)
     }
 }
 
-/// Whether the image's pixels fit into a texture of the device, which their producer cannot know.
-fn fits_texture(image: &Image, max_dimension: u32) -> bool {
-    let size = image.pixels.size();
-    size.width <= max_dimension && size.height <= max_dimension
+/// An uploaded image. Batches hold clones of the bind group, which keep the texture alive.
+#[derive(Debug)]
+struct ImageTexture {
+    /// Keeps the source's allocation alive, so no other source can reuse the address this entry is
+    /// keyed by.
+    source: Weak<dyn ImageSource>,
+    bind_group: wgpu::BindGroup,
 }
 
 fn image_vertices(image: &Image) -> [TextureVertex; 4] {
@@ -155,8 +160,34 @@ fn image_vertices(image: &Image) -> [TextureVertex; 4] {
     ]
 }
 
-fn upload_texture(context: &PreparationContext, pixels: &ImagePixels) -> wgpu::TextureView {
-    let size = pixels.size();
+fn upload_texture(
+    context: &PreparationContext,
+    source: &dyn ImageSource,
+) -> Option<wgpu::TextureView> {
+    let mut view = None;
+    source.read(&mut |size, rgba| view = upload_rgba(context, size, rgba));
+    view
+}
+
+fn upload_rgba(
+    context: &PreparationContext,
+    size: SizePx,
+    rgba: &[u8],
+) -> Option<wgpu::TextureView> {
+    let expected_len = size.width as usize * size.height as usize * 4;
+    if rgba.len() != expected_len {
+        error!(
+            "Image of {size:?} has {} RGBA8 bytes, expected {expected_len}",
+            rgba.len()
+        );
+        return None;
+    }
+    let max_dimension = context.device.limits().max_texture_dimension_2d;
+    if size.width > max_dimension || size.height > max_dimension {
+        error!("Image of {size:?} exceeds the maximum texture dimension {max_dimension}");
+        return None;
+    }
+
     let extent = wgpu::Extent3d {
         width: size.width,
         height: size.height,
@@ -180,7 +211,7 @@ fn upload_texture(context: &PreparationContext, pixels: &ImagePixels) -> wgpu::T
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        pixels.rgba(),
+        rgba,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(size.width * 4),
@@ -188,5 +219,5 @@ fn upload_texture(context: &PreparationContext, pixels: &ImagePixels) -> wgpu::T
         },
         extent,
     );
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
+    Some(texture.create_view(&wgpu::TextureViewDescriptor::default()))
 }
