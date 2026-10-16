@@ -448,8 +448,7 @@ pub(crate) fn shape_line(
         let face_id = face_id_from_parley_data(run.font());
         let font_size = run.font_size();
         let weight = TextWeight(run.font_attrs().weight.value() as u16);
-        // fontique suggests a skew exactly when the matched face lacks the requested italic.
-        let synthetic_italic = run.synthesis().skew().is_some();
+        let synthetic_italic = needs_synthetic_italic(&run.synthesis());
         let mut cluster_origin = glyph_run.offset();
         for cluster in run.clusters() {
             // Zero-glyph clusters are a real Parley artifact (e.g. a lone ZWJ between
@@ -515,6 +514,16 @@ fn parley_family<'a>(family: &TextFamily<'a>) -> FontFamily<'a> {
         TextFamily::Serif => GenericFamily::Serif.into(),
         TextFamily::Monospace => GenericFamily::Monospace.into(),
     }
+}
+
+/// Whether the face lacks the requested italic. fontique asks for a skew, or for an `ital`/`slnt`
+/// axis setting; the rasterizer applies only `wght`, so both slant like cosmic-text's fake italic.
+fn needs_synthetic_italic(synthesis: &fontique::Synthesis) -> bool {
+    synthesis.skew().is_some()
+        || synthesis
+            .variation_settings()
+            .iter()
+            .any(|(tag, _)| matches!(&tag.to_be_bytes(), b"ital" | b"slnt"))
 }
 
 fn parley_style(style: TextStyle) -> parley::FontStyle {

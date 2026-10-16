@@ -212,6 +212,8 @@ impl GlyphKey {
         }
     }
 
+    /// Set from the shaped glyph's verdict; `new` stays upright so keys built outside shaping
+    /// never slant.
     pub fn with_synthetic_italic(mut self, synthetic_italic: bool) -> Self {
         self.synthetic_italic = synthetic_italic;
         self

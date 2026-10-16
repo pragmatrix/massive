@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use massive_geometry::Color;
 
-use crate::engine::{ShapingRequest, TextAttributes, TextFamily};
+use crate::engine::{ShapingRequest, TextAttributes, TextFamily, TextStyle};
 use crate::{GlyphRun, ShapingContext, TextWeight};
 
 /// A text shaper builder: attributed text that resolves to a [`GlyphRun`].
@@ -37,6 +37,11 @@ impl<'a> TextShaper<'a> {
 
     pub fn with_weight(mut self, weight: TextWeight) -> Self {
         self.default_attributes.weight = weight;
+        self
+    }
+
+    pub fn with_style(mut self, style: TextStyle) -> Self {
+        self.default_attributes.style = style;
         self
     }
 
