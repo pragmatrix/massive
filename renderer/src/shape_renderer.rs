@@ -163,7 +163,7 @@ impl ShapeRenderer {
                     (s.stroke.width as f32, s.stroke.height as f32),
                     s.color,
                 ),
-                Shape::Custom(..) => {}
+                Shape::Image(..) | Shape::Custom(..) => {}
             }
         }
 
@@ -177,11 +177,7 @@ impl ShapeRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Some(RenderBatch {
-            fs_bind_group: None,
-            vertex_buffer,
-            count: quad_count,
-        })
+        Some(RenderBatch::single(vertex_buffer, None, quad_count))
     }
 }
 

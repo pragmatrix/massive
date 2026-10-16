@@ -1,10 +1,8 @@
-use bytemuck::{Pod, Zeroable};
-
 use massive_geometry::Vector3;
 
 use super::atlas_renderer::AtlasInstance;
 use crate::glyph::glyph_atlas;
-use crate::pods::{Vertex, VertexLayout};
+use crate::pods::TextureVertex;
 
 #[derive(Debug)]
 pub struct Instance {
@@ -28,35 +26,5 @@ impl AtlasInstance for Instance {
             TextureVertex::new(v[2], (rbx, rby)),
             TextureVertex::new(v[3], (rbx, lty)),
         ]
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct TextureVertex {
-    pub position: Vertex,
-    pub tex_coords: [f32; 2],
-}
-
-impl TextureVertex {
-    #[allow(unused)]
-    pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
-        Self {
-            position: position.into(),
-            tex_coords: [uv.0, uv.1],
-        }
-    }
-}
-
-impl VertexLayout for TextureVertex {
-    fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 2] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
-
-        wgpu::VertexBufferLayout {
-            array_stride: size_of::<TextureVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &ATTRS,
-        }
     }
 }

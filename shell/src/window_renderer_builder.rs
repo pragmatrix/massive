@@ -20,6 +20,7 @@ pub struct WindowRendererBuilder {
     background_color: Option<Color>,
     shapes: bool,
     text: Option<FontRegistrySource>,
+    images: bool,
     measurements: bool,
 }
 
@@ -34,6 +35,7 @@ impl WindowRendererBuilder {
             background_color: None,
             shapes: false,
             text: None,
+            images: false,
             measurements: false,
         }
     }
@@ -71,6 +73,14 @@ impl WindowRendererBuilder {
     /// By default, no font / GlyphRun support is available.
     pub fn with_text(mut self) -> Self {
         self.text = Some(task_context::fonts().registry_source());
+        self
+    }
+
+    /// Adds support for image rendering.
+    ///
+    /// By default, no image rendering is available.
+    pub fn with_images(mut self) -> Self {
+        self.images = true;
         self
     }
 
@@ -131,6 +141,9 @@ impl WindowRendererBuilder {
             }
             if let Some(fonts) = self.text {
                 builder = builder.with_text(fonts);
+            }
+            if self.images {
+                builder = builder.with_images();
             }
             if self.measurements {
                 builder = builder.with_measurements();
