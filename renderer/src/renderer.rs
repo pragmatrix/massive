@@ -110,6 +110,7 @@ pub struct RenderBatch {
 /// A run of a batch's quads that shares one bind group, drawn with one draw call.
 #[derive(Debug)]
 pub struct BatchSegment {
+    /// `None` for pipelines that sample no texture, like the shape renderer's.
     pub fs_bind_group: Option<wgpu::BindGroup>,
     pub quads: Range<usize>,
 }
