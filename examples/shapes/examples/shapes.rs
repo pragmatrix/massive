@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::sync::Arc;
 
 use anyhow::Result;
 use winit::dpi::LogicalSize;
@@ -8,8 +9,8 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, Size};
 use massive_scene::prelude::*;
 use massive_shapes::{
-    BeveledRect, Circle, Ellipse, FontPolicy, Rect as FilledRect, RoundRect, Shape,
-    ShapingEngineKind, StrokeRect,
+    BeveledRect, Circle, Ellipse, FontPolicy, Image, ImagePixels, Rect as FilledRect, RoundRect,
+    Shape, ShapingEngineKind, StrokeRect,
 };
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
@@ -30,7 +31,12 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let mut renderer = window.renderer().with_shapes().build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_shapes()
+        .with_images()
+        .build()
+        .await?;
 
     // Scene & application
     let mut application = Application::default();
@@ -152,6 +158,19 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
+    // An image drawn whole, and its right half drawn from a source sub-rect.
+    let pixels = Arc::new(gradient_pixels(64));
+    shapes.push(Shape::Image(Image::new(
+        Rect::new((1000.0, 180.0), Size::new(128.0, 128.0)),
+        Rect::new((0.0, 0.0), Size::new(64.0, 64.0)),
+        pixels.clone(),
+    )));
+    shapes.push(Shape::Image(Image::new(
+        Rect::new((1160.0, 180.0), Size::new(64.0, 128.0)),
+        Rect::new((32.0, 0.0), Size::new(32.0, 64.0)),
+        pixels,
+    )));
+
     // Compute bounding box of all shapes to derive page size and center transform.
     use massive_geometry::Rect as GeoRect;
     let mut bounds: Option<GeoRect> = None;
@@ -163,6 +182,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             Shape::StrokeRect(r) => r.rect,
             Shape::Ellipse(e) => e.rect,
             Shape::BeveledRect(r) => r.rect,
+            Shape::Image(i) => i.rect,
             Shape::GlyphRun(..) | Shape::Custom(..) => continue,
         };
         bounds = Some(if let Some(b) = bounds { b.joined(r) } else { r });
@@ -195,6 +215,12 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 c.rect.right += offset_x;
                 c.rect.top += offset_y;
                 c.rect.bottom += offset_y;
+            }
+            Shape::Image(i) => {
+                i.rect.left += offset_x;
+                i.rect.right += offset_x;
+                i.rect.top += offset_y;
+                i.rect.bottom += offset_y;
             }
             Shape::StrokeRect(r) => {
                 r.rect.left += offset_x;
@@ -247,4 +273,21 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
 
         begin_frame().render_to(&mut renderer)?;
     }
+}
+
+/// Red grows to the right, green downwards, with an alpha checker so blending and orientation show.
+fn gradient_pixels(size: u32) -> ImagePixels {
+    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
+    for y in 0..size {
+        for x in 0..size {
+            let checker = (x / 8 + y / 8) % 2 == 0;
+            rgba.extend([
+                (x * 255 / size) as u8,
+                (y * 255 / size) as u8,
+                160,
+                if checker { 255 } else { 128 },
+            ]);
+        }
+    }
+    ImagePixels::new((size, size).into(), rgba)
 }

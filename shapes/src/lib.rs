@@ -4,6 +4,7 @@ mod face_metrics;
 mod font_manager;
 mod font_validation;
 mod glyph_run;
+mod image;
 mod shape;
 mod shaping_engines;
 mod text_shaper;
@@ -17,6 +18,7 @@ pub use engine::{
 pub use face_metrics::FaceMetrics;
 pub use font_manager::*;
 pub use glyph_run::*;
+pub use image::*;
 pub use shape::*;
 #[cfg(feature = "cosmic-text")]
 pub use shaping_engines::CosmicTextEngine;

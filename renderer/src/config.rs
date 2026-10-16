@@ -8,6 +8,7 @@ use massive_geometry::Color;
 use massive_shapes::Shape;
 
 use crate::FontRegistrySource;
+use crate::image_renderer::ImageRenderer;
 use crate::renderer::{PreparationContext, RenderBatch};
 use crate::shape_renderer::{self, ShapeRenderer};
 use crate::text_layer::TextLayerRenderer;
@@ -45,6 +46,7 @@ impl RendererConfig {
             1,
         );
         config.add_batch_producer(TextLayerRenderer::new(device, fonts, surface_format), 2);
+        config.add_batch_producer(ImageRenderer::new(device, surface_format), 1);
         config
     }
 
@@ -168,6 +170,27 @@ impl BatchProducer for ShapeRenderer {
     ) -> Result<()> {
         debug_assert_eq!(batch_receiver.len(), 1);
         batch_receiver[0] = self.batch_from_shapes(context.device, shapes);
+        Ok(())
+    }
+}
+
+impl BatchProducer for ImageRenderer {
+    fn create_pipelines(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> Vec<wgpu::RenderPipeline> {
+        [self.create_pipeline(device, variant)].into()
+    }
+
+    fn produce_batches(
+        &mut self,
+        context: &PreparationContext,
+        shapes: &[Shape],
+        batch_receiver: &mut [Option<RenderBatch>],
+    ) -> Result<()> {
+        debug_assert_eq!(batch_receiver.len(), 1);
+        batch_receiver[0] = self.batch_from_shapes(context, shapes);
         Ok(())
     }
 }

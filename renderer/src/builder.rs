@@ -1,5 +1,6 @@
 use massive_geometry::{Color, SizePx};
 
+use crate::image_renderer::ImageRenderer;
 use crate::shape_renderer::{self, ShapeRenderer};
 use crate::text_layer::TextLayerRenderer;
 use crate::{FontRegistrySource, RenderDevice, Renderer, RendererConfig};
@@ -47,6 +48,14 @@ impl RendererBuilder {
         self.config.add_batch_producer(
             TextLayerRenderer::new(&self.device.device, fonts, self.device.surface_format),
             2,
+        );
+        self
+    }
+
+    pub fn with_images(mut self) -> Self {
+        self.config.add_batch_producer(
+            ImageRenderer::new(&self.device.device, self.device.surface_format),
+            1,
         );
         self
     }

@@ -117,6 +117,7 @@ impl Desktop {
             .renderer()
             .with_shapes()
             .with_text()
+            .with_images()
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;

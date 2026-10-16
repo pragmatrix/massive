@@ -5,9 +5,9 @@ use smallbox::{SmallBox, smallbox};
 
 use massive_geometry::{self as geometry, Color, Size};
 
-use crate::GlyphRun;
+use crate::{GlyphRun, Image};
 
-// Architecture: Every one except custom has a color field, can we do something about that?
+// Architecture: Every one except custom and image has a color field, can we do something about that?
 #[derive(Debug, Clone, From, PartialEq)]
 pub enum Shape {
     Rect(Rect),
@@ -17,6 +17,7 @@ pub enum Shape {
     BeveledRect(BeveledRect),
     StrokeRect(StrokeRect),
     GlyphRun(GlyphRun),
+    Image(Image),
     Custom(Custom),
 }
 

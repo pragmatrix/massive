@@ -1,5 +1,6 @@
 mod color_buffer;
 mod glyph;
+mod image_renderer;
 mod pods;
 // mod quads;
 mod builder;

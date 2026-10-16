@@ -163,7 +163,7 @@ impl ShapeRenderer {
                     (s.stroke.width as f32, s.stroke.height as f32),
                     s.color,
                 ),
-                Shape::Custom(..) => {}
+                Shape::Image(..) | Shape::Custom(..) => {}
             }
         }
 
