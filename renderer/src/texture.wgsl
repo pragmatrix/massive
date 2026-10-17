@@ -16,7 +16,7 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    // Unnormalized texture pixel coordinates.
+    // Texture pixels for the atlases, which may grow; normalized for images (`fs_normalized`).
     @location(0) tex_coords: vec2<f32>,
     @location(1) model_pos: vec2<f32>,
 }
@@ -41,13 +41,22 @@ var s_sampler: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let texture_size = vec2<f32>(textureDimensions(t_texture));
+    return clipped_sample(in, in.tex_coords / texture_size);
+}
+
+@fragment
+fn fs_normalized(in: VertexOutput) -> @location(0) vec4<f32> {
+    return clipped_sample(in, in.tex_coords);
+}
+
+fn clipped_sample(in: VertexOutput, uv: vec2<f32>) -> vec4<f32> {
     // Clip fragments outside the clip rectangle (exclusive bounds)
     if (in.model_pos.x < im.clip_rect_x.x || in.model_pos.x >= im.clip_rect_x.y ||
         in.model_pos.y < im.clip_rect_y.x || in.model_pos.y >= im.clip_rect_y.y) {
         discard;
     }
-    
-    let texture_size = vec2<f32>(textureDimensions(t_texture));
-    let color = textureSample(t_texture, s_sampler, in.tex_coords / texture_size);
+
+    let color = textureSample(t_texture, s_sampler, uv);
     return vec4<f32>(color.rgb, color.a * im.alpha);
 }

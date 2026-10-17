@@ -6,7 +6,7 @@ use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
-use massive_geometry::{Color, Rect, Size};
+use massive_geometry::{Color, Rect, Size, TextureBox, TexturePoint};
 use massive_scene::prelude::*;
 use massive_shapes::{
     BeveledRect, Circle, Ellipse, FontPolicy, Image, ImagePixels, ImageSource, Rect as FilledRect,
@@ -164,7 +164,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     shapes.push(
         Image::new(
             Rect::new((1000.0, 180.0), Size::new(128.0, 128.0)),
-            Rect::new((0.0, 0.0), Size::new(64.0, 64.0)),
+            TextureBox::new(TexturePoint::new(0.0, 0.0), TexturePoint::new(1.0, 1.0)),
             pixels.clone(),
         )
         .into(),
@@ -172,7 +172,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     shapes.push(
         Image::new(
             Rect::new((1160.0, 180.0), Size::new(64.0, 128.0)),
-            Rect::new((32.0, 0.0), Size::new(32.0, 64.0)),
+            TextureBox::new(TexturePoint::new(0.5, 0.0), TexturePoint::new(1.0, 1.0)),
             pixels,
         )
         .into(),
@@ -180,7 +180,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     shapes.push(
         Image::new(
             Rect::new((1256.0, 180.0), Size::new(128.0, 128.0)),
-            Rect::new((0.0, 0.0), Size::new(8.0, 8.0)),
+            TextureBox::new(TexturePoint::new(0.0, 0.0), TexturePoint::new(1.0, 1.0)),
             Arc::new(gradient_pixels(8)),
         )
         .into(),

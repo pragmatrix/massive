@@ -64,7 +64,7 @@ impl ImageRenderer {
         variant: PipelineVariant,
     ) -> wgpu::RenderPipeline {
         self.pipeline_params
-            .create_pipeline("Image Pipeline", device, "fs_main", variant)
+            .create_pipeline("Image Pipeline", device, "fs_normalized", variant)
     }
 
     pub fn batch_from_shapes(
@@ -154,15 +154,14 @@ struct ImageTexture {
 
 fn image_vertices(image: &Image) -> [TextureVertex; 4] {
     let (r, s) = (&image.rect, &image.region);
-    let vertex = |x: f64, y: f64, u: f64, v: f64| {
-        TextureVertex::new(Vector3::new(x, y, 0.0), (u as f32, v as f32))
-    };
+    let vertex =
+        |x: f64, y: f64, u: f32, v: f32| TextureVertex::new(Vector3::new(x, y, 0.0), (u, v));
     // Same corner order as the atlas quads, so the shared index buffer's winding applies.
     [
-        vertex(r.left, r.top, s.left, s.top),
-        vertex(r.left, r.bottom, s.left, s.bottom),
-        vertex(r.right, r.bottom, s.right, s.bottom),
-        vertex(r.right, r.top, s.right, s.top),
+        vertex(r.left, r.top, s.min.x, s.min.y),
+        vertex(r.left, r.bottom, s.min.x, s.max.y),
+        vertex(r.right, r.bottom, s.max.x, s.max.y),
+        vertex(r.right, r.top, s.max.x, s.min.y),
     ]
 }
 
