@@ -17,8 +17,8 @@ pub enum Shape {
     BeveledRect(BeveledRect),
     StrokeRect(StrokeRect),
     GlyphRun(GlyphRun),
-    // Boxed, because its two rects and trait object would make every shape larger.
-    Image(Box<Image>),
+    // Fits unboxed only because its region is f32; an f64 one makes every shape larger.
+    Image(Image),
     Custom(Custom),
 }
 
