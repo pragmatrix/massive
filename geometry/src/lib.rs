@@ -95,6 +95,12 @@ pub type PointPx = euclid::Point2D<i32, PixelUnit>;
 pub type RectPx = euclid::Rect<i32, PixelUnit>;
 pub type BoxPx = euclid::Box2D<i32, PixelUnit>;
 
+/// Texture coordinates normalized to 0..1 across an image, so a region is independent of the
+/// image's size; `f32`, the precision the GPU samples with.
+pub struct TextureUnit;
+pub type TexturePoint = euclid::Point2D<f32, TextureUnit>;
+pub type TextureBox = euclid::Box2D<f32, TextureUnit>;
+
 pub trait ToPixels {
     type Target;
     fn to_pixels(&self) -> Self::Target;

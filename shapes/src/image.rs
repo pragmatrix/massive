@@ -3,22 +3,19 @@ use std::sync::Arc;
 
 use derive_more::Debug;
 
-use massive_geometry::{Rect, SizePx};
+use massive_geometry::{Rect, SizePx, TextureBox};
 
-use crate::Shape;
-
-/// Draws the `region` of `source`, in its pixels, into `rect`, so a caller can show any part of an
+/// Draws the `region` of `source` into `rect`, so a caller can show any part of an
 /// image, for example the cells of a terminal image that are still visible.
 #[derive(Debug, Clone)]
 pub struct Image {
     pub rect: Rect,
-    /// In the source's pixels; fractional values sample between pixels.
-    pub region: Rect,
+    pub region: TextureBox,
     pub source: Arc<dyn ImageSource>,
 }
 
 impl Image {
-    pub fn new(rect: Rect, region: Rect, source: Arc<dyn ImageSource>) -> Self {
+    pub fn new(rect: Rect, region: TextureBox, source: Arc<dyn ImageSource>) -> Self {
         Self {
             rect,
             region,
@@ -68,11 +65,5 @@ impl ImagePixels {
 impl ImageSource for ImagePixels {
     fn read(&self, f: &mut dyn FnMut(SizePx, &[u8])) {
         f(self.size, &self.rgba)
-    }
-}
-
-impl From<Image> for Shape {
-    fn from(image: Image) -> Self {
-        Shape::Image(Box::new(image))
     }
 }
