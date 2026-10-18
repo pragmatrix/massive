@@ -116,9 +116,10 @@ impl Visual {
         }
     }
 
-    pub fn with_clip_bounds(self, bounds: impl Into<Bounds>) -> Self {
+    /// Accepts an `Option`, so a visual that is clipped only sometimes is built in one chain.
+    pub fn with_clip_bounds(self, clip_bounds: impl Into<Option<Bounds>>) -> Self {
         Self {
-            clip_bounds: Some(bounds.into()),
+            clip_bounds: clip_bounds.into(),
             ..self
         }
     }
