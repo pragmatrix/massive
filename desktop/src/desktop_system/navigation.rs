@@ -239,7 +239,7 @@ fn remembered_project_target(
         Some(SlotContent::Project(nested)) => {
             remembered_project_target(projects, configuration, nested)
         }
-        Some(content) => content.into(),
+        Some(content) => content.focusable_target(),
         None => FocusableTarget::Project(project),
     }
 }

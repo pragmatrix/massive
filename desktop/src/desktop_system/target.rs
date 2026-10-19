@@ -1,6 +1,6 @@
 use massive_applications::{InstanceId, ViewId};
 
-use crate::projects::{LaunchProfileId, ProjectId, SlotContent};
+use crate::projects::{LaunchProfileId, ProjectId};
 
 /// A unique target inside the navigation and layout history: a presenter and the part of it the
 /// hierarchy refers to (ADR 0022).
@@ -98,15 +98,6 @@ impl FocusableTarget {
 impl From<ProjectId> for FocusableTarget {
     fn from(project: ProjectId) -> Self {
         Self::Project(project)
-    }
-}
-
-impl From<SlotContent> for FocusableTarget {
-    fn from(content: SlotContent) -> Self {
-        match content {
-            SlotContent::Launcher(launcher) => Self::Launcher(launcher),
-            SlotContent::Project(project) => Self::Project(project),
-        }
     }
 }
 

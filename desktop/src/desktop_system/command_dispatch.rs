@@ -878,40 +878,10 @@ impl DesktopSystem {
             .project_of_target(&instance.into());
         match &request {
             ConfigurationRequest::Add { target, name } => {
-                let content = match target {
-                    ConfigurationTarget::Project => SlotAssignment::Project {
-                        id: ProjectId::new(),
-                        name: name.clone().unwrap_or(DEFAULT_NEW_PROJECT_NAME.to_string()),
-                    },
-                    ConfigurationTarget::Launcher => SlotAssignment::Launcher {
-                        id: LaunchProfileId::new(),
-                        profile: LaunchProfile {
-                            name: name
-                                .clone()
-                                .unwrap_or(DEFAULT_NEW_LAUNCHER_NAME.to_string()),
-                            mode: LauncherMode::Visor,
-                            params: Default::default(),
-                            full_screen_mode: Default::default(),
-                        },
-                    },
-                };
-                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
-                let Some((parent, current_placement)) =
-                    self.aggregates.configuration.slot_of_content(launcher)
-                else {
-                    warn!("The focused launcher has no matrix placement");
-                    return Ok(ChangeOutput::default());
-                };
-
-                let changes = self.plan_project(ProjectCommand::AssignSlot {
-                    parent: Some(parent),
-                    placement: MatrixPlacement {
-                        column: current_placement.column + 1,
-                        row: current_placement.row,
-                    },
-                    content,
-                    shift: SlotShift::default(),
-                })?;
+                let changes = self.plan_add_next_to(
+                    &instance.into(),
+                    new_slot_assignment(*target, name.clone()),
+                )?;
                 Ok(ChangeOutput::changes(changes))
             }
             ConfigurationRequest::Assign {
@@ -1122,6 +1092,33 @@ impl DesktopSystem {
         }
     }
 
+    /// Assigns `content` right of the slot `anchor` sits in, shifting the row, and focuses it, so
+    /// new content appears where the user works (Cmd+N and the CLI `add`).
+    fn plan_add_next_to(&self, anchor: &DesktopTarget, content: SlotAssignment) -> Result<Changes> {
+        let Some(anchor) = self.aggregates.hierarchy.slot_content_of_target(anchor) else {
+            warn!("{anchor:?} sits in no slot to add next to");
+            return Ok(Changes::Empty);
+        };
+        let (parent, placement) = self
+            .aggregates
+            .configuration
+            .slot_of_content(anchor)
+            .expect("slot content of a live target sits in a slot");
+
+        let focus = content.content().focusable_target();
+        let mut changes = self.plan_project(ProjectCommand::AssignSlot {
+            parent: Some(parent),
+            placement: MatrixPlacement {
+                column: placement.column + 1,
+                row: placement.row,
+            },
+            content,
+            shift: SlotShift::default(),
+        })?;
+        changes += set_focus(Some(focus), KeyboardFocusReason::AddSlotContent);
+        Ok(changes)
+    }
+
     fn next_free_root_slot(&self, project: ProjectId) -> MatrixPlacement {
         let mut row = 0;
         while self
@@ -1191,4 +1188,23 @@ fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
         under: project.into(),
     };
     changes
+}
+
+/// New, empty slot content of the requested kind, named `name` or by the kind's default.
+fn new_slot_assignment(target: ConfigurationTarget, name: Option<String>) -> SlotAssignment {
+    match target {
+        ConfigurationTarget::Project => SlotAssignment::Project {
+            id: ProjectId::new(),
+            name: name.unwrap_or(DEFAULT_NEW_PROJECT_NAME.to_string()),
+        },
+        ConfigurationTarget::Launcher => SlotAssignment::Launcher {
+            id: LaunchProfileId::new(),
+            profile: LaunchProfile {
+                name: name.unwrap_or(DEFAULT_NEW_LAUNCHER_NAME.to_string()),
+                mode: LauncherMode::Visor,
+                params: Default::default(),
+                full_screen_mode: Default::default(),
+            },
+        },
+    }
 }
