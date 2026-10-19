@@ -23,44 +23,21 @@ pub struct ConfigurationPersistence {
     /// configuration is written when no file exists yet, so every later change has
     /// a file to be persisted to.
     path: PathBuf,
-    /// Whether applied configuration changes have not yet been written to the file
-    /// on disk.
-    changed: bool,
 }
 
 impl ConfigurationPersistence {
     /// Creates the file view for an existing or soon-to-exist configuration
     /// file. Infallible: reading and parsing happen elsewhere.
     pub fn new(path: &Path) -> Self {
-        Self {
-            path: path.into(),
-            changed: false,
-        }
-    }
-}
-
-impl ConfigurationPersistence {
-    /// Marks the file as pending: a configuration change was applied to the
-    /// aggregate, and the next persist serializes it into the file.
-    ///
-    /// The document is derived from the aggregate, so there is no edit step and
-    /// nothing to resolve — the call cannot fail, and the change itself is not
-    /// needed.
-    #[cfg(test)]
-    pub fn mark_pending(&mut self) {
-        self.changed = true;
+        Self { path: path.into() }
     }
 
-    /// Writes the document once if the aggregate has changed since the last
-    /// write.
+    /// Writes the document derived from the aggregate.
     ///
-    /// Called at the end of a transaction, so its several changes persist as one
-    /// file write. A write failure is logged and leaves `changed` set, so the next
-    /// persist retries it.
-    pub fn persist(&mut self, configuration: &RuntimeConfiguration) {
-        if !self.changed {
-            return;
-        }
+    /// Called only for a transaction that changed the configuration, so its several changes
+    /// persist as one file write. A write failure is logged; the next change writes the whole
+    /// document again.
+    pub fn persist(&self, configuration: &RuntimeConfiguration) {
         let text = match serde_json::to_string_pretty(&PersistedConfiguration::from_configuration(
             configuration,
         )) {
@@ -71,10 +48,7 @@ impl ConfigurationPersistence {
             }
         };
         match write_atomic(&self.path, &text) {
-            Ok(()) => {
-                self.changed = false;
-                log::info!("Configuration persisted to {}", self.path.display());
-            }
+            Ok(()) => log::info!("Configuration persisted to {}", self.path.display()),
             Err(error) => log::warn!(
                 "Failed to persist configuration to {}: {error:#}",
                 self.path.display()
@@ -108,17 +82,17 @@ mod tests {
     use super::*;
     use crate::projects::{MatrixPlacement, ProjectId, SlotAssignment};
 
-    /// A change marks the file pending and persisting serializes the aggregate:
-    /// the assigned launcher reaches the file.
+    /// Persisting writes the aggregate as it is, with no separate marking step that a caller
+    /// could forget: the assigned project reaches the file.
     #[test]
-    fn a_marked_pending_change_persists() -> Result<()> {
+    fn a_persisted_change_reaches_the_file() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("desktop.json");
         let mut configuration = parse_configuration(
             path.as_path(),
             r#"{ "slots": [ { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } } ] }"#,
         )?;
-        let mut document = ConfigurationPersistence::new(path.as_path());
+        let document = ConfigurationPersistence::new(path.as_path());
         let root = ProjectId::ROOT;
 
         configuration.assign_slot(
@@ -129,7 +103,6 @@ mod tests {
                 name: "extra".into(),
             },
         );
-        document.mark_pending();
         document.persist(&configuration);
 
         let text = fs::read_to_string(&path)?;
