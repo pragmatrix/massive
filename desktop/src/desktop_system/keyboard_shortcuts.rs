@@ -16,6 +16,8 @@ pub enum Shortcut {
     StartInstance,
     /// Cmd+W; with Shift the application keeps it.
     CloseInstance,
+    /// Cmd+N; Cmd+Shift+N stays free.
+    NewLauncher,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
     /// Cmd+Ctrl+Up
@@ -57,6 +59,7 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
         Key::Character(c) => match c.as_str() {
             "t" | "T" => Some(Shortcut::StartInstance),
             "w" if !input.is_shift() => Some(Shortcut::CloseInstance),
+            "n" if !input.is_shift() => Some(Shortcut::NewLauncher),
             _ => None,
         },
         _ => None,

@@ -72,6 +72,7 @@ impl KeyHandler for DesktopPresenter {
             Some(Shortcut::Navigate(direction)) => DesktopCommand::Navigate(direction),
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
+            Some(Shortcut::NewLauncher) => DesktopCommand::AddLauncher,
             _ => return KeyOutcome::Pass,
         };
 

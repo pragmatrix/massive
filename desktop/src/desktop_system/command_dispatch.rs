@@ -189,6 +189,15 @@ impl DesktopSystem {
 
                 Ok(changes)
             }
+            DesktopCommand::AddLauncher => {
+                let Some(focused) = self.focused_target() else {
+                    return Ok(Changes::Empty);
+                };
+                self.plan_add_next_to(
+                    &focused,
+                    new_slot_assignment(ConfigurationTarget::Launcher, None),
+                )
+            }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
