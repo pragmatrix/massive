@@ -912,21 +912,7 @@ impl DesktopSystem {
                     warn!("Project path '{under:?}' does not resolve");
                     return Ok(ChangeOutput::default());
                 };
-                let content = match target {
-                    ConfigurationTarget::Project => SlotAssignment::Project {
-                        id: ProjectId::new(),
-                        name: name.clone(),
-                    },
-                    ConfigurationTarget::Launcher => SlotAssignment::Launcher {
-                        id: LaunchProfileId::new(),
-                        profile: LaunchProfile {
-                            name: name.clone(),
-                            mode: LauncherMode::Visor,
-                            params: Default::default(),
-                            full_screen_mode: Default::default(),
-                        },
-                    },
-                };
+                let content = new_slot_assignment(*target, Some(name.clone()));
                 Ok(ChangeOutput::changes(self.plan_project(
                     ProjectCommand::AssignSlot {
                         parent: Some(parent),

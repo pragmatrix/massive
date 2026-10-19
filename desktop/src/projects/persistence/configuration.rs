@@ -9,8 +9,8 @@ use super::persisted::PersistedConfiguration;
 use super::write_atomic;
 use crate::projects::RuntimeConfiguration;
 
-/// The document view of the desktop configuration: the JSON document, kept in
-/// memory and written to disk atomically.
+/// The document view of the desktop configuration: the path the JSON document,
+/// derived from the aggregate, is written to atomically.
 ///
 /// The document is derived from the aggregate, so a change is applied to the
 /// aggregate first and the document is rebuilt from it when persisted — there is no
@@ -82,8 +82,7 @@ mod tests {
     use super::*;
     use crate::projects::{MatrixPlacement, ProjectId, SlotAssignment};
 
-    /// Persisting writes the aggregate as it is, with no separate marking step that a caller
-    /// could forget: the assigned project reaches the file.
+    /// Persisting writes the aggregate as it is: the assigned project reaches the file.
     #[test]
     fn a_persisted_change_reaches_the_file() -> Result<()> {
         let dir = tempfile::tempdir()?;
