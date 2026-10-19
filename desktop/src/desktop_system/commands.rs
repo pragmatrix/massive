@@ -10,7 +10,7 @@ use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignmen
 /// The commands the desktop system can execute.
 #[derive(Debug)]
 pub enum DesktopCommand {
-    Project(ProjectCommand),
+    Configuration(ConfigurationCommand),
     /// Present an instance under `launcher`, spawning it if necessary.
     ///
     /// When `root` is `None`, a fresh root is created and the instance is spawned. When `root` is
@@ -36,7 +36,7 @@ pub enum DesktopCommand {
 }
 
 #[derive(Debug)]
-pub enum ProjectCommand {
+pub enum ConfigurationCommand {
     /// Assigns slot content, displacing the assigned content according to `shift`.
     ///
     /// A `None` parent creates the assigned project instead — there is no separate

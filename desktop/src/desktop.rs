@@ -133,8 +133,8 @@ impl Desktop {
         // The boot commands derive from the aggregate while it is still owned
         // here; `DesktopSystem::new` then takes it over, so the live model's
         // placements come from this same instance the commands were read from.
-        let project_setup_commands: Commands =
-            to_commands(&configuration).map(DesktopCommand::Project);
+        let configuration_commands: Commands =
+            to_commands(&configuration).map(DesktopCommand::Configuration);
 
         let mut system = DesktopSystem::new(env, default_size, title_bar_metrics, configuration)?;
 
@@ -154,7 +154,7 @@ impl Desktop {
         let initial_submission_changes: Changes =
             DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
 
-        let commands = project_setup_commands + primary_instance_commands;
+        let commands = configuration_commands + primary_instance_commands;
 
         let mut changes = Changes::Empty;
         for command in commands {

@@ -14,7 +14,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
         for command in crate::projects::to_commands(&system.aggregates.configuration) {
             // Tests at panel size: the system's constructor already
             // committed the 800×600 window state.
-            let changes = system.plan(DesktopCommand::Project(command))?;
+            let changes = system.plan(DesktopCommand::Configuration(command))?;
             system.transact(changes, &mut instance_manager, TransactionEffectsMode::Setup)?;
         }
 

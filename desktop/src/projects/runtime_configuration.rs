@@ -18,7 +18,7 @@ use uuid::Uuid;
 use massive_applications::MoveDirection;
 use massive_util::CollectingVec;
 
-use crate::desktop_system::{DesktopTarget, FocusableTarget, ProjectCommand, SlotShift};
+use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
@@ -737,17 +737,17 @@ impl RuntimeConfiguration {
 /// The walk starts with the root project's own `AssignSlot { parent: None }`,
 /// which parents the root project under the `Desktop` target; every other
 /// project's creation is its slot assignment.
-pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<ProjectCommand> {
+pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<ConfigurationCommand> {
     let mut commands = CollectingVec::Empty;
 
-    commands.push(ProjectCommand::SetStartupPath(
+    commands.push(ConfigurationCommand::SetStartupPath(
         configuration.startup_path.clone(),
     ));
     let root_name = configuration
         .project(ProjectId::ROOT)
         .map(|project| project.name.clone())
         .unwrap_or_else(|| ROOT_PROJECT_NAME.to_string());
-    commands.push(ProjectCommand::AssignSlot {
+    commands.push(ConfigurationCommand::AssignSlot {
         parent: None,
         placement: MatrixPlacement { column: 0, row: 0 },
         content: SlotAssignment::Project {
@@ -770,7 +770,7 @@ pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<Projec
 fn subtree_commands(
     configuration: &RuntimeConfiguration,
     project: ProjectId,
-    commands: &mut CollectingVec<ProjectCommand>,
+    commands: &mut CollectingVec<ConfigurationCommand>,
 ) {
     for slot in configuration[project].slots() {
         let content = match &slot.content {
@@ -784,7 +784,7 @@ fn subtree_commands(
             },
         };
 
-        commands.push(ProjectCommand::AssignSlot {
+        commands.push(ConfigurationCommand::AssignSlot {
             parent: Some(project),
             placement: slot.placement,
             content,
@@ -1111,7 +1111,7 @@ impl SlotContent {
     }
 }
 
-/// The content an [`crate::desktop_system::ProjectCommand::AssignSlot`] assigns:
+/// The content an [`crate::desktop_system::ConfigurationCommand::AssignSlot`] assigns:
 /// the content itself plus what is needed to create it.
 ///
 /// A launcher carries its full profile, because assigning one creates it; a
@@ -1507,11 +1507,11 @@ mod tests {
         let mut commands = commands.into_iter();
         assert!(matches!(
             commands.next(),
-            Some(ProjectCommand::SetStartupPath(None))
+            Some(ConfigurationCommand::SetStartupPath(None))
         ));
         assert!(matches!(
             commands.next(),
-            Some(ProjectCommand::AssignSlot {
+            Some(ConfigurationCommand::AssignSlot {
                 parent: None,
                 content: SlotAssignment::Project {
                     id: ProjectId::ROOT,
@@ -1522,7 +1522,7 @@ mod tests {
         ));
         assert!(matches!(
             commands.next(),
-            Some(ProjectCommand::AssignSlot {
+            Some(ConfigurationCommand::AssignSlot {
                 parent: Some(ProjectId::ROOT),
                 ..
             })

@@ -8,8 +8,8 @@ use super::change::{
     TopologyChange,
 };
 use super::{
-    ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusableTarget, InstancePart,
-    KeyboardFocusReason, ProjectCommand, ProjectPart, ZoomLevel, view_size,
+    ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
+    FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -83,7 +83,9 @@ impl DesktopSystem {
     /// Plan the execution of a command.
     pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
-            DesktopCommand::Project(project_command) => self.plan_project(project_command),
+            DesktopCommand::Configuration(configuration_command) => {
+                self.plan_configuration(configuration_command)
+            }
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -254,10 +256,10 @@ impl DesktopSystem {
         Ok(changes)
     }
 
-    fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
+    fn plan_configuration(&self, command: ConfigurationCommand) -> Result<Changes> {
         let mut changes = Changes::Empty;
         match command {
-            ProjectCommand::AssignSlot {
+            ConfigurationCommand::AssignSlot {
                 parent,
                 placement,
                 content,
@@ -302,19 +304,19 @@ impl DesktopSystem {
                     }
                 }
             }
-            ProjectCommand::ClearSlot {
+            ConfigurationCommand::ClearSlot {
                 parent,
                 placement,
                 shift,
             } => {
                 changes += self.plan_clear_slot(parent, placement, shift)?;
             }
-            ProjectCommand::MoveSlot { source, dest } => {
+            ConfigurationCommand::MoveSlot { source, dest } => {
                 if self.aggregates.configuration.can_move_slot(source, dest) {
                     changes <<= ConfigurationChange::MoveSlot { source, dest };
                 }
             }
-            ProjectCommand::SetStartupPath(path) => {
+            ConfigurationCommand::SetStartupPath(path) => {
                 changes <<= ConfigurationChange::SetStartupPath(path)
             }
         }
@@ -913,8 +915,8 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 };
                 let content = new_slot_assignment(*target, Some(name.clone()));
-                Ok(ChangeOutput::changes(self.plan_project(
-                    ProjectCommand::AssignSlot {
+                Ok(ChangeOutput::changes(self.plan_configuration(
+                    ConfigurationCommand::AssignSlot {
                         parent: Some(parent),
                         placement: MatrixPlacement {
                             column: *column,
@@ -973,8 +975,8 @@ impl DesktopSystem {
                 else {
                     return Ok(ChangeOutput::default());
                 };
-                Ok(ChangeOutput::changes(self.plan_project(
-                    ProjectCommand::ClearSlot {
+                Ok(ChangeOutput::changes(self.plan_configuration(
+                    ConfigurationCommand::ClearSlot {
                         parent,
                         placement,
                         shift: SlotShift::default(),
@@ -1028,7 +1030,7 @@ impl DesktopSystem {
                         dest: destination,
                     };
                 } else {
-                    changes += self.plan_project(ProjectCommand::MoveSlot {
+                    changes += self.plan_configuration(ConfigurationCommand::MoveSlot {
                         source,
                         dest: destination,
                     })?;
@@ -1073,9 +1075,9 @@ impl DesktopSystem {
                     }
                     None => None,
                 };
-                Ok(ChangeOutput::changes(
-                    self.plan_project(ProjectCommand::SetStartupPath(path))?,
-                ))
+                Ok(ChangeOutput::changes(self.plan_configuration(
+                    ConfigurationCommand::SetStartupPath(path),
+                )?))
             }
             ConfigurationRequest::Resize { size_px } => {
                 let changes = DesktopChange::ResizeAll((*size_px).into()).into();
@@ -1101,7 +1103,7 @@ impl DesktopSystem {
             .expect("slot content of a live target sits in a slot");
 
         let focus = content.content().focusable_target();
-        let mut changes = self.plan_project(ProjectCommand::AssignSlot {
+        let mut changes = self.plan_configuration(ConfigurationCommand::AssignSlot {
             parent: Some(parent),
             placement: MatrixPlacement {
                 column: placement.column + 1,
