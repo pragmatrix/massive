@@ -161,6 +161,8 @@ pub enum KeyboardFocusReason {
     PromotePrimaryView,
     /// Zooming moved focus across a project boundary (ADR 0018).
     Zoom,
+    /// Newly added slot content takes the focus, so the user continues where it appeared.
+    AddSlotContent,
 }
 
 impl KeyboardFocusReason {
@@ -171,7 +173,8 @@ impl KeyboardFocusReason {
             | KeyboardFocusReason::StopInstanceReplacement
             | KeyboardFocusReason::PresentInstance
             | KeyboardFocusReason::PromotePrimaryView
-            | KeyboardFocusReason::Zoom => true,
+            | KeyboardFocusReason::Zoom
+            | KeyboardFocusReason::AddSlotContent => true,
         }
     }
 }

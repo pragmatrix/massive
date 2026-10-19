@@ -25,6 +25,8 @@ pub enum DesktopCommand {
         kind: InstanceKind,
     },
     StopInstance(InstanceId),
+    /// Adds a default launcher right of the focused slot and focuses it (Cmd+N).
+    AddLauncher,
 
     Navigate(Direction),
 

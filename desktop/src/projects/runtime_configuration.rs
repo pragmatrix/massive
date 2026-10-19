@@ -18,7 +18,7 @@ use uuid::Uuid;
 use massive_applications::MoveDirection;
 use massive_util::CollectingVec;
 
-use crate::desktop_system::{DesktopTarget, ProjectCommand, SlotShift};
+use crate::desktop_system::{DesktopTarget, FocusableTarget, ProjectCommand, SlotShift};
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
@@ -1099,6 +1099,14 @@ impl SlotContent {
         match self {
             SlotContent::Launcher(launcher) => DesktopTarget::Launcher(launcher),
             SlotContent::Project(project) => project.into(),
+        }
+    }
+
+    /// The keyboard-focus target for this content: a project is focused as a slot.
+    pub fn focusable_target(self) -> FocusableTarget {
+        match self {
+            SlotContent::Launcher(launcher) => FocusableTarget::Launcher(launcher),
+            SlotContent::Project(project) => FocusableTarget::Project(project),
         }
     }
 }

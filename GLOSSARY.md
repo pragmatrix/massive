@@ -113,7 +113,7 @@ A proposal from input processing that keyboard focus should change, instead of a
 _Avoid_: pending focus, focus request
 
 **Launcher**:
-A configured entry that a slot may host; hosts one or more running instances and owns a launcher mode. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command.
+A configured entry that a slot may host; hosts one or more running instances and owns a launcher mode. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command. `Cmd+N` adds a new, empty launcher right of the focused slot, shifting the slots to its right, and focuses it.
 _Avoid_: profile, cell
 
 **Primary instance**:

@@ -29,6 +29,7 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+T | desktop (instance, launcher) | Start an instance next to the focused one | new tab (mac, all terminals, Br, Fi, Ob) |
 | Cmd+Shift+T | desktop (instance, launcher) | Start an assistant instance | reopen closed tab (Br, VS, Ob) |
 | Cmd+W | desktop (instance) | Close the instance | close tab or window (mac, everywhere) |
+| Cmd+N | desktop | Add a launcher right of the focused slot and focus it | new window (mac, all terminals, Br, Fi) · new note (Ob) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
@@ -68,7 +69,6 @@ From the terminal client's find proposal, not implemented:
 | Cmd+K | clear scrollback (Term, iT, Gh, Wz, Kt) · insert link (Ob) · chord prefix (VS) · connect to server (Fi) |
 | Cmd+L | address bar (Br) · select line (VS) |
 | Cmd+M | minimize (mac, Wz); the shell has no Window menu, so nothing minimizes today |
-| Cmd+N | new window (mac, all terminals, Br, Fi) · new note (Ob) |
 | Cmd+O | open (mac, Fi) · quick switcher (Ob) |
 | Cmd+P | print (mac) · quick open (VS) · command palette (Ob) |
 | Cmd+R | reload (Br) · reload configuration (Wz) · show original (Fi) |
@@ -158,9 +158,11 @@ compose characters (Opt+C types `ç`), so its users won't type those in the term
   terminals will expect full screen; Cmd+Ctrl+F covers it.
 - **Cmd+arrows** navigate the desktop, so shells don't get the line start/end that Ghostty
   sends, and Cmd+↑/↓ can't jump between prompts as in Ghostty and Terminal.app.
-- **Cmd+1 … 9, Cmd+N, Cmd+K, Cmd+, and Cmd+=/-** are free, yet nearly every comparable
-  application binds them the same way. A user will try them first; they are the strongest
-  candidates for go to instance N, a new project, clearing scrollback, settings and font size.
+- **Cmd+N** opens a new window in every comparable application. On the desktop, the closest
+  meaning is a new launcher next to the focused slot.
+- **Cmd+1 … 9, Cmd+K, Cmd+, and Cmd+=/-** are free, yet nearly every comparable application
+  binds them the same way. A user will try them first; they are the strongest candidates for go
+  to instance N, clearing scrollback, settings and font size.
   Cmd+= needs Shift on most European layouts, where other apps accept Cmd++ instead; Cmd+1 … 9
   may need care on AZERTY (†, see [Layouts](#layouts)).
 - **Cmd+D** splits a pane in three of the terminals. On the desktop, the closest meaning is

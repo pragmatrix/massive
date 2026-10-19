@@ -64,7 +64,7 @@ impl<'a> MatrixNavigation<'a> {
                 self.navigate_within_matrix(project, placement, direction, preferred_column)
             {
                 return Some(NavigationStep {
-                    target: content.into(),
+                    target: content.focusable_target(),
                     escaped_from,
                 });
             }
@@ -377,7 +377,7 @@ mod tests {
             self.configuration
                 .content_at(project, placement.into())
                 .unwrap()
-                .into()
+                .focusable_target()
         }
     }
 

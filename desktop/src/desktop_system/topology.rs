@@ -46,6 +46,18 @@ impl OrderedHierarchy<DesktopTarget> {
         })
     }
 
+    /// The slot content a target belongs to: its nearest launcher or nested project. `None` for
+    /// the desktop and the root project, which no slot hosts.
+    pub fn slot_content_of_target(&self, target: &DesktopTarget) -> Option<SlotContent> {
+        self.parent_chain(target).find_map(|target| match target {
+            DesktopTarget::Launcher(launcher) => Some(SlotContent::Launcher(*launcher)),
+            DesktopTarget::Project(project, _) if *project != ProjectId::ROOT => {
+                Some(SlotContent::Project(*project))
+            }
+            _ => None,
+        })
+    }
+
     /// The nearest enclosing project, including a project target itself.
     /// `Desktop` resolves to the root; other targets must belong to a live project.
     pub fn project_of_target(&self, target: &DesktopTarget) -> ProjectId {

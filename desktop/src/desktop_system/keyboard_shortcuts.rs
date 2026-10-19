@@ -2,7 +2,7 @@
 //!
 //! What a shortcut means depends on the level that receives it (ADR 0020).
 
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 use super::Direction;
 use super::key_input::KeyInput;
@@ -16,6 +16,8 @@ pub enum Shortcut {
     StartInstance,
     /// Cmd+W; with Shift the application keeps it.
     CloseInstance,
+    /// Cmd+N with no other modifier, so chords that add one stay free.
+    NewLauncher,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
     /// Cmd+Ctrl+Up
@@ -57,6 +59,7 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
         Key::Character(c) => match c.as_str() {
             "t" | "T" => Some(Shortcut::StartInstance),
             "w" if !input.is_shift() => Some(Shortcut::CloseInstance),
+            "n" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::NewLauncher),
             _ => None,
         },
         _ => None,
@@ -87,7 +90,6 @@ fn command_arrow(input: &KeyInput) -> Option<Shortcut> {
 #[cfg(test)]
 mod tests {
     use winit::event::ElementState;
-    use winit::keyboard::ModifiersState;
 
     use super::*;
 

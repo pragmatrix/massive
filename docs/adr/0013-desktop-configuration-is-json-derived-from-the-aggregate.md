@@ -48,8 +48,10 @@ it.
 
 ## Consequences
 
-- `ConfigurationDocument` shrinks to a path plus a dirty flag; `apply` cannot
-  fail, because there is no document state an edit could fail to resolve.
+- `ConfigurationDocument` shrinks to a path; `apply` cannot fail, because there
+  is no document state an edit could fail to resolve. Whether to write is the
+  transaction's `PersistConfiguration` effect, so no flag beside the aggregate
+  can miss a change.
 - `SetStartupPath` must be retained by the aggregate (it previously lived only
   in the document), so the flush can serialize it. The aggregate's
   `startup_path` is the persistence source; the resolved launcher id stays
