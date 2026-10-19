@@ -60,7 +60,7 @@ use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
-pub use commands::{DesktopCommand, ProjectCommand};
+pub use commands::{ConfigurationCommand, DesktopCommand};
 pub use effects::Effects;
 pub use fullscreen::{fullscreen_scale, view_size};
 pub use key_delivery::{KeyContext, KeyHandler, KeyOutcome};

@@ -7,7 +7,7 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
         let (mut system, receiver) = system_from(CONFIG);
         let mut instance_manager = instance_manager(&receiver);
         for command in crate::projects::to_commands(&system.aggregates.configuration) {
-            let changes = system.plan(DesktopCommand::Project(command))?;
+            let changes = system.plan(DesktopCommand::Configuration(command))?;
             system.transact(
                 changes,
                 &mut instance_manager,

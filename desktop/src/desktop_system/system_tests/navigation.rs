@@ -73,7 +73,7 @@ async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
             run(
                 &mut system,
                 &mut instance_manager,
-                DesktopCommand::Project(command),
+                DesktopCommand::Configuration(command),
             )?;
         }
         let launcher = system

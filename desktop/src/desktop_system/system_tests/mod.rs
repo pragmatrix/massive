@@ -66,7 +66,7 @@ fn nested_siblings() -> Result<NestedSiblings> {
     let (mut system, receiver) = system_from(NESTED_SIBLINGS_CONFIG);
     let mut instance_manager = instance_manager(&receiver);
     for command in crate::projects::to_commands(&system.aggregates.configuration) {
-        let changes = system.plan(DesktopCommand::Project(command))?;
+        let changes = system.plan(DesktopCommand::Configuration(command))?;
         system.transact(
             changes,
             &mut instance_manager,
@@ -187,7 +187,7 @@ fn fullscreen_system(config: &str) -> Result<(DesktopSystem, InstanceManager, La
     let (mut system, receiver) = system_from(config);
     let mut instance_manager = instance_manager(&receiver);
     for command in crate::projects::to_commands(&system.aggregates.configuration) {
-        let changes = system.plan(DesktopCommand::Project(command))?;
+        let changes = system.plan(DesktopCommand::Configuration(command))?;
         system.transact(
             changes,
             &mut instance_manager,

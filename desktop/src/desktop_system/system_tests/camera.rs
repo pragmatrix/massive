@@ -12,7 +12,7 @@ async fn startup_setup_snaps_camera_to_the_focused_instance() -> Result<()> {
             .expect("the test configuration has a startup launcher");
         let frame = massive_applications::begin_frame();
         for command in crate::projects::to_commands(&system.aggregates.configuration) {
-            let changes = system.plan(DesktopCommand::Project(command))?;
+            let changes = system.plan(DesktopCommand::Configuration(command))?;
             system.transact(
                 changes,
                 &mut instance_manager,
@@ -48,7 +48,7 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
         let mut instance_manager = instance_manager(&receiver);
         let frame = massive_applications::begin_frame();
         for command in crate::projects::to_commands(&system.aggregates.configuration) {
-            let changes = system.plan(DesktopCommand::Project(command))?;
+            let changes = system.plan(DesktopCommand::Configuration(command))?;
             system.transact(
                 changes,
                 &mut instance_manager,
