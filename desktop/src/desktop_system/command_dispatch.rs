@@ -746,6 +746,12 @@ impl DesktopSystem {
                     .group_slot(parent, placement, project, &name);
                 self.insert_slot_presenter(SlotContent::Project(project), Some(parent))?;
             }
+            ConfigurationChange::SwapSlots { parent, a, b } => {
+                self.aggregates.configuration.swap_slots(parent, a, b);
+                let mut output = ChangeOutput::default();
+                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
+                return Ok(output);
+            }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain the resolved launcher. The path is what persists, so
             // the aggregate records it and the document derives from it.
@@ -1047,18 +1053,10 @@ impl DesktopSystem {
                     .content_at(parent, placement)
                     .is_some()
                 {
-                    let temporary = self.next_free_root_slot(parent);
-                    changes <<= ConfigurationChange::MoveSlot {
-                        source,
-                        dest: (parent, temporary),
-                    };
-                    changes <<= ConfigurationChange::MoveSlot {
-                        source: destination,
-                        dest: source,
-                    };
-                    changes <<= ConfigurationChange::MoveSlot {
-                        source: (parent, temporary),
-                        dest: destination,
+                    changes <<= ConfigurationChange::SwapSlots {
+                        parent,
+                        a: current_placement,
+                        b: placement,
                     };
                 } else {
                     changes += self.plan_configuration(ConfigurationCommand::MoveSlot {
@@ -1145,19 +1143,6 @@ impl DesktopSystem {
         })?;
         changes += set_focus(Some(focus), KeyboardFocusReason::AddSlotContent);
         Ok(changes)
-    }
-
-    fn next_free_root_slot(&self, project: ProjectId) -> MatrixPlacement {
-        let mut row = 0;
-        while self
-            .aggregates
-            .configuration
-            .content_at(project, MatrixPlacement { column: 0, row })
-            .is_some()
-        {
-            row += 1;
-        }
-        MatrixPlacement { column: 0, row }
     }
 
     fn focused_project(&self) -> Option<ProjectId> {

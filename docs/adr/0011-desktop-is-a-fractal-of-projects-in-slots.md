@@ -111,6 +111,10 @@ project that takes the slot's placement (Cmd+G). Grouping cannot be expressed wi
 and move alone: the content and the new project need the same placement, so one of them would
 first have to wait in a temporary slot. `Group` does it in one step, and the content's re-parent
 follows as a topology change.
+
+*Update:* a fifth change, `SwapSlots`, exchanges the contents of two slots in one matrix, for the
+directional launcher move onto a taken placement. It exists for the same reason as `Group`: each
+content needs the other's placement at the same time.
 Displacement is not part of the change vocabulary: a `SlotShift` policy rides
 the *plan* (as the removal shift does today) and expands into concrete
 `MoveSlot`s before anything is applied, so the live model and the document

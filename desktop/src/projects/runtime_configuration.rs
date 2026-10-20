@@ -321,6 +321,19 @@ impl RuntimeConfiguration {
             .assign_slot(Slot::project(placement, project));
     }
 
+    /// Exchanges the contents of `project`'s slots at `a` and `b`. Both slots hold content.
+    pub fn swap_slots(&mut self, project: ProjectId, a: MatrixPlacement, b: MatrixPlacement) {
+        let project = self
+            .project_mut(project)
+            .expect("the project of swapped slots exists");
+        let index_a = project.slot_index(a).expect("a swapped slot has content");
+        let index_b = project.slot_index(b).expect("a swapped slot has content");
+        project.slots[index_a].placement = b;
+        project.slots[index_b].placement = a;
+        // The aggregate's readers rely on slots in placement order.
+        sort_slots(&mut project.slots);
+    }
+
     /// Whether the content of `source` can move to `dest`.
     ///
     /// Rejected when the source slot is empty, when the destination project is not
@@ -1236,6 +1249,28 @@ impl LaunchProfileId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A swap exchanges the two contents and leaves the slots in placement order, the order the
+    /// aggregate's readers rely on.
+    #[test]
+    fn swap_slots_exchanges_contents_and_keeps_placement_order() {
+        let first_at = MatrixPlacement { column: 0, row: 0 };
+        let second_at = MatrixPlacement { column: 1, row: 1 };
+        let mut configuration = configuration([("first", first_at), ("second", second_at)]);
+        let root = root_id_of(&configuration);
+        let id_of = |configuration: &RuntimeConfiguration, name| {
+            SlotContent::Launcher(configuration[root].launcher_by_name(name).unwrap())
+        };
+        let (first, second) = (id_of(&configuration, "first"), id_of(&configuration, "second"));
+
+        configuration.swap_slots(root, first_at, second_at);
+
+        let project = &configuration[root];
+        assert_eq!(project.content_at(first_at), Some(second));
+        assert_eq!(project.content_at(second_at), Some(first));
+        let placements: Vec<_> = project.slots().iter().map(|slot| slot.placement).collect();
+        assert_eq!(placements, [first_at, second_at]);
+    }
 
     #[test]
     fn shifted_slots_moves_a_contiguous_run_in_reverse_order() {

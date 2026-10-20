@@ -131,6 +131,14 @@ pub enum ConfigurationChange {
         project: ProjectId,
         name: String,
     },
+    /// Exchanges the contents of two slots in `parent`'s matrix. A swap needs its own change,
+    /// because each content needs the other's placement at the same time. Expressed as moves, one
+    /// of them would first have to wait in a temporary slot.
+    SwapSlots {
+        parent: ProjectId,
+        a: MatrixPlacement,
+        b: MatrixPlacement,
+    },
     SetStartupPath(Option<String>),
 }
 
