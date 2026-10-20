@@ -30,7 +30,8 @@ const PROJECT_HEADER_SPACING: u32 = 10;
 pub struct ProjectPresenter {
     id: ProjectId,
     movement: Movement<SlotLayout>,
-    /// Kept so the project can be re-hosted when its slot moves to another matrix.
+    /// The project's own scene location. It is kept so that the project can be attached to
+    /// another matrix when its slot moves there.
     location: Handle<Location>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -83,7 +84,7 @@ impl ProjectPresenter {
         }
     }
 
-    /// Moves the drawn layout by `previous_to_current` without animating; see
+    /// Converts the on-screen layout into the current parent's coordinates. See
     /// [`SlotLayout::rebase`].
     pub fn rebase(&self, previous_to_current: Transform) {
         self.movement.modify(move |slot_layout, _context| {

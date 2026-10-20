@@ -108,8 +108,8 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
     .await
 }
 
-/// A slot that moves to another project keeps its running instances and the keyboard focus: the
-/// launcher is re-parented with its subtree, not cleared and re-assigned.
+/// A slot that moves to another project keeps its running instances and the keyboard focus. The
+/// launcher is re-parented together with everything below it, not removed and assigned again.
 #[tokio::test]
 async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
     task_context::with_context(task_context(), async {

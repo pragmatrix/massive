@@ -104,8 +104,9 @@ where
         Ok(())
     }
 
-    /// Moves `id` with its nested tree to the end of `parent`'s nested list, so a slot that
-    /// changes projects keeps its instances and nested projects.
+    /// Moves `id` together with everything nested below it to the end of `parent`'s nested list.
+    /// A slot that moves to another project uses this, so that it keeps its instances and nested
+    /// projects.
     pub fn reparent(&mut self, id: &Id, parent: Id) -> Result<()> {
         let Some(previous) = self.parent(id).cloned() else {
             bail!("Internal error (reparent): id {id:?} has no parent");

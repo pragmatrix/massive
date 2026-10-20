@@ -8,7 +8,9 @@ pub type TargetSet = CollectingSet<DesktopTarget>;
 pub struct ChangeSurface {
     /// A remeasure is required.
     pub size_invalid: TargetSet,
-    /// Moved under another parent; each one re-bases its drawn transform once placed there.
+    /// The targets that this transaction moved under a different parent. Each of them gets a
+    /// `Reparent` effect after layout. That effect converts the target's on-screen position into
+    /// the coordinates of its new parent, so that it slides from where it was instead of jumping.
     pub reparented: TargetSet,
     pub window_size_changed: bool,
     /// A configuration change was applied to the aggregate; the transaction emits persistence.

@@ -10,9 +10,10 @@
 //!   [`MovementRuntime::mount`] registers it and returns a [`Movement`] handle.
 //! - **Modify**: [`Movement::modify`] queues a closure that mutates the value and may start
 //!   animations. The closure receives an [`AnimationAllocator`] that records the movement's
-//!   `ending_time` (the latest end across all its animations). The runtime then applies the
-//!   movement at the time it was last drawn, so its new state is drawn in the same frame without
-//!   advancing it (see [`MovementRuntime::run_actions`]).
+//!   `ending_time` (the latest end across all its animations). Right after the closure ran, the
+//!   runtime applies the movement once more, at the time of its last apply. This puts the new
+//!   value on screen in the same frame without moving a running animation forward (see
+//!   [`MovementRuntime::run_actions`]).
 //! - **Animate**: [`MovementRuntime::apply_animations`] advances every movement with a pending
 //!   `ending_time` each cycle, until the first cycle at or past that time. It then clears the
 //!   `ending_time` and emits the movement's completion event, if any.
@@ -103,27 +104,34 @@ impl MovementRuntime {
     /// Call this once per cycle, after animations have been applied, so that actions queued by
     /// completion events take effect in the same cycle.
     ///
-    /// Each modified movement is applied right away, at the time it was last drawn. A modify only
-    /// changes the movement's value, and only apply-animations cycles advance movements, so
-    /// without this the change would reach the scene a frame late, or never: a modify that
-    /// changes the value without starting an animation sets no `ending_time` and is never
-    /// advanced. A frame late is visible whenever the same transaction also changes the scene
-    /// directly; re-parenting switches a location's parent at once, and its transform must follow
-    /// in that frame.
+    /// After a modify, the runtime applies the movement right away, at the time of the movement's
+    /// last apply. A modify only changes the movement's value. Otherwise only apply-animations
+    /// cycles, which follow the display refresh, write a movement's value to the scene. Without
+    /// the extra apply, a modify would show up one frame late. A modify that changes the value
+    /// without starting an animation would never show up, because nothing would schedule the
+    /// movement for an apply-animations cycle.
     ///
-    /// The last drawn time, not the cycle's, because this must show the modify without moving
-    /// time: event cycles are frequent and irregular, and advancing running animations to their
-    /// times makes motion stutter. An animation started in this cycle has not begun at that time,
-    /// so it is drawn at its start value and keeps running; unlike a snap, nothing finishes, and
-    /// the movement's `ending_time` and completion event stay with the apply-animations cycles.
+    /// Showing a modify one frame late becomes visible when the same transaction also changes the
+    /// scene directly. Re-parenting is such a case. It switches the parent of a scene location at
+    /// once, and the location's transform has to change in the same frame to keep the content in
+    /// place.
     ///
-    /// So apply closures run after every modify, also when no animation is running, and must
-    /// handle that; a redraw at an unchanged time should write through `update_if_changed` so it
-    /// submits nothing.
+    /// The extra apply uses the time of the last apply, not the time of the current cycle. Event
+    /// cycles happen often and at irregular times, and moving running animations forward to those
+    /// times makes motion stutter. At the time of the last apply, an animation that the modify
+    /// started has not begun yet. The movement is therefore shown at the animation's start value,
+    /// and the animation keeps running. A snap, in contrast, finishes all animations. The
+    /// movement's `ending_time` and its completion event stay with the apply-animations cycles.
+    ///
+    /// As a consequence, a movement's apply closure runs after every modify, also when no
+    /// animation is running, and it has to handle that case. The extra apply repeats the time of
+    /// the last apply, so it often produces the values that are already shown. Writing them with
+    /// `update_if_changed` avoids submitting unchanged values to the scene again.
     pub fn run_actions(&mut self, coordinator: &mut AnimationCoordinator) {
         mem::swap(&mut self.actions, &mut *self.action_inbox.lock());
-        // For a movement never drawn. `None` only when an instance's teardown flushes outside a
-        // cycle, and nothing is drawn after teardown.
+        // A movement that was never applied is applied at the current cycle's time. There is no
+        // current cycle only when an instance flushes its actions during teardown. Nothing is
+        // shown after teardown, so its modifies are not applied.
         let cycle_time = coordinator.cycle_time();
 
         for action in self.actions.drain(..) {
@@ -265,7 +273,8 @@ trait AnimatableMovement: Any + Send + Sync {
 struct MountedMovement {
     movement: Box<dyn AnimatableMovement>,
     ending_time: Option<Instant>,
-    /// The time the movement was last applied at, so a modify can be drawn without advancing it.
+    /// The time of the movement's last apply. A modify is applied again at this time, which shows
+    /// the new value without moving running animations forward.
     drawn_at: Option<Instant>,
 }
 
@@ -351,10 +360,11 @@ mod tests {
     use super::*;
     use crate::{Animated, Interpolation};
 
-    /// A modify reaches the scene in the flush that runs it, like a snap but without finishing
-    /// or advancing anything: a plain value change is drawn although no animation advances it, a
-    /// started animation is drawn at its start value and keeps running, and retargeting a running
-    /// animation in a later cycle redraws it as last drawn instead of at that cycle's time.
+    /// A modify reaches the scene in the same flush that runs it. A value change without an
+    /// animation is shown, although no animation would ever apply it. A newly started animation
+    /// is shown at its start value and keeps running, so nothing is finished as with a snap. When
+    /// a running animation gets a new target in a later cycle, the movement is shown as it was
+    /// last applied, not moved forward to that cycle's time.
     #[test]
     fn modified_movements_are_drawn_in_the_same_flush() {
         let mut coordinator = AnimationCoordinator::new();

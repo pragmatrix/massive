@@ -262,8 +262,9 @@ impl DesktopLayoutState {
         Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(visible)
     }
 
-    /// The transform that maps `target`'s local origin space into the layout root's space, the
-    /// space its scene location's children are drawn in.
+    /// The transform from `target`'s local coordinates into the coordinates of the layout root.
+    /// The local coordinates are relative to the origin of the target's rectangle, not to its
+    /// center. A presenter positions its scene children in these coordinates.
     pub fn absolute_origin_transform(
         &self,
         target: &DesktopTarget,

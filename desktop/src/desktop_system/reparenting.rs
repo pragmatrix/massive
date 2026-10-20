@@ -1,11 +1,16 @@
-//! Re-parenting: slot content that moves into another project's matrix keeps its subtree, its
-//! running instances and the keyboard focus, and slides from where it is drawn.
+//! Re-parenting moves slot content into the matrix of another project. The content keeps
+//! everything below it, its running instances, and the keyboard focus. On screen, it slides from
+//! its old place to its new one.
 //!
-//! The move touches three layers at different times, all routed through here: planning emits the
-//! topology change, applying it re-parents the hierarchy and the presenter's scene location and
-//! reports the target as re-parented, and the resulting `Reparent` effect re-bases the
-//! presenter's animation into the new parent's space after every placement, once that parent is
-//! placed.
+//! A re-parent happens in three steps, at three different times, and this module provides each
+//! of them:
+//!
+//! 1. Planning turns a `MoveSlot` between two projects into a `TopologyChange::Reparent`.
+//! 2. Applying that change moves the target in the hierarchy and attaches its presenter's scene
+//!    location to the new matrix. It also reports the target as re-parented.
+//! 3. The report becomes a `Reparent` effect, which runs after layout has placed the new parent.
+//!    It converts the presenter's on-screen position into the new parent's coordinates, so that
+//!    the presenter's next layout animates from where it is.
 
 use std::collections::HashMap;
 
@@ -18,20 +23,22 @@ use super::layout_state::DesktopLayoutState;
 use super::{Aggregates, DesktopTarget, ProjectPart};
 use crate::projects::{MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent};
 
-/// The re-parented targets whose animation still waits for its re-base, with their previous
-/// parent's absolute origin transform.
+/// The re-parented targets that still wait for step 3. For each target, it keeps the absolute
+/// transform of the previous parent, captured before the move. The previous parent may be gone by
+/// the time step 3 runs.
 ///
-/// Known gap: content removed between its re-parent and its next layout pass leaves its entry
-/// behind. That is harmless, because launcher and project ids are never reused, and a target that
-/// is re-parented again overwrites its entry.
+/// Known gap: when content is removed after its re-parent but before step 3, its entry stays
+/// behind. This is harmless. Launcher and project ids are never reused, and a target that is
+/// re-parented again overwrites its entry.
 #[derive(Debug, Default)]
 pub struct Reparenting {
     previous_parent_origins: HashMap<DesktopTarget, Transform>,
 }
 
 impl Reparenting {
-    /// The topology half of a `MoveSlot` the configuration already accepted: content that changes
-    /// projects changes its topology parent, since a matrix's topology children are its slots.
+    /// Step 1. Returns the topology change for a `MoveSlot` that the configuration already
+    /// accepted. In the topology, the children of a matrix are its slots, so content that moves to
+    /// another project needs a new topology parent. A move within one matrix needs no change.
     pub fn plan(
         (source_parent, source_placement): (ProjectId, MatrixPlacement),
         (dest_parent, _): (ProjectId, MatrixPlacement),
@@ -50,11 +57,13 @@ impl Reparenting {
         .into()
     }
 
-    /// Re-parents `what` in the hierarchy and hangs its presenter under the new matrix, whose
-    /// location its layout transform is relative to; instances and nested slots follow.
+    /// Step 2. Moves `what` under `under` in the hierarchy and attaches its presenter's scene
+    /// location to the new matrix. The presenter's layout transform is relative to its matrix, so
+    /// the presenter has to hang under the matrix it now belongs to. Instances and nested slots
+    /// hang under the presenter and follow it.
     ///
-    /// The surface it returns carries `what` as re-parented, which becomes the effect that
-    /// re-bases it once its new parent is placed.
+    /// The returned surface lists `what` as re-parented. The transaction turns that into the
+    /// `Reparent` effect of step 3.
     pub fn apply(
         &mut self,
         what: DesktopTarget,
@@ -91,7 +100,8 @@ impl Reparenting {
         Ok(surface)
     }
 
-    /// The re-base `target` still owes since it was re-parented, handed out once.
+    /// Returns the pending step 3 for `target`, if it was re-parented. Each pending step is handed
+    /// out only once.
     pub fn take_rebase(&mut self, target: &DesktopTarget) -> Option<Rebase> {
         self.previous_parent_origins
             .remove_entry(target)
@@ -102,8 +112,8 @@ impl Reparenting {
     }
 }
 
-/// A pending re-base, only obtainable from [`Reparenting::take_rebase`], so a re-base happens
-/// exactly once and only for re-parented content.
+/// A pending step 3 for one target. It can only be obtained from [`Reparenting::take_rebase`].
+/// This makes sure that the conversion runs exactly once, and only for re-parented content.
 #[must_use]
 #[derive(Debug)]
 pub struct Rebase {
@@ -112,8 +122,9 @@ pub struct Rebase {
 }
 
 impl Rebase {
-    /// Re-expresses the target's drawn transform in its new parent's space right before its new
-    /// layout is applied, so the layout animates from where it is drawn.
+    /// Converts the target's on-screen transform into the coordinates of its new parent. This runs
+    /// right before the target's new layout is applied, so that the layout animates from where
+    /// the target is on screen.
     pub fn apply(self, aggregates: &Aggregates, layout_state: &DesktopLayoutState) {
         let parent = aggregates
             .hierarchy

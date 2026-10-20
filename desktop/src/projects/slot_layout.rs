@@ -1,5 +1,5 @@
-//! The animated layout of slot content, shared by launchers and nested projects so both appear,
-//! slide, and re-base alike.
+//! The animated layout of slot content. Launchers and nested projects share it, so that both
+//! appear, slide, and follow a re-parent in the same way.
 
 use std::time::Duration;
 
@@ -8,8 +8,9 @@ use massive_geometry::{SizedTransform, Transform};
 
 const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
-/// `None` until the first layout, which is taken as it is, so new content appears in its slot
-/// instead of growing out of its matrix's origin.
+/// The layout is `None` until the first one arrives. The first layout is taken without an
+/// animation, so new content appears directly in its slot. Animating it would make the content
+/// grow out of the matrix's origin.
 #[derive(Debug, Default)]
 pub struct SlotLayout {
     layout: Option<Animated<SizedTransform>>,
@@ -28,10 +29,13 @@ impl SlotLayout {
         }
     }
 
-    /// Moves the drawn layout by `previous_to_current`, the map from the previous parent's space
-    /// into the current one, without animating. It reads the drawn value, not the target, so
-    /// content re-parented mid-animation continues from where it is. Content re-parented before
-    /// its first layout was never drawn, so there is nothing to re-base.
+    /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
+    /// coordinates into the current parent's. Nothing is animated here.
+    ///
+    /// The conversion starts from the value currently shown, not from the animation's target.
+    /// Content that is re-parented in the middle of an animation therefore continues from where
+    /// it is. Content that is re-parented before its first layout was never shown, so there is
+    /// nothing to convert.
     pub fn rebase(&mut self, previous_to_current: Transform) {
         let Some(layout) = self.layout.as_mut() else {
             return;
@@ -42,7 +46,7 @@ impl SlotLayout {
         layout.snap(SizedTransform::new(drawn.size, transform));
     }
 
-    /// The drawn layout, `None` before the first one.
+    /// Returns the layout to show at `progress`. It is `None` before the first layout arrived.
     pub fn proceed_with(&mut self, progress: AnimationProgress) -> Option<SizedTransform> {
         self.layout
             .as_mut()
@@ -56,8 +60,8 @@ mod tests {
 
     use super::*;
 
-    /// Re-parented content keeps its drawn world transform, also when the new parent is a scaled
-    /// nested matrix, so its slide starts where it was.
+    /// Re-parented content keeps its on-screen position, also when the new parent is a scaled
+    /// nested matrix. Its slide therefore starts where the content was.
     #[test]
     fn rebase_keeps_the_drawn_world_transform() {
         let previous_parent = Transform::from_translation((100.0, 0.0, 0.0));

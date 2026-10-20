@@ -154,8 +154,8 @@ pub enum TopologyChange {
         at_index: usize,
         under: DesktopTarget,
     },
-    /// Moves a target with its subtree under another parent; focus stays, since the target and
-    /// everything below it remain in the topology.
+    /// Moves a target and everything below it under another parent. The keyboard focus is left
+    /// alone, because all moved targets stay in the topology.
     Reparent {
         what: DesktopTarget,
         under: DesktopTarget,

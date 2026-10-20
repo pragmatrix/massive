@@ -224,15 +224,17 @@ impl LauncherPresenter {
         self.location.clone()
     }
 
-    /// Moves the drawn layout by `previous_to_current`, the map from the previous parent's
-    /// space into the current one, without animating, so the next layout slides from there.
+    /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
+    /// coordinates into the current parent's. Nothing is animated here. The next layout then
+    /// slides from the converted position.
     pub fn rebase(&self, previous_to_current: Transform) {
         self.movement.modify(move |movement, _context| {
             movement.layout.rebase(previous_to_current);
         });
     }
 
-    /// Re-hosts the launcher when its slot moves to another project's matrix.
+    /// Attaches the launcher's scene location to another parent location. This is used when the
+    /// launcher's slot moves to the matrix of another project.
     pub fn set_parent_location(&self, parent: &Handle<Location>) {
         self.location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();

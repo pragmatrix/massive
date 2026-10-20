@@ -254,9 +254,11 @@ impl DesktopSystem {
         Ok(effects)
     }
 
-    /// Re-bases a re-parented target, then schedules its layout, so the layout animates from
-    /// where the target is drawn. `Reparent` is queued ahead of any `ApplyLayout` placement
-    /// adds for the target, so the scheduler merges the two into this one.
+    /// Converts the on-screen position of a re-parented target into its new parent's coordinates,
+    /// then schedules the target's layout. The layout then animates from where the target is on
+    /// screen. Placement may also queue an `ApplyLayout` for the same target. The `Reparent`
+    /// effect is always queued before it, so the scheduler merges that `ApplyLayout` with the one
+    /// scheduled here.
     fn reparent_effect(&mut self, target: DesktopTarget) -> Effects {
         self.reparenting
             .take_rebase(&target)
