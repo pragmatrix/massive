@@ -113,9 +113,8 @@ fn matrix_slots(
         .configuration
         .project(project)
         .expect("a laid out project is configured")
-        .slots()
-        .iter()
-        .map(|slot| (slot.content(), slot.placement))
+        .slot_contents()
+        .map(|(placement, content)| (content, placement))
         .collect();
     // ADR 0023: a parent-wide scale preserves the relative sizes of sibling projects.
     // Architecture: the shared scale is under discussion, see ADR 0023, "Under discussion".

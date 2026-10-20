@@ -366,23 +366,25 @@ impl RuntimeConfiguration {
         project: ProjectId,
         placement: MatrixPlacement,
     ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
-        let slots = self
+        let inner: Vec<MatrixPlacement> = self
             .project(project)
             .expect("the ungrouped project exists")
-            .slots();
-        let min_column = slots.iter().map(|slot| slot.placement.column).min();
-        let min_row = slots.iter().map(|slot| slot.placement.row).min();
+            .slot_contents()
+            .map(|(inner, _)| inner)
+            .collect();
+        let min_column = inner.iter().map(|inner| inner.column).min();
+        let min_row = inner.iter().map(|inner| inner.row).min();
         let (Some(min_column), Some(min_row)) = (min_column, min_row) else {
             return Vec::new();
         };
-        slots
-            .iter()
-            .map(|slot| {
+        inner
+            .into_iter()
+            .map(|inner| {
                 let landing = MatrixPlacement {
-                    column: placement.column + slot.placement.column - min_column,
-                    row: placement.row + slot.placement.row - min_row,
+                    column: placement.column + inner.column - min_column,
+                    row: placement.row + inner.row - min_row,
                 };
-                (slot.placement, landing)
+                (inner, landing)
             })
             .collect()
     }
@@ -433,8 +435,7 @@ impl RuntimeConfiguration {
 
             let mut row_pushes = Vec::new();
             let mut next_free = after_landings;
-            for slot in parent_project.slots() {
-                let from = slot.placement;
+            for (from, _) in parent_project.slot_contents() {
                 if from.row != row || from.column < first_taken || from == grouped {
                     continue;
                 }
@@ -542,10 +543,12 @@ impl RuntimeConfiguration {
         let mut current = ProjectId::ROOT;
         loop {
             if let Some(launcher_id) = self.project(current).and_then(|project| {
-                project.slots().iter().find_map(|slot| match &slot.content {
-                    SlotPayload::Launcher(launcher) => Some(launcher.id),
-                    SlotPayload::Project(_) => None,
-                })
+                project
+                    .slot_contents()
+                    .find_map(|(_, content)| match content {
+                        SlotContent::Launcher(launcher) => Some(launcher),
+                        SlotContent::Project(_) => None,
+                    })
             }) {
                 return Some(launcher_id);
             }
@@ -887,12 +890,9 @@ impl RuntimeConfiguration {
         &self,
         project: ProjectId,
     ) -> impl Iterator<Item = (MatrixPlacement, SlotContent)> + '_ {
-        self.project(project).into_iter().flat_map(|project| {
-            project
-                .slots
-                .iter()
-                .map(|slot| (slot.placement, slot.content()))
-        })
+        self.project(project)
+            .into_iter()
+            .flat_map(|project| project.slot_contents())
     }
 
     /// The first assigned slot of `project` in matrix-placement order.
@@ -1046,6 +1046,15 @@ impl Project {
             .map(|index| self.slots[index].content())
     }
 
+    /// The placement and content id of every slot, in placement order. This is the view for code
+    /// that only needs to know what sits where.
+    pub fn slot_contents(&self) -> impl Iterator<Item = (MatrixPlacement, SlotContent)> + '_ {
+        self.slots.iter().map(|slot| (slot.placement, slot.content()))
+    }
+
+    /// The slots with their full payload, including each launcher's record. Only code that needs
+    /// those records uses this, such as persistence and the boot replay. Everything else uses
+    /// [`Self::slot_contents`].
     pub fn slots(&self) -> &[Slot] {
         &self.slots
     }
@@ -1426,7 +1435,10 @@ mod tests {
         let project = &configuration[root];
         assert_eq!(project.content_at(first_at), Some(second));
         assert_eq!(project.content_at(second_at), Some(first));
-        let placements: Vec<_> = project.slots().iter().map(|slot| slot.placement).collect();
+        let placements: Vec<_> = project
+            .slot_contents()
+            .map(|(placement, _)| placement)
+            .collect();
         assert_eq!(placements, [first_at, second_at]);
     }
 

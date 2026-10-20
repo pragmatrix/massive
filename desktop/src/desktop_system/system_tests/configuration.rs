@@ -255,7 +255,7 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_placement() -> Res
             configuration.slot_of_content(launcher_a),
             Some((group, MatrixPlacement { column: 0, row: 0 }))
         );
-        assert_eq!(configuration.project(project_a).unwrap().slots().len(), 1);
+        assert_eq!(configuration.slots_ordered(project_a).count(), 1);
         assert_eq!(
             system.aggregates.hierarchy.launcher_of_instance(instance_a),
             launcher_a

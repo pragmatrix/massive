@@ -221,7 +221,7 @@ impl DesktopSystem {
                     return Ok(Changes::Empty);
                 }
                 let configuration = &self.aggregates.configuration;
-                if configuration[project].slots().is_empty() {
+                if configuration.first_slot(project).is_none() {
                     // An empty project has nothing to unpack, so ungrouping just removes it.
                     let (parent, placement) = configuration
                         .slot_of_content(project)
