@@ -3,6 +3,7 @@ use log::{debug, warn};
 use serde_json::json;
 
 use super::change::set_focus;
+use super::reparenting::Reparenting;
 use super::change::{
     Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
     TopologyChange,
@@ -313,22 +314,8 @@ impl DesktopSystem {
             }
             ConfigurationCommand::MoveSlot { source, dest } => {
                 if self.aggregates.configuration.can_move_slot(source, dest) {
+                    changes += Reparenting::plan(source, dest, &self.aggregates.configuration);
                     changes <<= ConfigurationChange::MoveSlot { source, dest };
-                    let (source_parent, source_placement) = source;
-                    let (dest_parent, _) = dest;
-                    // A matrix's topology children are its slots, so content that changes
-                    // projects changes its topology parent too.
-                    if source_parent != dest_parent {
-                        let content = self
-                            .aggregates
-                            .configuration
-                            .content_at(source_parent, source_placement)
-                            .expect("a movable slot has content");
-                        changes <<= TopologyChange::Reparent {
-                            what: content.target(),
-                            under: DesktopTarget::Project(dest_parent, ProjectPart::Matrix),
-                        };
-                    }
                 }
             }
             ConfigurationCommand::SetStartupPath(path) => {
@@ -619,10 +606,13 @@ impl DesktopSystem {
                 // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
-                let measure_target = self.apply_topology_change(change, instance_manager)?;
+                let surface = self.apply_topology_change(change, instance_manager)?;
                 let current_focus = self.focused_target();
 
-                let mut output = ChangeOutput::measures(measure_target);
+                let mut output = ChangeOutput {
+                    surface,
+                    ..Default::default()
+                };
                 output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
@@ -652,7 +642,7 @@ impl DesktopSystem {
         &mut self,
         change: TopologyChange,
         instance_manager: &InstanceManager,
-    ) -> Result<DesktopTarget> {
+    ) -> Result<ChangeSurface> {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
@@ -661,11 +651,11 @@ impl DesktopSystem {
                 } else {
                     self.aggregates.hierarchy.add(under.clone(), what)?;
                 }
-                Ok(under)
+                Ok(ChangeSurface::measure(under))
             }
             TopologyChange::AddNested { what, under } => {
                 self.aggregates.hierarchy.add_nested(under.clone(), what)?;
-                Ok(under)
+                Ok(ChangeSurface::measure(under))
             }
             TopologyChange::Insert {
                 what,
@@ -675,11 +665,11 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .insert_at(under.clone(), at_index, what)?;
-                Ok(under)
+                Ok(ChangeSurface::measure(under))
             }
             TopologyChange::Reparent { what, under } => {
-                self.aggregates.hierarchy.reparent(&what, under.clone())?;
-                Ok(under)
+                self.reparenting
+                    .apply(what, under, &mut self.aggregates, &self.layout_state)
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -687,7 +677,7 @@ impl DesktopSystem {
                 // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
                 self.refocus_to_parent_if_path_contains(&target, instance_manager)?;
-                self.remove_target(&target)
+                self.remove_target(&target).map(ChangeSurface::measure)
             }
         }
     }
@@ -729,15 +719,6 @@ impl DesktopSystem {
                 if !self.aggregates.configuration.move_slot(source, dest) {
                     return Ok(ChangeOutput::default());
                 }
-                if source_parent != dest_parent {
-                    let (_, dest_placement) = dest;
-                    let content = self
-                        .aggregates
-                        .configuration
-                        .content_at(dest_parent, dest_placement)
-                        .expect("the moved content sits at its destination");
-                    self.rehost_slot_presenter(content, dest_parent);
-                }
                 let mut output = ChangeOutput::default();
                 output.measure(DesktopTarget::Project(source_parent, ProjectPart::Matrix));
                 output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
@@ -776,20 +757,6 @@ impl DesktopSystem {
             SlotContent::Project(id) => {
                 let name = self.aggregates.configuration[id].name.clone();
                 self.insert_project_presenter(host, id, name)
-            }
-        }
-    }
-
-    /// Hangs moved slot content under its new host's matrix: its layout transform is relative to
-    /// the hosting matrix, and its instances or nested projects follow its location.
-    fn rehost_slot_presenter(&self, content: SlotContent, host: ProjectId) {
-        let matrix_location = self.aggregates.project_matrix_location(host);
-        match content {
-            SlotContent::Launcher(id) => {
-                self.aggregates.launchers[&id].set_parent_location(&matrix_location)
-            }
-            SlotContent::Project(id) => {
-                self.aggregates.projects[&id].set_parent_location(&matrix_location)
             }
         }
     }

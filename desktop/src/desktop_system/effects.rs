@@ -9,6 +9,8 @@ use super::DesktopTarget;
 pub enum DesktopEffect {
     Measure(DesktopTarget),
     Place(DesktopTarget),
+    /// Re-bases a re-parented target into its new parent's space, then schedules its layout.
+    Reparent(DesktopTarget),
     ApplyLayout(DesktopTarget),
 }
 
@@ -25,7 +27,8 @@ impl DesktopEffect {
     const fn phase(&self) -> DesktopEffectPhase {
         match self {
             Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
-            Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
+            // After every placement, so the new parent is placed even when it is new.
+            Self::Reparent(_) | Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
         }
     }
 }

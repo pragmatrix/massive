@@ -43,6 +43,7 @@ impl DesktopSystem {
         match effect {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
+            DesktopEffect::Reparent(target) => Ok(self.reparent_effect(target)),
             DesktopEffect::ApplyLayout(target) => {
                 self.apply_layout_effect(target, effects_mode, instance_manager)
             }
@@ -251,6 +252,17 @@ impl DesktopSystem {
         }
 
         Ok(effects)
+    }
+
+    /// Re-bases a re-parented target, then schedules its layout, so the layout animates from
+    /// where the target is drawn. `Reparent` is queued ahead of any `ApplyLayout` placement
+    /// adds for the target, so the scheduler merges the two into this one.
+    fn reparent_effect(&mut self, target: DesktopTarget) -> Effects {
+        self.reparenting
+            .take_rebase(&target)
+            .expect("a reparent effect follows a re-parent")
+            .apply(&self.aggregates, &self.layout_state);
+        [DesktopEffect::ApplyLayout(target)].into()
     }
 
     /// Applies one target's local placement to the renderer.

@@ -4,6 +4,7 @@ mod matrix_layout;
 pub mod persistence;
 mod project_presenter;
 mod runtime_configuration;
+mod slot_layout;
 mod title_bar_presenter;
 mod visor_layout;
 

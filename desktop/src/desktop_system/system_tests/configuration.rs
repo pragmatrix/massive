@@ -169,3 +169,58 @@ async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
     })
     .await
 }
+
+/// A project slot that moves into another project carries its own slots and their instances along.
+#[tokio::test]
+async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            instance_b,
+        } = nested_siblings()?;
+        let hierarchy = &system.aggregates.hierarchy;
+        let project_of = |instance| {
+            hierarchy.project_of_target(&DesktopTarget::Launcher(
+                hierarchy.launcher_of_instance(instance),
+            ))
+        };
+        let (project_a, project_b) = (project_of(instance_a), project_of(instance_b));
+        let (_, placement_b) = system
+            .aggregates
+            .configuration
+            .slot_of_content(project_b)
+            .unwrap();
+        let dest = MatrixPlacement { column: 1, row: 0 };
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
+                source: (ProjectId::ROOT, placement_b),
+                dest: (project_a, dest),
+            }),
+        )?;
+
+        let hierarchy = &system.aggregates.hierarchy;
+        assert_eq!(
+            hierarchy.parent(&DesktopTarget::Project(project_b, ProjectPart::Project)),
+            Some(&DesktopTarget::Project(project_a, ProjectPart::Matrix))
+        );
+        assert_eq!(hierarchy.parent_project_of(project_b), Some(project_a));
+        assert_eq!(
+            hierarchy.project_of_target(&DesktopTarget::Launcher(
+                hierarchy.launcher_of_instance(instance_b)
+            )),
+            project_b
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+
+        Ok(())
+    })
+    .await
+}

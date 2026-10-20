@@ -3,6 +3,7 @@ use std::cmp::max;
 use anyhow::Result;
 
 use massive_applications::prelude::*;
+use massive_animation::Movement;
 use massive_geometry::{Color, SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Size as LayoutSize};
 use massive_scene::prelude::*;
@@ -16,6 +17,7 @@ use crate::desktop_system::{
 use crate::projects::{MatrixPlacement, ProjectId};
 
 use super::matrix_layout::{measure_matrix, place_matrix_children};
+use super::slot_layout::SlotLayout;
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
 const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
@@ -27,7 +29,7 @@ const PROJECT_HEADER_SPACING: u32 = 10;
 #[derive(Debug)]
 pub struct ProjectPresenter {
     id: ProjectId,
-    scene_transform: Handle<Transform>,
+    movement: Movement<SlotLayout>,
     /// Kept so the project can be re-hosted when its slot moves to another matrix.
     location: Handle<Location>,
     pub header: TitleBarPresenter,
@@ -49,10 +51,16 @@ impl ProjectPresenter {
         );
         header.set_text(&name);
         let matrix = ProjectMatrixPresenter::new(location.clone());
+        let movement = movement(SlotLayout::default(), move |layout, progress| {
+            if let Some(layout) = layout.proceed_with(progress) {
+                scene_transform.update_if_changed(layout.to_origin_space());
+            }
+        })
+        .mount();
 
         Self {
             id,
-            scene_transform,
+            movement,
             location,
             header,
             matrix,
@@ -66,9 +74,21 @@ impl ProjectPresenter {
         });
     }
 
-    pub fn set_layout(&mut self, layout: SizedTransform) {
-        let scene_transform = layout.to_origin_space();
-        self.scene_transform.update_if_changed(scene_transform);
+    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
+        self.movement.modify(move |slot_layout, context| {
+            slot_layout.set(context, layout);
+        });
+        if !animate {
+            self.movement.snap();
+        }
+    }
+
+    /// Moves the drawn layout by `previous_to_current` without animating; see
+    /// [`SlotLayout::rebase`].
+    pub fn rebase(&self, previous_to_current: Transform) {
+        self.movement.modify(move |slot_layout, _context| {
+            slot_layout.rebase(previous_to_current);
+        });
     }
 }
 
@@ -186,7 +206,7 @@ impl TargetLayout for ProjectPresenter {
         animate: bool,
     ) -> Result<AppliedLayout> {
         match part {
-            ProjectPart::Project => self.set_layout(layout),
+            ProjectPart::Project => self.set_layout(layout, animate),
             ProjectPart::Header => self.header.set_layout(layout, animate),
             ProjectPart::Matrix => self.matrix.set_layout(layout),
         }

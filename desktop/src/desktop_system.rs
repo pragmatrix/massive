@@ -28,6 +28,7 @@ mod layout_effects;
 mod layout_state;
 mod navigation;
 mod presentation;
+mod reparenting;
 #[cfg(test)]
 mod system_tests;
 mod target;
@@ -58,6 +59,7 @@ use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
+use reparenting::Reparenting;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub use commands::{ConfigurationCommand, DesktopCommand};
@@ -238,6 +240,7 @@ pub struct DesktopSystem {
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
+    reparenting: Reparenting,
 
     zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -316,6 +319,7 @@ impl DesktopSystem {
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
+            reparenting: Reparenting::default(),
 
             zoom_level_indicator,
             desktop_presenter,
@@ -618,11 +622,9 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
 }
 
 fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
-    surface
-        .size_invalid
-        .into_iter()
-        .map(DesktopEffect::Measure)
-        .collect()
+    let measures = surface.size_invalid.into_iter().map(DesktopEffect::Measure);
+    let reparents = surface.reparented.into_iter().map(DesktopEffect::Reparent);
+    measures.chain(reparents).collect()
 }
 
 #[cfg(test)]

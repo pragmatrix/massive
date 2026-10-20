@@ -4,7 +4,7 @@ use anyhow::Result;
 use uuid::Uuid;
 use winit::event::MouseButton;
 
-use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_animation::{Animated, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
@@ -16,6 +16,7 @@ use massive_layout::{
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
+use super::slot_layout::SlotLayout;
 use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
@@ -37,7 +38,6 @@ const BACKGROUND_COLOR: Color = MIDNIGHT_BLUE;
 const TEXT_COLOR: Color = Color::WHITE;
 const FADING_DURATION: Duration = Duration::from_millis(500);
 
-const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
 /// Band-mode panels are packed with no per-child spacing; the layout call site
 /// dispatches on the configuration's mode but the spacing value stays with the
@@ -73,7 +73,7 @@ pub struct LauncherPresenter {
 
 #[derive(Debug)]
 struct LauncherMovement {
-    layout: Animated<SizedTransform>,
+    layout: SlotLayout,
     // Alpha fading of name / background.
     fader: Animated<f32>,
 }
@@ -117,7 +117,7 @@ impl LauncherPresenter {
             .submit();
 
         let scene_transform = our_transform.clone();
-        let movement = movement(LauncherMovement::new(size), move |movement, context| {
+        let movement = movement(LauncherMovement::new(), move |movement, context| {
             movement.apply_animations(context, &scene_transform, &background, &fade_location);
         })
         .mount();
@@ -213,7 +213,7 @@ impl LauncherPresenter {
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
         self.movement.modify(move |movement, context| {
-            movement.set_layout(context, layout);
+            movement.layout.set(context, layout);
         });
         if !animate {
             self.movement.snap();
@@ -222,6 +222,14 @@ impl LauncherPresenter {
 
     pub fn location(&self) -> Handle<Location> {
         self.location.clone()
+    }
+
+    /// Moves the drawn layout by `previous_to_current`, the map from the previous parent's
+    /// space into the current one, without animating, so the next layout slides from there.
+    pub fn rebase(&self, previous_to_current: Transform) {
+        self.movement.modify(move |movement, _context| {
+            movement.layout.rebase(previous_to_current);
+        });
     }
 
     /// Re-hosts the launcher when its slot moves to another project's matrix.
@@ -372,20 +380,11 @@ fn measure_launcher(
 }
 
 impl LauncherMovement {
-    fn new(size: Size) -> Self {
+    fn new() -> Self {
         Self {
-            layout: SizedTransform::new(size, Transform::IDENTITY).into(),
+            layout: SlotLayout::default(),
             fader: 1.0.into(),
         }
-    }
-
-    fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
-        self.layout.animate_if_changed_with(
-            context,
-            layout,
-            STRUCTURAL_ANIMATION_DURATION,
-            Interpolation::CubicOut,
-        );
     }
 
     fn apply_animations(
@@ -395,12 +394,13 @@ impl LauncherMovement {
         background: &Handle<Visual>,
         fade_location: &Handle<Location>,
     ) {
-        let layout = *self.layout.proceed_with(progress);
-        let scene_transform = layout.to_origin_space();
-        scene_transform_handle.update_if_changed(scene_transform);
-
         let alpha = *self.fader.proceed_with(progress);
         fade_location.update_if_changed_with(|location| location.alpha = alpha);
+
+        let Some(layout) = self.layout.proceed_with(progress) else {
+            return;
+        };
+        scene_transform_handle.update_if_changed(layout.to_origin_space());
 
         // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
         // is perhaps not reliable.

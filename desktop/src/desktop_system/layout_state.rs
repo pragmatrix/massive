@@ -262,6 +262,19 @@ impl DesktopLayoutState {
         Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(visible)
     }
 
+    /// The transform that maps `target`'s local origin space into the layout root's space, the
+    /// space its scene location's children are drawn in.
+    pub fn absolute_origin_transform(
+        &self,
+        target: &DesktopTarget,
+        topology: &impl LayoutTopology<DesktopTarget>,
+    ) -> Transform {
+        let placement = self.absolute_placement(target, topology);
+        placement
+            .transform
+            .to_origin_space(Self::layout_local_center(placement.rect.size))
+    }
+
     fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
     }
