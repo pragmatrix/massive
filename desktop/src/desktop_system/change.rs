@@ -121,6 +121,16 @@ pub enum ConfigurationChange {
         source: (ProjectId, MatrixPlacement),
         dest: (ProjectId, MatrixPlacement),
     },
+    /// Wraps the content of the slot `(parent, placement)` into a new project, which takes the
+    /// placement. Grouping needs its own change, because the content and the new project need the
+    /// same placement. Expressed as assignments and moves, one of them would first have to wait in
+    /// a temporary slot.
+    Group {
+        parent: ProjectId,
+        placement: MatrixPlacement,
+        project: ProjectId,
+        name: String,
+    },
     SetStartupPath(Option<String>),
 }
 

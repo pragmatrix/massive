@@ -30,6 +30,7 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+Shift+T | desktop (instance, launcher) | Start an assistant instance | reopen closed tab (Br, VS, Ob) |
 | Cmd+W | desktop (instance) | Close the instance | close tab or window (mac, everywhere) |
 | Cmd+N | desktop | Add a launcher right of the focused slot and focus it | new window (mac, all terminals, Br, Fi) · new note (Ob) |
+| Cmd+G | desktop | Wrap the focused slot in a new project at its placement and focus the project | find next (mac, Term, Br, VS, Gh) · group (Fg, Sketch, Illustrator) · graph view (Ob) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
@@ -48,12 +49,18 @@ which receive it.
 
 ## Planned
 
+The desktop, not implemented:
+
+| Key | Action | Elsewhere |
+|---|---|---|
+| Cmd+Shift+G | Ungroup: unpack the focused project into its parent's matrix | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
+
 From the terminal client's find proposal, not implemented:
 
 | Key | Action | Elsewhere |
 |---|---|---|
 | Cmd+F | Open find, or select the query | find (everywhere) |
-| Cmd+G / Cmd+Shift+G | Older / newer match | find next / previous (mac, Br, VS, Gh) · graph view (Ob) |
+| Enter / Shift+Enter in the find field | Older / newer match | find next / previous in the field (VS, Br); Cmd+G and Cmd+Shift+G, used for this elsewhere, group and ungroup on the desktop |
 | Cmd+E | Search for the selection | use selection for find (mac, VS) · toggle edit/preview (Ob) · eject (Fi) |
 | Cmd+Opt+C / Cmd+Opt+R | Toggle case and regex in the find field | case and regex toggles in find (VS) |
 

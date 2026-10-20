@@ -3,6 +3,7 @@ use log::{debug, warn};
 use serde_json::json;
 
 use super::change::set_focus;
+use super::grouping;
 use super::reparenting::Reparenting;
 use super::change::{
     Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
@@ -200,6 +201,16 @@ impl DesktopSystem {
                     &focused,
                     new_slot_assignment(ConfigurationTarget::Launcher, None),
                 )
+            }
+            DesktopCommand::GroupSlot => {
+                let Some(content) = self
+                    .focused_target()
+                    .and_then(|focused| self.aggregates.hierarchy.slot_content_of_target(&focused))
+                else {
+                    warn!("The focus sits in no slot to group");
+                    return Ok(Changes::Empty);
+                };
+                Ok(grouping::plan(content, &self.aggregates.configuration))
             }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
@@ -724,6 +735,17 @@ impl DesktopSystem {
                 output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
                 return Ok(output);
             }
+            ConfigurationChange::Group {
+                parent,
+                placement,
+                project,
+                name,
+            } => {
+                self.aggregates
+                    .configuration
+                    .group_slot(parent, placement, project, &name);
+                self.insert_slot_presenter(SlotContent::Project(project), Some(parent))?;
+            }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain the resolved launcher. The path is what persists, so
             // the aggregate records it and the document derives from it.
@@ -1178,7 +1200,7 @@ impl DesktopSystem {
 }
 
 /// Adds a project and its header and matrix under the hosting target.
-fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
+pub fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
     let mut changes = Changes::Empty;
     changes <<= TopologyChange::Add {
         what: project.into(),

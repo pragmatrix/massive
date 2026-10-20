@@ -5,7 +5,8 @@
 //! A re-parent happens in three steps, at three different times, and this module provides each
 //! of them:
 //!
-//! 1. Planning turns a `MoveSlot` between two projects into a `TopologyChange::Reparent`.
+//! 1. Planning turns a move between two projects, a `MoveSlot` or a grouping, into a
+//!    `TopologyChange::Reparent`.
 //! 2. Applying that change moves the target in the hierarchy and attaches its presenter's scene
 //!    location to the new matrix. It also reports the target as re-parented.
 //! 3. The report becomes a `Reparent` effect, which runs after layout has placed the new parent.
@@ -36,9 +37,10 @@ pub struct Reparenting {
 }
 
 impl Reparenting {
-    /// Step 1. Returns the topology change for a `MoveSlot` that the configuration already
-    /// accepted. In the topology, the children of a matrix are its slots, so content that moves to
-    /// another project needs a new topology parent. A move within one matrix needs no change.
+    /// Step 1. Returns the topology change for slot content that moves from `source` to `dest`,
+    /// either by a `MoveSlot` or by grouping. In the topology, the children of a matrix are its
+    /// slots, so content that moves to another project needs a new topology parent. A move within
+    /// one matrix needs no change.
     pub fn plan(
         (source_parent, source_placement): (ProjectId, MatrixPlacement),
         (dest_parent, _): (ProjectId, MatrixPlacement),

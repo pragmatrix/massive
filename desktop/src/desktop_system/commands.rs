@@ -27,6 +27,9 @@ pub enum DesktopCommand {
     StopInstance(InstanceId),
     /// Adds a default launcher right of the focused slot and focuses it (Cmd+N).
     AddLauncher,
+    /// Wraps the content of the focused slot into a new project (Cmd+G). The new project takes the
+    /// slot's placement and receives the focus.
+    GroupSlot,
 
     Navigate(Direction),
 

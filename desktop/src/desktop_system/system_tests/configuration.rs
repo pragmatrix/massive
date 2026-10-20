@@ -224,3 +224,55 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
     })
     .await
 }
+
+/// Cmd+G wraps the content of the focused slot into a new project at the content's placement.
+/// The content moves into the project together with its running instance. Afterwards, the parent
+/// holds only the new project, and the new project has the focus.
+#[tokio::test]
+async fn group_wraps_the_focused_slot_in_a_new_project_at_its_placement() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let (project_a, placement_a) = system
+            .aggregates
+            .configuration
+            .slot_of_content(launcher_a)
+            .unwrap();
+
+        run(&mut system, &mut instance_manager, DesktopCommand::GroupSlot)?;
+
+        let configuration = &system.aggregates.configuration;
+        let Some(SlotContent::Project(group)) = configuration.content_at(project_a, placement_a)
+        else {
+            panic!("a project takes the grouped content's placement");
+        };
+        assert_eq!(
+            configuration.slot_of_content(launcher_a),
+            Some((group, MatrixPlacement { column: 0, row: 0 }))
+        );
+        assert_eq!(configuration.project(project_a).unwrap().slots().len(), 1);
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
+        );
+        assert_eq!(
+            system
+                .aggregates
+                .hierarchy
+                .parent(&DesktopTarget::Launcher(launcher_a)),
+            Some(&DesktopTarget::Project(group, ProjectPart::Matrix))
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Project(group))
+        );
+
+        Ok(())
+    })
+    .await
+}

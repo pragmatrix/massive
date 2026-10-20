@@ -18,6 +18,7 @@ mod event_forwarding;
 mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
+mod grouping;
 mod hierarchy_focus;
 mod key_delivery;
 mod key_input;

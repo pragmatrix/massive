@@ -30,6 +30,10 @@ pub const ROOT_PROJECT_NAME: &str = "Projects";
 /// names none; a taken name is indexed (see [`DesktopConfiguration::new_project_name`]).
 pub const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 
+/// The placement that grouped content takes inside its new project. Grouping wraps a single slot,
+/// so the content becomes the project's first and only slot.
+pub const GROUPED_PLACEMENT: MatrixPlacement = MatrixPlacement { column: 0, row: 0 };
+
 /// The default name a launcher created by an assignment takes. The parse also
 /// gives a launcher-less configuration a launcher under this name (ADR 0012).
 pub const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
@@ -283,6 +287,38 @@ impl RuntimeConfiguration {
             .expect("the destination project was checked above")
             .assign_slot(slot);
         true
+    }
+
+    /// Wraps the content of `parent`'s slot at `placement` into a new project with the id
+    /// `project`. The content moves into the new project at [`GROUPED_PLACEMENT`], and the new
+    /// project takes over `placement` in `parent`.
+    ///
+    /// This is one step, because the content and the new project need the same placement. With
+    /// separate moves and assignments, one of them would first have to wait in a temporary slot.
+    pub fn group_slot(
+        &mut self,
+        parent: ProjectId,
+        placement: MatrixPlacement,
+        project: ProjectId,
+        name: &str,
+    ) {
+        let parent_project = self
+            .project_mut(parent)
+            .expect("the parent of a grouped slot exists");
+        let index = parent_project
+            .slot_index(placement)
+            .expect("a grouped slot has content");
+        let mut slot = parent_project.slots.remove(index);
+
+        let name = self.new_project_name(project, DEFAULT_NEW_PROJECT_NAME, name);
+        self.add_project(project, name);
+        slot.placement = GROUPED_PLACEMENT;
+        self.project_mut(project)
+            .expect("the new project was just added")
+            .assign_slot(slot);
+        self.project_mut(parent)
+            .expect("the parent of a grouped slot exists")
+            .assign_slot(Slot::project(placement, project));
     }
 
     /// Whether the content of `source` can move to `dest`.
