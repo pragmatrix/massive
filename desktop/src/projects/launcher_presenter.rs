@@ -224,6 +224,13 @@ impl LauncherPresenter {
         self.location.clone()
     }
 
+    /// Re-hosts the launcher when its slot moves to another project's matrix.
+    pub fn set_parent_location(&self, parent: &Handle<Location>) {
+        self.location.update_if_changed_with(|location| {
+            location.parent = parent.to_ref().into();
+        });
+    }
+
     pub fn fade_out(&mut self) {
         self.presents_instance = true;
         self.movement.modify(|movement, context| {

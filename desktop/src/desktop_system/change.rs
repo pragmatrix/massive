@@ -154,6 +154,12 @@ pub enum TopologyChange {
         at_index: usize,
         under: DesktopTarget,
     },
+    /// Moves a target with its subtree under another parent; focus stays, since the target and
+    /// everything below it remain in the topology.
+    Reparent {
+        what: DesktopTarget,
+        under: DesktopTarget,
+    },
     /// Sets the focus to the parent if a nested or itself has the focus first. Also removes the
     /// pointer focus.
     Remove(DesktopTarget),

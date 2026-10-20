@@ -28,6 +28,8 @@ const PROJECT_HEADER_SPACING: u32 = 10;
 pub struct ProjectPresenter {
     id: ProjectId,
     scene_transform: Handle<Transform>,
+    /// Kept so the project can be re-hosted when its slot moves to another matrix.
+    location: Handle<Location>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
     pub last_focused_placement: Option<MatrixPlacement>,
@@ -51,10 +53,17 @@ impl ProjectPresenter {
         Self {
             id,
             scene_transform,
+            location,
             header,
             matrix,
             last_focused_placement: None,
         }
+    }
+
+    pub fn set_parent_location(&self, parent: &Handle<Location>) {
+        self.location.update_if_changed_with(|location| {
+            location.parent = parent.to_ref().into();
+        });
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform) {

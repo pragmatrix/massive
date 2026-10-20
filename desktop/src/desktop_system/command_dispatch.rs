@@ -314,6 +314,21 @@ impl DesktopSystem {
             ConfigurationCommand::MoveSlot { source, dest } => {
                 if self.aggregates.configuration.can_move_slot(source, dest) {
                     changes <<= ConfigurationChange::MoveSlot { source, dest };
+                    let (source_parent, source_placement) = source;
+                    let (dest_parent, _) = dest;
+                    // A matrix's topology children are its slots, so content that changes
+                    // projects changes its topology parent too.
+                    if source_parent != dest_parent {
+                        let content = self
+                            .aggregates
+                            .configuration
+                            .content_at(source_parent, source_placement)
+                            .expect("a movable slot has content");
+                        changes <<= TopologyChange::Reparent {
+                            what: content.target(),
+                            under: DesktopTarget::Project(dest_parent, ProjectPart::Matrix),
+                        };
+                    }
                 }
             }
             ConfigurationCommand::SetStartupPath(path) => {
@@ -662,6 +677,10 @@ impl DesktopSystem {
                     .insert_at(under.clone(), at_index, what)?;
                 Ok(under)
             }
+            TopologyChange::Reparent { what, under } => {
+                self.aggregates.hierarchy.reparent(&what, under.clone())?;
+                Ok(under)
+            }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
                 // focus and retarget keyboard focus to the parent before removal so the event
@@ -710,6 +729,15 @@ impl DesktopSystem {
                 if !self.aggregates.configuration.move_slot(source, dest) {
                     return Ok(ChangeOutput::default());
                 }
+                if source_parent != dest_parent {
+                    let (_, dest_placement) = dest;
+                    let content = self
+                        .aggregates
+                        .configuration
+                        .content_at(dest_parent, dest_placement)
+                        .expect("the moved content sits at its destination");
+                    self.rehost_slot_presenter(content, dest_parent);
+                }
                 let mut output = ChangeOutput::default();
                 output.measure(DesktopTarget::Project(source_parent, ProjectPart::Matrix));
                 output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
@@ -748,6 +776,20 @@ impl DesktopSystem {
             SlotContent::Project(id) => {
                 let name = self.aggregates.configuration[id].name.clone();
                 self.insert_project_presenter(host, id, name)
+            }
+        }
+    }
+
+    /// Hangs moved slot content under its new host's matrix: its layout transform is relative to
+    /// the hosting matrix, and its instances or nested projects follow its location.
+    fn rehost_slot_presenter(&self, content: SlotContent, host: ProjectId) {
+        let matrix_location = self.aggregates.project_matrix_location(host);
+        match content {
+            SlotContent::Launcher(id) => {
+                self.aggregates.launchers[&id].set_parent_location(&matrix_location)
+            }
+            SlotContent::Project(id) => {
+                self.aggregates.projects[&id].set_parent_location(&matrix_location)
             }
         }
     }
