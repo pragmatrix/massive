@@ -10,7 +10,9 @@
 //!   [`MovementRuntime::mount`] registers it and returns a [`Movement`] handle.
 //! - **Modify**: [`Movement::modify`] queues a closure that mutates the value and may start
 //!   animations. The closure receives an [`AnimationAllocator`] that records the movement's
-//!   `ending_time` (the latest end across all its animations).
+//!   `ending_time` (the latest end across all its animations). The runtime then applies the
+//!   movement at the time it was last drawn, so its new state is drawn in the same frame without
+//!   advancing it (see [`MovementRuntime::run_actions`]).
 //! - **Animate**: [`MovementRuntime::apply_animations`] advances every movement with a pending
 //!   `ending_time` each cycle, until the first cycle at or past that time. It then clears the
 //!   `ending_time` and emits the movement's completion event, if any.
@@ -43,7 +45,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::{AnimationAllocator, AnimationProgress};
+use crate::{AnimationAllocator, AnimationCoordinator, AnimationProgress};
 
 pub struct MovementRuntime {
     movements: HashMap<MovementReference, MountedMovement>,
@@ -89,6 +91,7 @@ impl MovementRuntime {
             MountedMovement {
                 movement: instance,
                 ending_time: None,
+                drawn_at: None,
             },
         );
 
@@ -99,18 +102,45 @@ impl MovementRuntime {
     ///
     /// Call this once per cycle, after animations have been applied, so that actions queued by
     /// completion events take effect in the same cycle.
-    pub fn run_actions(&mut self, context: &mut dyn AnimationAllocator) {
+    ///
+    /// Each modified movement is applied right away, at the time it was last drawn. A modify only
+    /// changes the movement's value, and only apply-animations cycles advance movements, so
+    /// without this the change would reach the scene a frame late, or never: a modify that
+    /// changes the value without starting an animation sets no `ending_time` and is never
+    /// advanced. A frame late is visible whenever the same transaction also changes the scene
+    /// directly; re-parenting switches a location's parent at once, and its transform must follow
+    /// in that frame.
+    ///
+    /// The last drawn time, not the cycle's, because this must show the modify without moving
+    /// time: event cycles are frequent and irregular, and advancing running animations to their
+    /// times makes motion stutter. An animation started in this cycle has not begun at that time,
+    /// so it is drawn at its start value and keeps running; unlike a snap, nothing finishes, and
+    /// the movement's `ending_time` and completion event stay with the apply-animations cycles.
+    ///
+    /// So apply closures run after every modify, also when no animation is running, and must
+    /// handle that; a redraw at an unchanged time should write through `update_if_changed` so it
+    /// submits nothing.
+    pub fn run_actions(&mut self, coordinator: &mut AnimationCoordinator) {
         mem::swap(&mut self.actions, &mut *self.action_inbox.lock());
+        // For a movement never drawn. `None` only when an instance's teardown flushes outside a
+        // cycle, and nothing is drawn after teardown.
+        let cycle_time = coordinator.cycle_time();
 
         for action in self.actions.drain(..) {
             match action {
                 MovementAction::Modify(pointer, apply) => {
                     if let Some(instance) = self.movements.get_mut(&pointer) {
                         let mut intermediate = MovementAnimationAllocator {
-                            inner: context,
+                            inner: coordinator,
                             ending_time: &mut instance.ending_time,
                         };
                         apply(instance.movement.as_any_mut(), &mut intermediate);
+                        if let Some(time) = instance.drawn_at.or(cycle_time) {
+                            instance
+                                .movement
+                                .apply_animations(AnimationProgress::Proceed(time));
+                            instance.drawn_at = Some(time);
+                        }
                     }
                 }
                 MovementAction::Snap(pointer) => {
@@ -142,6 +172,7 @@ impl MovementRuntime {
             movement
                 .movement
                 .apply_animations(AnimationProgress::Proceed(instant));
+            movement.drawn_at = Some(instant);
 
             // Keep applying through the first cycle at or past the movement end, then stop.
             if instant >= ending_time {
@@ -234,6 +265,8 @@ trait AnimatableMovement: Any + Send + Sync {
 struct MountedMovement {
     movement: Box<dyn AnimatableMovement>,
     ending_time: Option<Instant>,
+    /// The time the movement was last applied at, so a modify can be drawn without advancing it.
+    drawn_at: Option<Instant>,
 }
 
 pub struct MovementInstance<T, F> {
@@ -310,5 +343,62 @@ impl fmt::Debug for MovementAction {
             Self::Snap(_) => formatter.write_str("Snap"),
             Self::Drop(_) => formatter.write_str("Drop"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Animated, Interpolation};
+
+    /// A modify reaches the scene in the flush that runs it, like a snap but without finishing
+    /// or advancing anything: a plain value change is drawn although no animation advances it, a
+    /// started animation is drawn at its start value and keeps running, and retargeting a running
+    /// animation in a later cycle redraws it as last drawn instead of at that cycle's time.
+    #[test]
+    fn modified_movements_are_drawn_in_the_same_flush() {
+        let mut coordinator = AnimationCoordinator::new();
+        let mut runtime = MovementRuntime::new();
+        let drawn = Arc::new(Mutex::new(None));
+        let sink = drawn.clone();
+        let movement = runtime.mount(MovementInstance::new(
+            Animated::new(0.0),
+            move |value: &mut Animated<f64>, progress| {
+                *sink.lock() = Some(*value.proceed_with(progress));
+            },
+            None,
+        ));
+        coordinator.begin_cycle();
+
+        movement.modify(|value, _| value.snap(1.0));
+        runtime.run_actions(&mut coordinator);
+        assert_eq!(*drawn.lock(), Some(1.0));
+
+        movement.modify(|value, context| {
+            value.animate_with(context, 2.0, Duration::from_secs(1), Interpolation::Linear)
+        });
+        runtime.run_actions(&mut coordinator);
+        assert_eq!(*drawn.lock(), Some(1.0));
+        assert!(
+            runtime
+                .movements
+                .values()
+                .all(|movement| movement.ending_time.is_some()),
+            "the started animation keeps running"
+        );
+
+        let start = coordinator.animation_time();
+        coordinator.end_cycle();
+        coordinator.upgrade_to_apply_animations_cycle(start + Duration::from_millis(500));
+        runtime.apply_animations(coordinator.animation_time());
+        assert_eq!(*drawn.lock(), Some(1.5));
+        coordinator.end_cycle();
+
+        coordinator.upgrade_to_apply_animations_cycle(start + Duration::from_millis(700));
+        movement.modify(|value, context| {
+            value.animate_with(context, 3.0, Duration::from_secs(1), Interpolation::Linear)
+        });
+        runtime.run_actions(&mut coordinator);
+        assert_eq!(*drawn.lock(), Some(1.5));
     }
 }

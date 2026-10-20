@@ -127,6 +127,11 @@ impl AnimationCoordinator {
         }
     }
 
+    /// The current cycle's animation timestamp, `None` between cycles.
+    pub fn cycle_time(&self) -> Option<Instant> {
+        self.cycle.as_ref().map(|cycle| cycle.start_time)
+    }
+
     /// Returns the timestamp that should be used for animated values.
     pub fn animation_time(&self) -> Instant {
         self.cycle().start_time
