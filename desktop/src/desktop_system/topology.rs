@@ -93,6 +93,21 @@ impl OrderedHierarchy<DesktopTarget> {
             .count()
     }
 
+    /// Whether an instance runs anywhere below `target`, at any depth. Removing slot content would
+    /// quit those instances, so the removal key checks this first.
+    pub fn has_instances_below(&self, target: &DesktopTarget) -> bool {
+        let mut pending = vec![target];
+        while let Some(current) = pending.pop() {
+            for child in self.get_nested(current) {
+                if matches!(child, DesktopTarget::Instance(_, InstancePart::Instance)) {
+                    return true;
+                }
+                pending.push(child);
+            }
+        }
+        false
+    }
+
     /// The instances of a launcher, in the launcher's child order.
     pub fn launcher_instances<'a>(
         &'a self,

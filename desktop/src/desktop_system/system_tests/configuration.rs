@@ -323,3 +323,72 @@ async fn ungroup_reverses_group() -> Result<()> {
     })
     .await
 }
+
+/// Cmd+Shift+W removes a project only if no instance runs anywhere below it. A project whose
+/// launcher runs an instance is kept, while a project with an idle launcher is removed together
+/// with that launcher.
+#[tokio::test]
+async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let project_a = system
+            .aggregates
+            .hierarchy
+            .project_of_target(&DesktopTarget::Launcher(launcher_a));
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::RemoveSlot(SlotContent::Project(project_a)),
+        )?;
+        assert!(system.aggregates.configuration.project(project_a).is_some());
+
+        // An idle launcher, grouped into a project of its own.
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Launcher(launcher_a)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        run(&mut system, &mut instance_manager, DesktopCommand::AddLauncher)?;
+        let Some(FocusableTarget::Launcher(idle)) = system.keyboard_focus.focused() else {
+            panic!("the added launcher takes the focus");
+        };
+        run(&mut system, &mut instance_manager, DesktopCommand::GroupSlot)?;
+        let Some(FocusableTarget::Project(idle_project)) = system.keyboard_focus.focused() else {
+            panic!("grouping focuses the new project");
+        };
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::RemoveSlot(SlotContent::Project(idle_project)),
+        )?;
+
+        assert!(
+            system
+                .aggregates
+                .configuration
+                .slot_of_content(idle_project)
+                .is_none()
+        );
+        let hierarchy = &system.aggregates.hierarchy;
+        assert!(!hierarchy.exists(&DesktopTarget::Project(idle_project, ProjectPart::Project)));
+        assert!(!hierarchy.exists(&DesktopTarget::Launcher(idle)));
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
+        );
+
+        Ok(())
+    })
+    .await
+}

@@ -29,6 +29,7 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+T | desktop (instance, launcher) | Start an instance next to the focused one | new tab (mac, all terminals, Br, Fi, Ob) |
 | Cmd+Shift+T | desktop (instance, launcher) | Start an assistant instance | reopen closed tab (Br, VS, Ob) |
 | Cmd+W | desktop (instance) | Close the instance | close tab or window (mac, everywhere) |
+| Cmd+Shift+W | desktop (launcher, project) | Remove the focused launcher or nested project, but only if no instance runs anywhere below it | close window (Br, VS, terminals) |
 | Cmd+N | desktop | Add a launcher right of the focused slot and focus it | new window (mac, all terminals, Br, Fi) · new note (Ob) |
 | Cmd+G | desktop | Wrap the focused slot in a new project at its placement and focus the project | find next (mac, Term, Br, VS, Gh) · group (Fg, Sketch, Illustrator) · graph view (Ob) |
 | Cmd+Shift+G | desktop (project) | Unpack the focused project into its parent's matrix and remove it | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
@@ -44,7 +45,8 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+V | terminal client | Paste | paste (mac) |
 | Cmd+click | terminal client | Open a hyperlink; links are highlighted while Cmd is held | open link (iT, Gh, VS; Wz and Kt use a plain click) · open in new tab (Br, Ob) |
 
-Cmd+Shift+W is not a desktop shortcut; it passes to the application. The terminal client drops
+Inside an instance, Cmd+Shift+W is not a desktop shortcut; it passes to the application. Only a
+focused launcher or project consumes it. The terminal client drops
 every Cmd chord it doesn't bind, except for applications that enabled the Kitty keyboard protocol,
 which receive it.
 

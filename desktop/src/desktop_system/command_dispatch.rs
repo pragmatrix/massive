@@ -202,6 +202,29 @@ impl DesktopSystem {
                     new_slot_assignment(ConfigurationTarget::Launcher, None),
                 )
             }
+            DesktopCommand::RemoveSlot(content) => {
+                // The root project sits in no slot, so it cannot be removed.
+                let Some((parent, placement)) =
+                    self.aggregates.configuration.slot_of_content(content)
+                else {
+                    return Ok(Changes::Empty);
+                };
+                if self
+                    .aggregates
+                    .hierarchy
+                    .has_instances_below(&content.target())
+                {
+                    // The user is not told why nothing happens yet. Telling them needs the
+                    // notifications described in `docs/desktop-notifications-plan.md`.
+                    debug!("Keeping {content:?}, because instances run below it");
+                    return Ok(Changes::Empty);
+                }
+                self.plan_configuration(ConfigurationCommand::ClearSlot {
+                    parent,
+                    placement,
+                    shift: SlotShift::default(),
+                })
+            }
             DesktopCommand::GroupSlot => {
                 let Some(content) = self
                     .focused_target()

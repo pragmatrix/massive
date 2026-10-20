@@ -24,7 +24,7 @@ use crate::desktop_system::{
     KeyOutcome, LayoutContext, Shortcut, TargetLayout, measure_container, place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
-use crate::projects::{LaunchProfileId, LauncherMode};
+use crate::projects::{LaunchProfileId, LauncherMode, SlotContent};
 
 use super::runtime_configuration::Params;
 
@@ -273,6 +273,10 @@ impl KeyHandler for LauncherPresenter {
         match Shortcut::from_input(input) {
             Some(Shortcut::CommandEnter) if !context.fully_zoomed_in => {
                 return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+            }
+            Some(Shortcut::RemoveSlot) => {
+                let content = SlotContent::Launcher(self.id);
+                return KeyOutcome::Consumed(DesktopCommand::RemoveSlot(content).into());
             }
             Some(Shortcut::Enter | Shortcut::CommandEnter | Shortcut::StartInstance) => {}
             _ => return KeyOutcome::Pass,

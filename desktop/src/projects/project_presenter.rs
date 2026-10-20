@@ -14,7 +14,7 @@ use crate::desktop_system::{
     ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
     expand_main_axis_child_size, measure_container, place_container_children,
 };
-use crate::projects::{MatrixPlacement, ProjectId};
+use crate::projects::{MatrixPlacement, ProjectId, SlotContent};
 
 use super::matrix_layout::{measure_matrix, place_matrix_children};
 use super::slot_layout::SlotLayout;
@@ -97,16 +97,15 @@ impl ProjectPresenter {
 /// keyboard focus (ADR 0018).
 impl KeyHandler for ProjectPresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
-        let enters = matches!(
-            Shortcut::from_input(input),
-            Some(Shortcut::Enter | Shortcut::CommandEnter)
-        ) && context.is_focused;
-
-        if enters {
-            KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into())
-        } else {
-            KeyOutcome::Pass
+        if !context.is_focused {
+            return KeyOutcome::Pass;
         }
+        let command = match Shortcut::from_input(input) {
+            Some(Shortcut::Enter | Shortcut::CommandEnter) => DesktopCommand::Zoom(Zoom::Enter),
+            Some(Shortcut::RemoveSlot) => DesktopCommand::RemoveSlot(SlotContent::Project(self.id)),
+            _ => return KeyOutcome::Pass,
+        };
+        KeyOutcome::Consumed(command.into())
     }
 }
 

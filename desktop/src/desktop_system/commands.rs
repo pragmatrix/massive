@@ -5,7 +5,7 @@ use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 use super::Direction;
 use super::change::Zoom;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment, SlotContent};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -27,6 +27,10 @@ pub enum DesktopCommand {
     StopInstance(InstanceId),
     /// Adds a default launcher right of the focused slot and focuses it (Cmd+N).
     AddLauncher,
+    /// Removes a launcher or a nested project, if no instance runs anywhere below it
+    /// (Cmd+Shift+W). Otherwise the content is kept, so that a key press never quits running
+    /// processes.
+    RemoveSlot(SlotContent),
     /// Wraps the content of the focused slot into a new project (Cmd+G). The new project takes the
     /// slot's placement and receives the focus.
     GroupSlot,

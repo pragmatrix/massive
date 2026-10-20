@@ -14,8 +14,11 @@ pub enum Shortcut {
     CommandEnter,
     /// Cmd+T
     StartInstance,
-    /// Cmd+W; with Shift the application keeps it.
+    /// Cmd+W without Shift.
     CloseInstance,
+    /// Cmd+Shift+W with no other modifier. Only a focused launcher or project consumes it, so
+    /// inside an instance the application keeps it.
+    RemoveSlot,
     /// Cmd+N with no other modifier, so chords that add one stay free.
     NewLauncher,
     /// Cmd+G with no other modifier.
@@ -63,6 +66,9 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
         Key::Character(c) => match c.as_str() {
             "t" | "T" => Some(Shortcut::StartInstance),
             "w" if !input.is_shift() => Some(Shortcut::CloseInstance),
+            "w" | "W" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
+                Some(Shortcut::RemoveSlot)
+            }
             "n" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::NewLauncher),
             "g" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::Group),
             "g" | "G" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
