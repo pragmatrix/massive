@@ -276,3 +276,50 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_placement() -> Res
     })
     .await
 }
+
+/// Cmd+Shift+G on a project that Cmd+G created gives back exactly what was grouped. The content
+/// returns to its placement with its running instance and takes the focus, and the project is gone.
+#[tokio::test]
+async fn ungroup_reverses_group() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let slot_a = system
+            .aggregates
+            .configuration
+            .slot_of_content(launcher_a)
+            .unwrap();
+        run(&mut system, &mut instance_manager, DesktopCommand::GroupSlot)?;
+        let Some(FocusableTarget::Project(group)) = system.keyboard_focus.focused() else {
+            panic!("grouping focuses the new project");
+        };
+
+        run(&mut system, &mut instance_manager, DesktopCommand::UngroupSlot)?;
+
+        let configuration = &system.aggregates.configuration;
+        assert_eq!(configuration.slot_of_content(launcher_a), Some(slot_a));
+        assert!(configuration.project(group).is_none());
+        assert!(
+            !system
+                .aggregates
+                .hierarchy
+                .exists(&DesktopTarget::Project(group, ProjectPart::Project))
+        );
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Launcher(launcher_a))
+        );
+
+        Ok(())
+    })
+    .await
+}

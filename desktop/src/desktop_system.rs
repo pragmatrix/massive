@@ -166,6 +166,8 @@ pub enum KeyboardFocusReason {
     Zoom,
     /// Newly added slot content takes the focus, so the user continues where it appeared.
     AddSlotContent,
+    /// Ungrouping removes the focused project, so one of its unpacked slots takes the focus.
+    Ungroup,
 }
 
 impl KeyboardFocusReason {
@@ -177,7 +179,8 @@ impl KeyboardFocusReason {
             | KeyboardFocusReason::PresentInstance
             | KeyboardFocusReason::PromotePrimaryView
             | KeyboardFocusReason::Zoom
-            | KeyboardFocusReason::AddSlotContent => true,
+            | KeyboardFocusReason::AddSlotContent
+            | KeyboardFocusReason::Ungroup => true,
         }
     }
 }

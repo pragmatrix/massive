@@ -212,6 +212,28 @@ impl DesktopSystem {
                 };
                 Ok(grouping::plan(content, &self.aggregates.configuration))
             }
+            DesktopCommand::UngroupSlot => {
+                // Only a focused nested project is ungrouped, so the user sees what is unpacked.
+                let Some(FocusableTarget::Project(project)) = self.keyboard_focus.focused() else {
+                    return Ok(Changes::Empty);
+                };
+                if project == ProjectId::ROOT {
+                    return Ok(Changes::Empty);
+                }
+                let configuration = &self.aggregates.configuration;
+                if configuration[project].slots().is_empty() {
+                    // An empty project has nothing to unpack, so ungrouping just removes it.
+                    let (parent, placement) = configuration
+                        .slot_of_content(project)
+                        .expect("a nested project sits in a slot");
+                    return self.plan_configuration(ConfigurationCommand::ClearSlot {
+                        parent,
+                        placement,
+                        shift: SlotShift::Keep,
+                    });
+                }
+                Ok(grouping::plan_ungroup(project, configuration))
+            }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
@@ -745,6 +767,16 @@ impl DesktopSystem {
                     .configuration
                     .group_slot(parent, placement, project, &name);
                 self.insert_slot_presenter(SlotContent::Project(project), Some(parent))?;
+            }
+            ConfigurationChange::Ungroup { parent, placement } => {
+                let project = self
+                    .aggregates
+                    .configuration
+                    .ungroup_slot(parent, placement);
+                self.aggregates.projects.remove(&project)?;
+                let mut output = ChangeOutput::default();
+                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
+                return Ok(output);
             }
             ConfigurationChange::SwapSlots { parent, a, b } => {
                 self.aggregates.configuration.swap_slots(parent, a, b);

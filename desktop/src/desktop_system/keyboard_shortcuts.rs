@@ -18,8 +18,10 @@ pub enum Shortcut {
     CloseInstance,
     /// Cmd+N with no other modifier, so chords that add one stay free.
     NewLauncher,
-    /// Cmd+G with no other modifier. Cmd+Shift+G stays free for ungrouping.
+    /// Cmd+G with no other modifier.
     Group,
+    /// Cmd+Shift+G with no other modifier.
+    Ungroup,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
     /// Cmd+Ctrl+Up
@@ -63,6 +65,9 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
             "w" if !input.is_shift() => Some(Shortcut::CloseInstance),
             "n" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::NewLauncher),
             "g" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::Group),
+            "g" | "G" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
+                Some(Shortcut::Ungroup)
+            }
             _ => None,
         },
         _ => None,

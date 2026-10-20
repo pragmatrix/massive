@@ -74,6 +74,7 @@ impl KeyHandler for DesktopPresenter {
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
             Some(Shortcut::NewLauncher) => DesktopCommand::AddLauncher,
             Some(Shortcut::Group) => DesktopCommand::GroupSlot,
+            Some(Shortcut::Ungroup) => DesktopCommand::UngroupSlot,
             _ => return KeyOutcome::Pass,
         };
 

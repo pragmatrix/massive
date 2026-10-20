@@ -131,6 +131,14 @@ pub enum ConfigurationChange {
         project: ProjectId,
         name: String,
     },
+    /// Moves the slots of the project at `(parent, placement)` into `parent` and removes the
+    /// project, the inverse of `Group`. It needs its own change for the same reason: the project's
+    /// first slot usually lands on the project's own placement. Slots in the way are pushed aside by
+    /// `MoveSlot`s planned before it.
+    Ungroup {
+        parent: ProjectId,
+        placement: MatrixPlacement,
+    },
     /// Exchanges the contents of two slots in `parent`'s matrix. A swap needs its own change,
     /// because each content needs the other's placement at the same time. Expressed as moves, one
     /// of them would first have to wait in a temporary slot.

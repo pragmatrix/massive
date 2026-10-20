@@ -321,6 +321,136 @@ impl RuntimeConfiguration {
             .assign_slot(Slot::project(placement, project));
     }
 
+    /// Moves the slots of the project at `parent`'s `placement` into `parent` and removes the
+    /// project. Each slot lands where [`Self::ungroup_landings`] says. The landing placements must
+    /// be free, which the planned collision pushes ([`Self::ungroup_pushes`]) make sure of.
+    ///
+    /// This is one step for the same reason as [`Self::group_slot`]. The project's first slot
+    /// usually lands on the project's own placement, so the project has to leave it at the same
+    /// time.
+    ///
+    /// Returns the id of the removed project, whose presenter the caller removes.
+    pub fn ungroup_slot(&mut self, parent: ProjectId, placement: MatrixPlacement) -> ProjectId {
+        let Some(SlotContent::Project(project)) = self.content_at(parent, placement) else {
+            panic!("an ungrouped slot holds a project");
+        };
+        let landings = self.ungroup_landings(project, placement);
+        let grouped = self
+            .projects
+            .shift_remove(&project)
+            .expect("the ungrouped project exists");
+
+        let parent_project = self
+            .project_mut(parent)
+            .expect("the parent of an ungrouped slot exists");
+        parent_project.remove_slot(placement);
+        for (mut slot, (_, landing)) in grouped.slots.into_iter().zip(landings) {
+            assert!(
+                parent_project.content_at(landing).is_none(),
+                "the landing placement {landing:?} was cleared before ungrouping"
+            );
+            slot.placement = landing;
+            parent_project.assign_slot(slot);
+        }
+        project
+    }
+
+    /// Where each slot of `project` lands in its parent when the project at `placement` is
+    /// ungrouped, as pairs of the slot's placement inside the project and its landing placement.
+    /// The slots keep their arrangement. The top-left corner of their bounding box lands on
+    /// `placement`, so a project that grouping created gives back exactly what was grouped.
+    ///
+    /// The pairs are in the project's slot order.
+    pub fn ungroup_landings(
+        &self,
+        project: ProjectId,
+        placement: MatrixPlacement,
+    ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
+        let slots = self
+            .project(project)
+            .expect("the ungrouped project exists")
+            .slots();
+        let min_column = slots.iter().map(|slot| slot.placement.column).min();
+        let min_row = slots.iter().map(|slot| slot.placement.row).min();
+        let (Some(min_column), Some(min_row)) = (min_column, min_row) else {
+            return Vec::new();
+        };
+        slots
+            .iter()
+            .map(|slot| {
+                let landing = MatrixPlacement {
+                    column: placement.column + slot.placement.column - min_column,
+                    row: placement.row + slot.placement.row - min_row,
+                };
+                (slot.placement, landing)
+            })
+            .collect()
+    }
+
+    /// The moves in `parent` that clear the `landings` of an ungrouping before the project at
+    /// `grouped` is unpacked there. The project's own placement counts as free, because the
+    /// project leaves it.
+    ///
+    /// Only rows in which a landing placement is taken are touched. In such a row, the slots from
+    /// the first taken landing placement onwards are pushed right, so that the first of them ends
+    /// up just after the row's last landing placement. Each further slot moves only as far as
+    /// needed to stay right of the slot before it. The push therefore stops at the first slot that
+    /// already sits right of the slot before it. Empty placements between two slots absorb as many
+    /// columns of the push as there are of them.
+    ///
+    /// The moves are ordered so that each one goes to a free placement.
+    pub fn ungroup_pushes(
+        &self,
+        parent: ProjectId,
+        grouped: MatrixPlacement,
+        landings: &[MatrixPlacement],
+    ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
+        let parent_project = self
+            .project(parent)
+            .expect("the parent of an ungrouped slot exists");
+        let is_taken = |placement: MatrixPlacement| {
+            placement != grouped && parent_project.content_at(placement).is_some()
+        };
+
+        let mut rows: Vec<u32> = landings.iter().map(|landing| landing.row).collect();
+        rows.sort_unstable();
+        rows.dedup();
+
+        let mut pushes = Vec::new();
+        for row in rows {
+            let columns = landings
+                .iter()
+                .filter(|landing| landing.row == row)
+                .map(|landing| landing.column);
+            let Some(first_taken) = columns
+                .clone()
+                .filter(|&column| is_taken(MatrixPlacement { column, row }))
+                .min()
+            else {
+                continue;
+            };
+            let after_landings = columns.max().expect("a landing row has landings") + 1;
+
+            let mut row_pushes = Vec::new();
+            let mut next_free = after_landings;
+            for slot in parent_project.slots() {
+                let from = slot.placement;
+                if from.row != row || from.column < first_taken || from == grouped {
+                    continue;
+                }
+                let column = from.column.max(next_free);
+                if column == from.column {
+                    break;
+                }
+                row_pushes.push((from, MatrixPlacement { column, row }));
+                next_free = column + 1;
+            }
+            // Rightmost first, so every push lands on a placement that is already free.
+            pushes.extend(row_pushes.into_iter().rev());
+        }
+        pushes
+    }
+
     /// Exchanges the contents of `project`'s slots at `a` and `b`. Both slots hold content.
     pub fn swap_slots(&mut self, project: ProjectId, a: MatrixPlacement, b: MatrixPlacement) {
         let project = self
@@ -1249,6 +1379,34 @@ impl LaunchProfileId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ungrouping pushes the slots in its way only as far as needed. Here `y` has to move two
+    /// columns. With one empty placement behind it, `w` has to move one column too. With two empty
+    /// placements behind it, `w` stays.
+    #[test]
+    fn ungroup_pushes_move_blocking_slots_just_far_enough() {
+        let at = |column| MatrixPlacement { column, row: 0 };
+
+        let one_empty_placement = configuration([("p", at(0)), ("y", at(1)), ("w", at(3))]);
+        assert_eq!(
+            one_empty_placement.ungroup_pushes(
+                root_id_of(&one_empty_placement),
+                at(0),
+                &[at(0), at(1), at(2)]
+            ),
+            vec![(at(3), at(4)), (at(1), at(3))]
+        );
+
+        let two_empty_placements = configuration([("p", at(0)), ("y", at(1)), ("w", at(4))]);
+        assert_eq!(
+            two_empty_placements.ungroup_pushes(
+                root_id_of(&two_empty_placements),
+                at(0),
+                &[at(0), at(1), at(2)]
+            ),
+            vec![(at(1), at(3))]
+        );
+    }
 
     /// A swap exchanges the two contents and leaves the slots in placement order, the order the
     /// aggregate's readers rely on.

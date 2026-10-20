@@ -30,6 +30,9 @@ pub enum DesktopCommand {
     /// Wraps the content of the focused slot into a new project (Cmd+G). The new project takes the
     /// slot's placement and receives the focus.
     GroupSlot,
+    /// Unpacks the focused nested project into its parent's matrix and removes the project
+    /// (Cmd+Shift+G).
+    UngroupSlot,
 
     Navigate(Direction),
 

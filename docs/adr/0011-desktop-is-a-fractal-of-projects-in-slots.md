@@ -115,6 +115,12 @@ follows as a topology change.
 *Update:* a fifth change, `SwapSlots`, exchanges the contents of two slots in one matrix, for the
 directional launcher move onto a taken placement. It exists for the same reason as `Group`: each
 content needs the other's placement at the same time.
+
+*Update:* a sixth change, `Ungroup`, is the inverse of `Group` (Cmd+Shift+G). It moves a
+project's slots into the project's parent, keeping their arrangement, and removes the project. The
+project's first slot usually lands on the project's own placement, so this too is one step. Parent
+slots in the way are pushed right by planned `MoveSlot`s first, row by row and only as far as
+needed.
 Displacement is not part of the change vocabulary: a `SlotShift` policy rides
 the *plan* (as the removal shift does today) and expands into concrete
 `MoveSlot`s before anything is applied, so the live model and the document
