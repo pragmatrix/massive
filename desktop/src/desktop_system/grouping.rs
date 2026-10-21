@@ -13,7 +13,7 @@ use super::selection::Selection;
 use super::{DesktopTarget, FocusableTarget, KeyboardFocusReason, ProjectPart};
 use crate::projects::{
     DEFAULT_NEW_PROJECT_NAME, ProjectId, RuntimeConfiguration, SlotPosition, group_landings,
-    matrix_rect_covering,
+    matrix_bounding_box,
 };
 
 /// Plans grouping the `selected_slots` of `parent` and focusing the new project.
@@ -113,7 +113,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
 /// corners are tried from the top-left, then the top-right, the bottom-left, and the bottom-right.
 /// `None` when every corner is unassigned.
 fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selection)> {
-    let bounds = matrix_rect_covering(landings.iter().map(|&landing| landing.into()));
+    let bounds = matrix_bounding_box(landings.iter().map(|&landing| landing.into()));
     let (first, last) = (bounds.min, bounds.max - vec2(1, 1));
     let top_right = point2(last.x, first.y);
     let bottom_left = point2(first.x, last.y);

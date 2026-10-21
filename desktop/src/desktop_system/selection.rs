@@ -17,7 +17,7 @@ use super::{
 };
 use crate::projects::{
     MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration, SlotContent,
-    SlotPosition, intervals_origin, matrix_area, matrix_rect_covering,
+    SlotPosition, intervals_origin, matrix_area, matrix_bounding_box,
 };
 
 /// The current selection: its offsets from the focused slot's position. `top_left` counts the
@@ -168,7 +168,7 @@ impl Selection {
     /// inside the matrix, so it never reaches past its top-left slot.
     fn rect(self, focused: SlotPosition) -> MatrixRect {
         let focused = MatrixPoint::from(focused);
-        matrix_rect_covering([focused - self.top_left, focused + self.bottom_right])
+        matrix_bounding_box([focused - self.top_left, focused + self.bottom_right])
     }
 
     /// The selection after one step in `direction`, or `None` when the step would leave `bounds`, the
@@ -243,7 +243,7 @@ fn matrix_bounds(project: ProjectId, configuration: &RuntimeConfiguration) -> Ma
         .expect("a selection's project is configured")
         .slot_contents()
         .map(|(position, _)| position.into());
-    matrix_rect_covering(iter::once(MatrixPoint::origin()).chain(slots))
+    matrix_bounding_box(iter::once(MatrixPoint::origin()).chain(slots))
 }
 
 #[cfg(test)]
