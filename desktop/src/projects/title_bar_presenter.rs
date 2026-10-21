@@ -51,7 +51,7 @@ impl TitleBarPresenter {
         let background_color = style.background_color;
         let movement = movement(TitleBarMovement::default(), move |movement, progress| {
             let layout = *movement.layout.proceed_with(progress);
-            scene_transform.update_if_changed(layout.to_origin_space());
+            scene_transform.update_if_changed(layout.pivoted_at_origin());
             background.update_if_changed_with(|visual| {
                 visual.shapes = [background_shape(layout.rect(), background_color)].into()
             });

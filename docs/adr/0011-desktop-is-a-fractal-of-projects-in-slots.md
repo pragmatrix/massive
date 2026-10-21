@@ -26,6 +26,11 @@ while a launcher or a nested project is assigned to it, and addressed by its
 topology. A cleared placement is simply empty, so a project may have no
 slots at all — its contents are what exist.
 
+*Update:* the glossary now calls every position of a matrix a slot. A slot is
+assigned while it hosts content and unassigned otherwise, and its position is a
+`SlotPosition`. The storage rule above is unchanged: only assigned slots are
+stored.
+
 ## Presentation and interaction are one depth cut (deferred)
 
 This rule is not implemented yet: the first pass renders every project's content
@@ -105,6 +110,24 @@ shaped, because a slot may be empty:
 - `SetStartup` — the startup launcher's address path.
 
 Replacing slot content is a clear plus an assign, never an in-place operation.
+
+*Update:* the vocabulary has a fourth change, `Group`, which wraps a slot's content into a new
+project that takes the slot's placement (Cmd+G). Grouping cannot be expressed with assign, clear,
+and move alone: the content and the new project need the same placement, so one of them would
+first have to wait in a temporary slot. `Group` does it in one step, and the content's re-parent
+follows as a topology change. Since [ADR 0026](./0026-grouping-wraps-the-selected-slots-into-a-project-in-place.md),
+`Group` wraps several slots at once, and the project takes the top-left placement of their
+bounding box.
+
+*Update:* a fifth change, `SwapSlots`, exchanges the contents of two slots in one matrix, for the
+directional launcher move onto a taken placement. It exists for the same reason as `Group`: each
+content needs the other's placement at the same time.
+
+*Update:* a sixth change, `Ungroup`, is the inverse of `Group` (Cmd+Shift+G). It moves a
+project's slots into the project's parent, keeping their arrangement, and removes the project. The
+project's first slot usually lands on the project's own placement, so this too is one step. Parent
+slots in the way are pushed right by planned `MoveSlot`s first, row by row and only as far as
+needed.
 Displacement is not part of the change vocabulary: a `SlotShift` policy rides
 the *plan* (as the removal shift does today) and expands into concrete
 `MoveSlot`s before anything is applied, so the live model and the document
@@ -144,8 +167,8 @@ to the nearest depth-first launcher from the root when it does not resolve.
 - `project_of_target` answering the root for every target keeps the derived
   focused project and the depth sequence dependent on a project being found
   at the root.
-- Rect math reads the placement rect (origin space), not the placement
-  transform's scale: `to_origin_space`/`to_anchor_space` only round-trip at
+- Rect math reads the placement rect, whose offset is its origin, not the placement
+  transform's scale: `pivoted_at_origin`/`pivoted_at` only round-trip at
   scale 1. This includes the overview bounds and the row/project rect widening.
 
 ## Implementation notes
@@ -157,7 +180,7 @@ to it.
 
 - A matrix's children are **slot entries**, each classifying its content as
   `Launcher(LaunchProfileId)` or `Project(ProjectId)`, addressed by *(parent
-  `ProjectId`, `MatrixPlacement`)* — the key the shift planner already uses.
+  `ProjectId`, `SlotPosition`)* — the key the shift planner already uses.
   `DesktopTarget` is unchanged: the hover and click target of a project slot
   is the nested `Project` target, a launcher slot keeps targeting the
   launcher.

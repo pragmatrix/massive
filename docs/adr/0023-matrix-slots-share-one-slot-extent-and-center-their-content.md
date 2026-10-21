@@ -29,13 +29,13 @@ default panel with its title bar (ADR 0019).
 
   A launcher scales on its own: a visor or an empty launcher is exactly $E$ and
   stays at scale 1, a band shrinks to fit.
-- **Expandable content stretches** to its tracks in layout space, extent $t / s$
-  for a track $t$, so the presented content fills its slot: a project along
+- **Expandable content stretches** to its intervals in layout space, extent $t / s$
+  for an interval $t$, so the presented content fills its slot: a project along
   both axes, an empty launcher vertically.
 - **Content is centered** on whole pixels. Each slot's content sits centered in
   its slot. In a stretched project, the header stays on top across the full
   width, and the matrix takes the remaining width and height and centers its
-  tracks in it.
+  intervals in it.
 - **An empty project**, one without slots, measures its matrix as one slot
   extent, like an empty launcher, so it stays readable on its own.
 
@@ -44,7 +44,7 @@ default panel with its title bar (ADR 0019).
 Unchanged from ADR 0015. Measure project scenes bottom-up using cached child
 measurements. A project's intrinsic scene includes its own children's
 presentation policy but excludes the scale assigned by its parent. Compute the
-parent's shared scale and matrix tracks from those measurements, then apply
+parent's shared scale and matrix intervals from those measurements, then apply
 placements top-down. Ancestor scales compose through transforms.
 
 Placement must not feed allocated extents back into intrinsic measurement or

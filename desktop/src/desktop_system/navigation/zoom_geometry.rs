@@ -14,7 +14,7 @@ use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{DesktopTarget, FocusableTarget, InstancePart, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
+    LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
 /// Resolves where the camera points for a zoom level, from the placed layout.
@@ -63,14 +63,14 @@ impl<'a> ZoomGeometry<'a> {
         &self,
         project: ProjectId,
         target: FocusableTarget,
-    ) -> Option<(SlotContent, MatrixPlacement)> {
+    ) -> Option<(SlotContent, SlotPosition)> {
         let target_path = self.hierarchy.resolve_path(Some(&target.into()));
         self.configuration
             .slots_ordered(project)
-            .find_map(|(placement, content)| {
+            .find_map(|(slot, content)| {
                 target_path
                     .contains(&content.target())
-                    .then_some((content, placement))
+                    .then_some((content, slot))
             })
     }
 
@@ -80,7 +80,7 @@ impl<'a> ZoomGeometry<'a> {
         level: ZoomLevel,
     ) -> PixelCamera {
         let project = self.project_of(target);
-        let Some((content, placement)) = self.slot_in_project(project, target) else {
+        let Some((content, slot)) = self.slot_in_project(project, target) else {
             return self.project_camera(project);
         };
 
@@ -97,7 +97,7 @@ impl<'a> ZoomGeometry<'a> {
                 .expect("a configured project slot must have a camera"),
             ZoomLevel::Row => {
                 let rect = self
-                    .matrix_row_rect_for_project(project, placement.row)
+                    .matrix_row_rect_for_project(project, slot.row)
                     .expect("a row containing the focused target must have bounds");
                 self.camera_for_rect(rect)
                     .expect("a row containing the focused target must have a camera")
@@ -235,8 +235,8 @@ impl<'a> ZoomGeometry<'a> {
     fn matrix_row_rect_for_project(&self, project_id: ProjectId, row: u32) -> Option<Rect> {
         let mut rect: Option<Rect> = None;
 
-        for (placement, content) in self.configuration.slots_ordered(project_id) {
-            if placement.row != row {
+        for (position, content) in self.configuration.slots_ordered(project_id) {
+            if position.row != row {
                 continue;
             }
 
@@ -296,7 +296,7 @@ impl<'a> ZoomGeometry<'a> {
         let size = Rect::from(rect_px).size();
         let local_rect = size.to_rect();
         let local_center = local_rect.center();
-        let origin_transform = placement.transform.to_origin_space(local_center);
+        let origin_transform = placement.transform.pivoted_at_origin(local_center);
         let bounds = Self::transform_rect(local_rect, origin_transform);
         bounds.rect
     }
@@ -305,11 +305,11 @@ impl<'a> ZoomGeometry<'a> {
         let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
-        // `placement.transform` is anchor-space for this target. Convert to origin-space
-        // before transforming local rectangle corners.
+        // `placement.transform` is pivoted at the target's center. Pivot it at the origin before
+        // transforming local rectangle corners.
         let local_rect = size.to_rect();
         let local_center = local_rect.center();
-        let origin_transform = placement.transform.to_origin_space(local_center);
+        let origin_transform = placement.transform.pivoted_at_origin(local_center);
         Self::transform_rect(local_rect, origin_transform)
     }
 

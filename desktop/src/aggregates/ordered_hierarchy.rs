@@ -104,6 +104,40 @@ where
         Ok(())
     }
 
+    /// Moves `id` together with everything nested below it to the end of `parent`'s nested list.
+    /// A slot that moves to another project uses this, so that it keeps its instances and nested
+    /// projects.
+    pub fn reparent(&mut self, id: &Id, parent: Id) -> Result<()> {
+        let Some(previous) = self.parent(id).cloned() else {
+            bail!("Internal error (reparent): id {id:?} has no parent");
+        };
+        let siblings = &mut self
+            .nodes
+            .get_mut(&previous)
+            .unwrap_or_else(|| {
+                panic!("Internal error (reparent): parent {previous:?} of id {id:?} not found")
+            })
+            .nested;
+        let index = siblings
+            .iter()
+            .position(|nested| nested == id)
+            .unwrap_or_else(|| {
+                panic!("Internal error (reparent): parent {previous:?} did not contain {id:?}")
+            });
+        siblings.remove(index);
+
+        self.nodes
+            .get_mut(id)
+            .expect("a node with a parent exists")
+            .parent = Some(parent.clone());
+        self.nodes
+            .entry(parent)
+            .or_default()
+            .nested
+            .push(id.clone());
+        Ok(())
+    }
+
     // Remove this and all nested from the hierarchy.
     pub fn remove(&mut self, id: &Id) -> Result<()> {
         let parent = if let Some(node) = self.nodes.get(id) {
@@ -333,6 +367,21 @@ mod tests {
         assert_eq!(hierarchy.parent(&3), None);
         assert_eq!(hierarchy.get_nested(&1), &[] as &[i32]);
         assert_eq!(hierarchy.get_nested(&2), &[] as &[i32]);
+    }
+
+    #[test]
+    fn reparent_keeps_the_nested_tree_and_appends() {
+        let mut hierarchy = hierarchy();
+        hierarchy.add(1, 2).unwrap();
+        hierarchy.add(2, 3).unwrap();
+        hierarchy.add(4, 5).unwrap();
+
+        hierarchy.reparent(&2, 4).unwrap();
+
+        assert_eq!(hierarchy.get_nested(&1), &[] as &[i32]);
+        assert_eq!(hierarchy.get_nested(&4), &[5, 2]);
+        assert_eq!(hierarchy.parent(&2), Some(&4));
+        assert_eq!(hierarchy.parent(&3), Some(&2));
     }
 
     #[test]

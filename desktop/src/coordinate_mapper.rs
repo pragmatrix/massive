@@ -93,7 +93,7 @@ impl<'a> CoordinateMapper<'a> {
         let rect_px: RectPx = placement.rect.into();
         let local_center = Rect::from(rect_px).size().to_rect().center();
 
-        // The layout root — the parentless project — uses an origin-based transform
+        // The layout root — the parentless project — uses a transform pivoted at the origin
         // (IDENTITY in the common case). Derive its origin from the rectangle offset
         // directly.
         if self.hierarchy.parent_of(target).is_none() {
@@ -101,6 +101,6 @@ impl<'a> CoordinateMapper<'a> {
             return Transform::from_xy(offset[0] as f64, offset[1] as f64);
         }
 
-        placement.transform.to_origin_space(local_center)
+        placement.transform.pivoted_at_origin(local_center)
     }
 }

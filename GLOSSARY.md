@@ -5,11 +5,11 @@ This context defines the interaction and presentation language for desktop insta
 ## Language
 
 **Desktop configuration**:
-The set of projects, their slots (each hosting a launcher or a nested project), and the startup launcher. It persists across sessions and names no root project — the terminal synthesizes one.
+The set of projects, their assigned slots (each hosting a launcher or a nested project), and the startup launcher. It persists across sessions and names no root project — the terminal synthesizes one.
 _Avoid_: settings, workspace, layout
 
 **Configuration change**:
-A change to the desktop configuration: adding the root project, assigning or clearing a slot's content, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
+A change to the desktop configuration: adding the root project, assigning content to a slot or clearing it, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
 _Avoid_: project change
 
 **Desktop**:
@@ -17,16 +17,32 @@ The hierarchy's virtual root target. It is never inserted explicitly and only pa
 _Avoid_: desktop depth, root project (the root project hangs *below* it)
 
 **Project**:
-A named group that owns a matrix of slots. A project with no slots is empty and still valid; assigning a project name into a slot creates one. Project names may repeat. Exactly one project is the root — synthesized by the terminal with the fixed id `ProjectId::ROOT` and named `Projects`, created by the boot flow's first command (`AddProject { under: None }`) — and every other project is nested in a slot of another project.
+A named group that owns a matrix of slots. A project without assigned slots is empty and still valid; assigning a project name into a slot creates one. Project names may repeat. Exactly one project is the root — synthesized by the terminal with the fixed id `ProjectId::ROOT` and named `Projects`, created by the boot flow's first command (`AddProject { under: None }`) — and every other project is nested in a slot of another project.
 _Avoid_: workspace, section, top-level group
 
 **Slot**:
-A matrix slot: a position in a project's matrix that hosts either a launcher or a nested project — never both. Slots are implicit: one exists only while a launcher or a nested project is assigned to it, so a cleared slot is empty and a project may have no slots.
-_Avoid_: cell, launcher cell, tile, container, occupied
+A position in a project's matrix, addressed by its slot position. Every position is a slot. An assigned slot hosts either a launcher or a nested project, never both; an unassigned slot is empty. Clearing a slot makes it unassigned. Only assigned slots are stored, so a project whose slots are all unassigned stores none.
+_Avoid_: cell, launcher cell, tile, container, occupied, empty placement
 
-**Matrix placement**:
-A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
-_Avoid_: coordinates
+**Assigned slot**:
+A slot that hosts a launcher or a nested project. Assigning content to an assigned slot replaces it, which is a clear plus an assign.
+_Avoid_: occupied slot, filled slot
+
+**Unassigned slot**:
+A slot that hosts nothing. It is not stored, but it can still be addressed, for example by a selection or as the destination of a move.
+_Avoid_: empty placement, gap, free placement
+
+**Slot position**:
+A slot's column and row in its project's matrix, the column counted first. Positions are unique within a project; adding or moving slot content shifts the positions of the assigned slots it displaces.
+_Avoid_: matrix placement, placement, coordinates, index
+
+**Matrix interval**:
+The stretch a column or a row of a project's matrix covers along its axis. Every column interval is one slot extent wide, and a row interval is as tall as the tallest slot in it. Intervals are separated by a fixed spacing.
+_Avoid_: track, lane, band
+
+**Selection**:
+A rectangle of slots in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's position, and the zero delta selects only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Any focus, zoom, or configuration change collapses it to the zero delta.
+_Avoid_: anchor, far corner, multi-selection
 
 **Slot extent**:
 The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.

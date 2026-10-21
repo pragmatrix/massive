@@ -18,6 +18,7 @@ mod event_forwarding;
 mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
+mod grouping;
 mod hierarchy_focus;
 mod key_delivery;
 mod key_input;
@@ -28,6 +29,8 @@ mod layout_effects;
 mod layout_state;
 mod navigation;
 mod presentation;
+mod reparenting;
+mod selection;
 #[cfg(test)]
 mod system_tests;
 mod target;
@@ -58,6 +61,8 @@ use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
+use reparenting::Reparenting;
+use selection::Selection;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub use commands::{ConfigurationCommand, DesktopCommand};
@@ -163,6 +168,11 @@ pub enum KeyboardFocusReason {
     Zoom,
     /// Newly added slot content takes the focus, so the user continues where it appeared.
     AddSlotContent,
+    /// Ungrouping removes the focused project, so one of its ungrouped slots takes the focus.
+    Ungroup,
+    /// Extending the selection from an instance moves the focus to its launcher, where the
+    /// selection starts (ADR 0025).
+    ExtendSelection,
 }
 
 impl KeyboardFocusReason {
@@ -174,7 +184,9 @@ impl KeyboardFocusReason {
             | KeyboardFocusReason::PresentInstance
             | KeyboardFocusReason::PromotePrimaryView
             | KeyboardFocusReason::Zoom
-            | KeyboardFocusReason::AddSlotContent => true,
+            | KeyboardFocusReason::AddSlotContent
+            | KeyboardFocusReason::Ungroup
+            | KeyboardFocusReason::ExtendSelection => true,
         }
     }
 }
@@ -229,6 +241,7 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     keyboard_focus: KeyboardFocus,
+    selection: Selection,
 
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
@@ -238,6 +251,7 @@ pub struct DesktopSystem {
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
+    reparenting: Reparenting,
 
     zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -311,11 +325,13 @@ impl DesktopSystem {
 
             event_router,
             keyboard_focus: KeyboardFocus::default(),
+            selection: Selection::default(),
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
+            reparenting: Reparenting::default(),
 
             zoom_level_indicator,
             desktop_presenter,
@@ -413,6 +429,14 @@ impl DesktopSystem {
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
         let zoom_level_changed = self.zoom_level_state() != previous_zoom_level_state;
+        // A focus, zoom, or configuration change collapses the selection, unless the transaction set
+        // it, because then the operation that set it planned these changes (ADR 0025). The zoom
+        // level state includes the keyboard focus.
+        if (zoom_level_changed || change_surface.configuration_changed)
+            && !change_surface.selection_set
+        {
+            self.selection.collapse();
+        }
         let update_zoom_level_indicator = zoom_level_changed || change_surface.window_size_changed;
         let update_camera = change_surface.camera_invalid();
 
@@ -618,11 +642,9 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
 }
 
 fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
-    surface
-        .size_invalid
-        .into_iter()
-        .map(DesktopEffect::Measure)
-        .collect()
+    let measures = surface.size_invalid.into_iter().map(DesktopEffect::Measure);
+    let reparents = surface.reparented.into_iter().map(DesktopEffect::Reparent);
+    measures.chain(reparents).collect()
 }
 
 #[cfg(test)]

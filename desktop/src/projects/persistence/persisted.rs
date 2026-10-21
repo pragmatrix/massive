@@ -6,7 +6,7 @@
 //! implied (the terminal synthesizes the root project `Projects`), and nesting is
 //! structural — a slot hosts either a launcher or a nested project node. Ids are
 //! not serialized: projects and launchers get fresh ids at load, and the document
-//! addresses content by nesting and placement alone.
+//! addresses content by nesting and position alone.
 //!
 //! ```json
 //! {
@@ -36,8 +36,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, Launcher,
-    LauncherMode, MatrixPlacement, Params, Project, ProjectId, ROOT_PROJECT_NAME,
-    RuntimeConfiguration, Slot, SlotAssignment, SlotPayload,
+    LauncherMode, Params, Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot,
+    SlotAssignment, SlotPayload, SlotPosition,
 };
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
@@ -50,12 +50,12 @@ pub struct PersistedConfiguration {
     pub slots: Vec<PersistedSlot>,
 }
 
-/// One assigned slot of a project node: its placement plus exactly one content
-/// variant, whose name is the JSON key. A slot exists only while it has content,
-/// so empty slots are never serialized.
+/// One assigned slot of a project node: its position plus exactly one content
+/// variant, whose name is the JSON key. Only assigned slots are stored, so
+/// unassigned slots are never serialized.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedSlot {
-    /// The placement as `[column, row]`.
+    /// The position as `[column, row]`.
     pub at: (u32, u32),
     #[serde(flatten)]
     pub content: PersistedSlotContent,
@@ -111,7 +111,7 @@ impl PersistedConfiguration {
     ///
     /// A configuration that defines no launcher is given one in the root project
     /// (ADR 0012): mode `visor`, no spawn parameters, and the first free
-    /// placement of the root matrix. The launcher is part of the aggregate, so
+    /// position of the root matrix. The launcher is part of the aggregate, so
     /// the first persist writes it and a re-load finds it instead of adding a
     /// second one.
     pub fn into_configuration(self) -> RuntimeConfiguration {
@@ -129,7 +129,7 @@ impl PersistedConfiguration {
 
     /// Builds the document from the aggregate: a walk from the root through the
     /// slot links, rebuilding the tree. The aggregate keeps every project's
-    /// slots in placement order, so the output is deterministic. The walk reads
+    /// slots in position order, so the output is deterministic. The walk reads
     /// only what the id-link invariant guarantees, so it cannot fail.
     pub fn from_configuration(configuration: &RuntimeConfiguration) -> Self {
         Self {
@@ -170,10 +170,10 @@ const DEFAULT_CONFIG: &str = r#"{
 fn persisted_slots(slots: &[PersistedSlot], projects: &mut Vec<Project>) -> Vec<Slot> {
     let mut parsed: Vec<Slot> = Vec::new();
     for slot in slots {
-        let placement = MatrixPlacement::from(slot.at);
+        let position = SlotPosition::from(slot.at);
         match &slot.content {
             PersistedSlotContent::Launcher(launcher) => parsed.push(Slot::launcher(
-                placement,
+                position,
                 Launcher::new(
                     launcher.name.clone(),
                     launcher.mode,
@@ -186,7 +186,7 @@ fn persisted_slots(slots: &[PersistedSlot], projects: &mut Vec<Project>) -> Vec<
                 let project = Project::new(project.name.clone(), nested);
                 let id = project.id;
                 projects.push(project);
-                parsed.push(Slot::project(placement, id));
+                parsed.push(Slot::project(position, id));
             }
         }
     }
@@ -203,11 +203,11 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
     }
     warn!("Configuration defines no launcher; adding one to the root project");
 
-    let placement = MatrixPlacement {
+    let position = SlotPosition {
         column: 0,
         row: configuration
             .slots_ordered(ProjectId::ROOT)
-            .map(|(placement, _)| placement.row)
+            .map(|(position, _)| position.row)
             .max()
             .map_or(0, |row| row + 1),
     };
@@ -220,7 +220,7 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
     let id = LaunchProfileId::new();
     configuration.assign_slot(
         Some(ProjectId::ROOT),
-        placement,
+        position,
         SlotAssignment::Launcher { id, profile },
     );
 }
@@ -234,7 +234,7 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
         .slots()
         .iter()
         .map(|slot| PersistedSlot {
-            at: (slot.placement.column, slot.placement.row),
+            at: (slot.position.column, slot.position.row),
             content: match &slot.content {
                 SlotPayload::Launcher(launcher) => {
                     PersistedSlotContent::Launcher(PersistedLauncher {
@@ -314,7 +314,7 @@ mod tests {
     }
 
     /// The document is derived from the aggregate and back without loss: the
-    /// nesting, placements, launcher profiles, and the startup path survive.
+    /// nesting, positions, launcher profiles, and the startup path survive.
     #[test]
     fn the_aggregate_round_trips_through_the_document() -> Result<()> {
         let text = r#"{
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(reloaded.launcher_count(), configuration.launcher_count());
         let root = ProjectId::ROOT;
         let labs = reloaded
-            .child_project_at(root, MatrixPlacement { column: 1, row: 0 })
+            .child_project_at(root, SlotPosition { column: 1, row: 0 })
             .expect("labs is a root slot");
         assert_eq!(
             reloaded.project(labs).map(|project| project.name.as_str()),

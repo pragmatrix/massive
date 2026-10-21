@@ -242,14 +242,14 @@ impl DesktopLayoutState {
         for path_target in path.iter().rev() {
             let placement = self.local_placement(path_target);
             visible = visible && placement.visible;
-            // The parentless target is the layout root: its transform is already
-            // origin-based (IDENTITY in the common case).
+            // The parentless target is the layout root. Its transform is already pivoted at the
+            // origin (IDENTITY in the common case).
             let is_root = topology.parent_of(path_target).is_none();
             let local_origin_transform = if is_root {
                 placement.transform
             } else {
                 let local_center = Self::layout_local_center(placement.rect.size);
-                placement.transform.to_origin_space(local_center)
+                placement.transform.pivoted_at_origin(local_center)
             };
             origin_transform *= local_origin_transform;
             offset += placement.rect.offset;
@@ -257,13 +257,43 @@ impl DesktopLayoutState {
 
         let local = self.local_placement(target);
         let local_center = Self::layout_local_center(local.rect.size);
-        let transform = origin_transform.to_anchor_space(local_center);
+        let transform = origin_transform.pivoted_at(local_center);
 
         Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(visible)
     }
 
-    fn layout_local_center(size: LayoutSize<2>) -> Point {
+    /// The transform from `target`'s local coordinates into the coordinates of the layout root.
+    /// The local coordinates are relative to the origin of the target's rectangle, not to its
+    /// center. A presenter positions its scene children in these coordinates.
+    pub fn absolute_origin_transform(
+        &self,
+        target: &DesktopTarget,
+        topology: &impl LayoutTopology<DesktopTarget>,
+    ) -> Transform {
+        Self::origin_transform(&self.absolute_placement(target, topology))
+    }
+
+    /// The transform of `placement` for coordinates relative to the origin of its rectangle,
+    /// instead of its center.
+    pub fn origin_transform(placement: &Placement<Transform, 2>) -> Transform {
+        placement
+            .transform
+            .pivoted_at_origin(Self::layout_local_center(placement.rect.size))
+    }
+
+    /// The center of a rectangle of `size`, which is the pivot of every layout placement's
+    /// transform.
+    pub fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
+    }
+
+    /// The cached measurement of `target`. Every target in the topology is measured before it is
+    /// placed.
+    pub fn measured(&self, target: &DesktopTarget) -> MeasuredLayout<2> {
+        self.entries
+            .get(target)
+            .unwrap_or_else(|| panic!("Internal error: missing layout entry for target {target:?}"))
+            .measured
     }
 
     pub fn local_placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {

@@ -5,7 +5,7 @@ use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 use super::Direction;
 use super::change::Zoom;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotContent, SlotPosition};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -27,8 +27,20 @@ pub enum DesktopCommand {
     StopInstance(InstanceId),
     /// Adds a default launcher right of the focused slot and focuses it (Cmd+N).
     AddLauncher,
+    /// Removes a launcher or a nested project, if no instance runs anywhere below it
+    /// (Cmd+Shift+W). Otherwise the content is kept, so that a key press never quits running
+    /// processes.
+    RemoveSlot(SlotContent),
+    /// Wraps the selected slots, or else the focused slot, into a new project (Cmd+G, ADR 0026).
+    /// The new project takes the slots' place and receives the focus.
+    GroupSlot,
+    /// Moves the slots of the focused nested project into its parent's matrix, removes the
+    /// project, and selects the ungrouped slots (Cmd+Shift+G, ADR 0026).
+    UngroupSlot,
 
     Navigate(Direction),
+    /// Extends the slot selection by one slot in the direction (Shift+Cmd+arrow, ADR 0025).
+    ExtendSelection(Direction),
 
     Zoom(Zoom),
     /// Routes a fullscreen request to the focused instance or the native window.
@@ -41,22 +53,22 @@ pub enum ConfigurationCommand {
     ///
     /// A `None` parent creates the assigned project instead — there is no separate
     /// "add project" operation. The root is assigned to the `Desktop` target, which
-    /// hosts no slots, so `placement` and `shift` are ignored; only
+    /// hosts no slots, so `slot` and `shift` are ignored; only
     /// [`ProjectId::ROOT`] may be assigned there, exactly once.
     AssignSlot {
         parent: Option<ProjectId>,
-        placement: MatrixPlacement,
+        slot: SlotPosition,
         content: SlotAssignment,
         shift: SlotShift,
     },
     ClearSlot {
         parent: ProjectId,
-        placement: MatrixPlacement,
+        slot: SlotPosition,
         shift: SlotShift,
     },
     MoveSlot {
-        source: (ProjectId, MatrixPlacement),
-        dest: (ProjectId, MatrixPlacement),
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
     },
     SetStartupPath(Option<String>),
 }

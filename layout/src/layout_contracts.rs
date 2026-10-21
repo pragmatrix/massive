@@ -33,12 +33,16 @@ pub struct TransformOffset<T, const RANK: usize> {
     pub offset: Offset<RANK>,
 }
 
+/// What measuring a target yields, the input its parent's layout algorithm places it from.
 #[derive(Constructor, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeasuredLayout<const RANK: usize> {
+    /// The size the target needs. A parent places the target at least this large.
     pub size: Size<RANK>,
+    /// The axes, indexed like `size`, along which the target accepts more than its measured size.
     pub expandable_axes: [bool; RANK],
 }
 
+/// A measurement that expands along no axis, so the target is placed at exactly `size`.
 impl<const RANK: usize> From<Size<RANK>> for MeasuredLayout<RANK> {
     fn from(size: Size<RANK>) -> Self {
         Self {

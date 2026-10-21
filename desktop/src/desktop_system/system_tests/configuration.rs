@@ -9,7 +9,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
         let changes = system.plan(DesktopCommand::Configuration(
             ConfigurationCommand::AssignSlot {
                 parent: None,
-                placement: MatrixPlacement { column: 0, row: 0 },
+                slot: SlotPosition { column: 0, row: 0 },
                 content: SlotAssignment::Project {
                     id: ProjectId::ROOT,
                     name: crate::projects::ROOT_PROJECT_NAME.into(),
@@ -29,7 +29,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
                     .plan(DesktopCommand::Configuration(
                         ConfigurationCommand::AssignSlot {
                             parent: None,
-                            placement: MatrixPlacement { column: 0, row: 0 },
+                            slot: SlotPosition { column: 0, row: 0 },
                             content: SlotAssignment::Project {
                                 id,
                                 name: "again".into(),
@@ -69,7 +69,7 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
                 DesktopCommand::Configuration(command),
             )?;
         }
-        let at = |column| MatrixPlacement { column, row: 0 };
+        let at = |column| SlotPosition { column, row: 0 };
         let a = system.aggregates.configuration.boot_launcher().unwrap();
         let b = system
             .aggregates
@@ -101,6 +101,321 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
         assert_eq!(
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Launcher(added))
+        );
+
+        Ok(())
+    })
+    .await
+}
+
+/// A slot that moves to another project keeps its running instances and the keyboard focus. The
+/// launcher is re-parented together with everything below it, not removed and assigned again.
+#[tokio::test]
+async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let (project_a, slot_a) = system
+            .aggregates
+            .configuration
+            .slot_of_content(launcher_a)
+            .unwrap();
+        let project_b = system
+            .aggregates
+            .configuration
+            .slots_ordered(ProjectId::ROOT)
+            .find_map(|(_, content)| match content {
+                SlotContent::Project(project) if project != project_a => Some(project),
+                _ => None,
+            })
+            .unwrap();
+        let dest = SlotPosition { column: 1, row: 0 };
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
+                source: (project_a, slot_a),
+                dest: (project_b, dest),
+            }),
+        )?;
+
+        assert_eq!(
+            system.aggregates.configuration.slot_of_content(launcher_a),
+            Some((project_b, dest))
+        );
+        assert_eq!(
+            system
+                .aggregates
+                .hierarchy
+                .parent(&DesktopTarget::Launcher(launcher_a)),
+            Some(&DesktopTarget::Project(project_b, ProjectPart::Matrix))
+        );
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+
+        Ok(())
+    })
+    .await
+}
+
+/// A project slot that moves into another project carries its own slots and their instances along.
+#[tokio::test]
+async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            instance_b,
+        } = nested_siblings()?;
+        let hierarchy = &system.aggregates.hierarchy;
+        let project_of = |instance| {
+            hierarchy.project_of_target(&DesktopTarget::Launcher(
+                hierarchy.launcher_of_instance(instance),
+            ))
+        };
+        let (project_a, project_b) = (project_of(instance_a), project_of(instance_b));
+        let (_, slot_b) = system
+            .aggregates
+            .configuration
+            .slot_of_content(project_b)
+            .unwrap();
+        let dest = SlotPosition { column: 1, row: 0 };
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
+                source: (ProjectId::ROOT, slot_b),
+                dest: (project_a, dest),
+            }),
+        )?;
+
+        let hierarchy = &system.aggregates.hierarchy;
+        assert_eq!(
+            hierarchy.parent(&DesktopTarget::Project(project_b, ProjectPart::Project)),
+            Some(&DesktopTarget::Project(project_a, ProjectPart::Matrix))
+        );
+        assert_eq!(hierarchy.parent_project_of(project_b), Some(project_a));
+        assert_eq!(
+            hierarchy.project_of_target(&DesktopTarget::Launcher(
+                hierarchy.launcher_of_instance(instance_b)
+            )),
+            project_b
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+
+        Ok(())
+    })
+    .await
+}
+
+/// Cmd+G wraps the content of the focused slot into a new project in the content's slot.
+/// The content moves into the project together with its running instance. Afterwards, the parent
+/// holds only the new project, and the new project has the focus.
+#[tokio::test]
+async fn group_wraps_the_focused_slot_in_a_new_project_in_its_slot() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let (project_a, slot_a) = system
+            .aggregates
+            .configuration
+            .slot_of_content(launcher_a)
+            .unwrap();
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
+
+        let configuration = &system.aggregates.configuration;
+        let Some(SlotContent::Project(group)) = configuration.content_at(project_a, slot_a) else {
+            panic!("a project takes the grouped content's slot");
+        };
+        assert_eq!(
+            configuration.slot_of_content(launcher_a),
+            Some((group, SlotPosition { column: 0, row: 0 }))
+        );
+        assert_eq!(configuration.slots_ordered(project_a).count(), 1);
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
+        );
+        assert_eq!(
+            system
+                .aggregates
+                .hierarchy
+                .parent(&DesktopTarget::Launcher(launcher_a)),
+            Some(&DesktopTarget::Project(group, ProjectPart::Matrix))
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Project(group))
+        );
+
+        Ok(())
+    })
+    .await
+}
+
+/// Cmd+Shift+G on a project that Cmd+G created gives back exactly what was grouped. The content
+/// returns to its slot with its running instance and takes the focus, and the project is gone.
+#[tokio::test]
+async fn ungroup_reverses_group() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let slot_a = system
+            .aggregates
+            .configuration
+            .slot_of_content(launcher_a)
+            .unwrap();
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
+        let Some(FocusableTarget::Project(group)) = system.keyboard_focus.focused() else {
+            panic!("grouping focuses the new project");
+        };
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::UngroupSlot,
+        )?;
+
+        let configuration = &system.aggregates.configuration;
+        assert_eq!(configuration.slot_of_content(launcher_a), Some(slot_a));
+        assert!(configuration.project(group).is_none());
+        assert!(
+            !system
+                .aggregates
+                .hierarchy
+                .exists(&DesktopTarget::Project(group, ProjectPart::Project))
+        );
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Launcher(launcher_a))
+        );
+
+        Ok(())
+    })
+    .await
+}
+
+/// Cmd+Shift+W removes a project only if no instance runs anywhere below it. A project whose
+/// launcher runs an instance is kept, while a project with an idle launcher is removed together
+/// with that launcher.
+#[tokio::test]
+async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let project_a = system
+            .aggregates
+            .hierarchy
+            .project_of_target(&DesktopTarget::Launcher(launcher_a));
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::RemoveSlot(SlotContent::Project(project_a)),
+        )?;
+        assert!(system.aggregates.configuration.project(project_a).is_some());
+
+        // An idle launcher, grouped into a project of its own.
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Launcher(launcher_a)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::AddLauncher,
+        )?;
+        let Some(FocusableTarget::Launcher(idle)) = system.keyboard_focus.focused() else {
+            panic!("the added launcher takes the focus");
+        };
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
+        let Some(FocusableTarget::Project(idle_project)) = system.keyboard_focus.focused() else {
+            panic!("grouping focuses the new project");
+        };
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::RemoveSlot(SlotContent::Project(idle_project)),
+        )?;
+
+        assert!(
+            system
+                .aggregates
+                .configuration
+                .slot_of_content(idle_project)
+                .is_none()
+        );
+        // No record or presenter of the removed project or its launcher stays behind.
+        assert!(
+            system
+                .aggregates
+                .configuration
+                .project(idle_project)
+                .is_none()
+        );
+        assert!(system.aggregates.configuration.launcher(idle).is_none());
+        assert!(system.aggregates.projects.get(&idle_project).is_none());
+        assert!(system.aggregates.launchers.get(&idle).is_none());
+        let hierarchy = &system.aggregates.hierarchy;
+        assert!(!hierarchy.exists(&DesktopTarget::Project(idle_project, ProjectPart::Project)));
+        assert!(!hierarchy.exists(&DesktopTarget::Launcher(idle)));
+        assert_eq!(
+            system.aggregates.hierarchy.launcher_of_instance(instance_a),
+            launcher_a
         );
 
         Ok(())

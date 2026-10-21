@@ -71,7 +71,7 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
         let placement = system.placement(&DesktopTarget::Launcher(launcher));
         let rect_px: RectPx = placement.rect.into();
         let local_center = Rect::from(rect_px).size().to_rect().center();
-        let expected = placement.transform.to_origin_space(local_center);
+        let expected = placement.transform.pivoted_at_origin(local_center);
 
         assert_eq!(resolved.scale, expected.scale);
         let offset = resolved.translate - expected.translate;

@@ -70,9 +70,14 @@ impl KeyHandler for DesktopPresenter {
             // root project.
             Some(Shortcut::CommandEnter) if context.is_focused => DesktopCommand::Zoom(Zoom::Enter),
             Some(Shortcut::Navigate(direction)) => DesktopCommand::Navigate(direction),
+            Some(Shortcut::ExtendSelection(direction)) => {
+                DesktopCommand::ExtendSelection(direction)
+            }
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
             Some(Shortcut::NewLauncher) => DesktopCommand::AddLauncher,
+            Some(Shortcut::Group) => DesktopCommand::GroupSlot,
+            Some(Shortcut::Ungroup) => DesktopCommand::UngroupSlot,
             _ => return KeyOutcome::Pass,
         };
 
@@ -151,7 +156,7 @@ impl HoverMovement {
         let layout = *self.layout.proceed_with(progress);
         let local_rect = layout.rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
-        hover_scene_transform.update_if_changed(layout.to_origin_space());
+        hover_scene_transform.update_if_changed(layout.pivoted_at_origin());
 
         let visual = create_hover_shapes(rect_alpha)
             .into_visual()

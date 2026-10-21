@@ -14,12 +14,21 @@ pub enum Shortcut {
     CommandEnter,
     /// Cmd+T
     StartInstance,
-    /// Cmd+W; with Shift the application keeps it.
+    /// Cmd+W without Shift.
     CloseInstance,
+    /// Cmd+Shift+W with no other modifier. Only a focused launcher or project consumes it, so
+    /// inside an instance the application keeps it.
+    RemoveSlot,
     /// Cmd+N with no other modifier, so chords that add one stay free.
     NewLauncher,
+    /// Cmd+G with no other modifier.
+    Group,
+    /// Cmd+Shift+G with no other modifier.
+    Ungroup,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
+    /// Cmd+Shift+Arrow with no other modifier.
+    ExtendSelection(Direction),
     /// Cmd+Ctrl+Up
     ZoomIn,
     /// Cmd+Ctrl+Down
@@ -59,7 +68,14 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
         Key::Character(c) => match c.as_str() {
             "t" | "T" => Some(Shortcut::StartInstance),
             "w" if !input.is_shift() => Some(Shortcut::CloseInstance),
+            "w" | "W" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
+                Some(Shortcut::RemoveSlot)
+            }
             "n" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::NewLauncher),
+            "g" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::Group),
+            "g" | "G" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
+                Some(Shortcut::Ungroup)
+            }
             _ => None,
         },
         _ => None,
@@ -83,6 +99,9 @@ fn command_arrow(input: &KeyInput) -> Option<Shortcut> {
     Some(match direction {
         Direction::Up if input.is_ctrl() => Shortcut::ZoomIn,
         Direction::Down if input.is_ctrl() => Shortcut::ZoomOut,
+        direction if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
+            Shortcut::ExtendSelection(direction)
+        }
         direction => Shortcut::Navigate(direction),
     })
 }
@@ -113,5 +132,27 @@ mod tests {
         assert_eq!(repeated(enter), None);
         assert_eq!(repeated(Key::Character("t".into())), None);
         assert_eq!(repeated(left), Some(Shortcut::Navigate(Direction::Left)));
+    }
+
+    /// Shift turns a navigation into a selection, but only without further modifiers.
+    #[test]
+    fn shift_cmd_arrows_extend_the_selection() {
+        let right = |modifiers| {
+            Shortcut::from_input(&input(
+                Key::Named(NamedKey::ArrowRight),
+                ElementState::Pressed,
+                true,
+                modifiers,
+            ))
+        };
+
+        assert_eq!(
+            right(COMMAND | ModifiersState::SHIFT),
+            Some(Shortcut::ExtendSelection(Direction::Right))
+        );
+        assert_ne!(
+            right(COMMAND | ModifiersState::SHIFT | ModifiersState::ALT),
+            Some(Shortcut::ExtendSelection(Direction::Right))
+        );
     }
 }

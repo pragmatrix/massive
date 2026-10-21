@@ -2,11 +2,12 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
+use super::selection::SelectionDelta;
 use super::{FocusableTarget, InputFocus, KeyboardFocusReason};
 use crate::DesktopTarget;
 use crate::desktop_system::ZoomLevel;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotPosition};
 use crate::targeted_event::EventTransitions;
 use crate::window_state::WindowState;
 
@@ -43,6 +44,8 @@ pub enum DesktopChange {
     /// Sets the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
     SetNavigationAffinity(Option<u32>),
+    /// Sets the slot selection's delta from the focused slot (ADR 0025).
+    SetSelection(SelectionDelta),
     /// Sets the camera's zoom level (ADR 0018).
     SetZoomLevel(ZoomLevel),
     /// Toggles the Full Screen Mode of the focused launcher (its primary instances)
@@ -98,7 +101,7 @@ pub enum ToggleFullScreenModeTarget {
 
 #[derive(Debug, Clone)]
 pub enum ConfigurationChange {
-    /// Assigns `assignment` to the slot `(parent, placement)`. Replacing content is a
+    /// Assigns `assignment` to `parent`'s `slot`. Replacing content is a
     /// clear plus an assign; displacement is expanded into `MoveSlot`s by the
     /// plan, never applied here.
     ///
@@ -107,19 +110,44 @@ pub enum ConfigurationChange {
     /// [`DesktopConfiguration::assign_slot`]).
     AssignSlot {
         parent: Option<ProjectId>,
-        placement: MatrixPlacement,
+        slot: SlotPosition,
         assignment: SlotAssignment,
     },
-    /// Empties the slot `(parent, placement)`.
+    /// Unassigns `parent`'s `slot`.
     ClearSlot {
         parent: ProjectId,
-        placement: MatrixPlacement,
+        slot: SlotPosition,
     },
     /// Moves the content of the source slot to the destination slot. The content
     /// may move to another project's matrix, but not into its own subtree.
     MoveSlot {
-        source: (ProjectId, MatrixPlacement),
-        dest: (ProjectId, MatrixPlacement),
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
+    },
+    /// Wraps `parent`'s `slots` into a new project, which takes their place (ADR 0026). Grouping
+    /// needs its own change, because the project's slot is usually one of the grouped slots. Expressed as assignments and moves, one of them would first have
+    /// to wait in a temporary slot.
+    Group {
+        parent: ProjectId,
+        slots: Vec<SlotPosition>,
+        project: ProjectId,
+        name: String,
+    },
+    /// Moves the slots of the project in `parent`'s `slot` into `parent` and removes the project,
+    /// the inverse of `Group`. It needs its own change for the same reason: the project's first
+    /// slot usually lands on the project's own slot. Slots in the way are pushed aside by
+    /// `MoveSlot`s planned before it.
+    Ungroup {
+        parent: ProjectId,
+        slot: SlotPosition,
+    },
+    /// Exchanges the contents of two slots in `parent`'s matrix. A swap needs its own change,
+    /// because each content needs the other's slot at the same time. Expressed as moves, one
+    /// of them would first have to wait in a temporary slot.
+    SwapSlots {
+        parent: ProjectId,
+        a: SlotPosition,
+        b: SlotPosition,
     },
     SetStartupPath(Option<String>),
 }
@@ -152,6 +180,12 @@ pub enum TopologyChange {
     Insert {
         what: DesktopTarget,
         at_index: usize,
+        under: DesktopTarget,
+    },
+    /// Moves a target and everything below it under another parent. The keyboard focus is left
+    /// alone, because all moved targets stay in the topology.
+    Reparent {
+        what: DesktopTarget,
         under: DesktopTarget,
     },
     /// Sets the focus to the parent if a nested or itself has the focus first. Also removes the

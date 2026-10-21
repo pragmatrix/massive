@@ -29,8 +29,12 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+T | desktop (instance, launcher) | Start an instance next to the focused one | new tab (mac, all terminals, Br, Fi, Ob) |
 | Cmd+Shift+T | desktop (instance, launcher) | Start an assistant instance | reopen closed tab (Br, VS, Ob) |
 | Cmd+W | desktop (instance) | Close the instance | close tab or window (mac, everywhere) |
+| Cmd+Shift+W | desktop (launcher, project) | Remove the focused launcher or nested project, but only if no instance runs anywhere below it | close window (Br, VS, terminals) |
 | Cmd+N | desktop | Add a launcher right of the focused slot and focus it | new window (mac, all terminals, Br, Fi) · new note (Ob) |
+| Cmd+G | desktop | Wrap the selected slots, or else the focused slot, in a new project at their place and focus the project | find next (mac, Term, Br, VS, Gh) · group (Fg, Sketch, Illustrator) · graph view (Ob) |
+| Cmd+Shift+G | desktop (project) | Move the focused project's slots into its parent's matrix, remove it, and select the ungrouped slots | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
+| Cmd+Shift+←/→/↑/↓ | desktop | Extend the slot selection by one placement; repeats when held | select to line start/end, document top/bottom (mac text) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
 | Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |
@@ -42,7 +46,8 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+V | terminal client | Paste | paste (mac) |
 | Cmd+click | terminal client | Open a hyperlink; links are highlighted while Cmd is held | open link (iT, Gh, VS; Wz and Kt use a plain click) · open in new tab (Br, Ob) |
 
-Cmd+Shift+W is not a desktop shortcut; it passes to the application. The terminal client drops
+Inside an instance, Cmd+Shift+W is not a desktop shortcut; it passes to the application. Only a
+focused launcher or project consumes it. The terminal client drops
 every Cmd chord it doesn't bind, except for applications that enabled the Kitty keyboard protocol,
 which receive it.
 
@@ -53,7 +58,7 @@ From the terminal client's find proposal, not implemented:
 | Key | Action | Elsewhere |
 |---|---|---|
 | Cmd+F | Open find, or select the query | find (everywhere) |
-| Cmd+G / Cmd+Shift+G | Older / newer match | find next / previous (mac, Br, VS, Gh) · graph view (Ob) |
+| Enter / Shift+Enter in the find field | Older / newer match | find next / previous in the field (VS, Br); Cmd+G and Cmd+Shift+G, used for this elsewhere, group and ungroup on the desktop |
 | Cmd+E | Search for the selection | use selection for find (mac, VS) · toggle edit/preview (Ob) · eject (Fi) |
 | Cmd+Opt+C / Cmd+Opt+R | Toggle case and regex in the find field | case and regex toggles in find (VS) |
 
@@ -110,6 +115,102 @@ From the terminal client's find proposal, not implemented:
 | Cmd+Opt+arrows | go to split (iT, Gh) |
 | Cmd+Opt+1 … 9 † | go to window N (iT) |
 | Cmd+Opt+I | developer tools (Br) · inspector (Gh) |
+
+## Selection
+
+How comparable applications extend a selection and select several things at once. The desktop
+selects only a rectangle of slots with Cmd+Shift+arrows (ADR 0025); this is the vocabulary users
+bring. Checked
+2026-10-19: WezTerm against `wezterm-gui/src/inputmap.rs`, Kitty against
+`kitty/options/definition.py`, Ghostty against `src/surface_mouse.zig`, Zed against
+`assets/keymaps/default-macos.json`; the rest from documented defaults.
+
+Extra tags for this section: Sb = Sublime Text · JB = JetBrains IDEs · Xc = Xcode · Zd = Zed ·
+Fg = Figma · Kn = Keynote, Pages and Freeform · text = macOS text views (TextEdit, Notes, every
+`NSTextView`)
+
+### Extending a text selection
+
+The same everywhere text is edited, terminal emulators excepted, which have no keyboard selection
+outside a copy or vi mode.
+
+| Key | Extends by |
+|---|---|
+| Shift+←/→ / Shift+↑/↓ | character / line |
+| Shift+Opt+←/→ | word |
+| Shift+Opt+↑/↓ | paragraph (text); VS and JB instead move the line or copy it |
+| Shift+Cmd+←/→ | to line start / end |
+| Shift+Cmd+↑/↓ | to document start / end |
+| Shift+click | to the clicked position (text, editors, all terminals; Kt also right click) |
+| double / triple click | word / line or paragraph (everywhere, all terminals) |
+| Cmd+L | select the line, repeat to extend (VS, Sb, Zd) · address bar (Br) |
+
+### Expanding by structure
+
+Grow the selection to the enclosing word, expression, block, and back.
+
+| Tool | Expand | Shrink |
+|---|---|---|
+| VS | Ctrl+Shift+Cmd+→ | Ctrl+Shift+Cmd+← |
+| Zd | Cmd+Ctrl+→, or Ctrl+Shift+→ | Cmd+Ctrl+←, or Ctrl+Shift+← |
+| JB | Opt+↑ | Opt+↓ |
+| Sb | Cmd+Shift+Space (scope); Ctrl+Shift+M (brackets), Cmd+Shift+A (tag), Cmd+Shift+J (indentation) | soft undo (Cmd+U) |
+| Fg | Shift+Enter (select the parent) | Enter (select the children) |
+| Xc | no default | — |
+
+### Several selections in text
+
+| Action | VS | Zd | Sb | JB | Xc |
+|---|---|---|---|---|---|
+| Add the next occurrence | Cmd+D | Cmd+D | Cmd+D | Ctrl+G | Opt+Cmd+E (from a blog, not Apple's list) |
+| Skip it, take the next | Cmd+K Cmd+D | Cmd+K Cmd+D | Cmd+K Cmd+D | Ctrl+Shift+G, then Ctrl+G | — |
+| Select all occurrences | Cmd+Shift+L, Cmd+F2 | Cmd+Shift+L, Cmd+F2 | Ctrl+Cmd+G | Ctrl+Cmd+G | Ctrl+Cmd+E (edit all in scope) |
+| Add a cursor above / below | Opt+Cmd+↑/↓ | Opt+Cmd+↑/↓ | Ctrl+Shift+↑/↓ | Opt Opt (held) +↑/↓ | Ctrl+Shift+↑/↓ |
+| Add a cursor by clicking | Opt+click | Opt+click (`multi_cursor_modifier`) | Cmd+click | Opt+Shift+click | Ctrl+Shift+click |
+| One cursor per selected line | Shift+Opt+I | — | Cmd+Shift+L | Opt+Shift+G | — |
+
+macOS text views have their own, older form: Cmd+drag or Cmd+double-click adds a separate range
+to the selection.
+
+### Rectangle selection
+
+| Tool | Gesture |
+|---|---|
+| Term, Gh, Wz, text, Sb, JB, Xc | Opt+drag |
+| iT | Cmd+Opt+drag |
+| Kt | Ctrl+Opt+drag |
+| VS | Shift+Opt+drag; Shift+Opt+Cmd+arrows from the keyboard |
+
+Wz extends a rectangle with Shift+Opt+click; JB also toggles a keyboard column mode with
+Cmd+Shift+8. Gh used Cmd+Opt+drag, like iT, before it moved to Opt+drag to match Term and Wz.
+
+### Several objects
+
+| Context | Range | Toggle one | Marquee | All |
+|---|---|---|---|---|
+| Lists and tables (Fi list and column view, Mail, `NSTableView`) | Shift+click, Shift+↑/↓ | Cmd+click | — | Cmd+A |
+| Icon grids (Fi icon view, Photos) | — | Shift+click or Cmd+click | drag; Cmd+drag toggles what it covers | Cmd+A |
+| Kn | — | Shift+click or Cmd+click | drag | Cmd+A |
+| Fg | — | Shift+click; Cmd+click selects inside a group instead | drag; Shift+drag adds | Cmd+A; Opt+Cmd+A matching layers |
+| Tabs (Br, VS, Ob) | Shift+click | Cmd+click | — | — |
+
+### Where tools disagree
+
+- **Shift+click** selects a range in lists and text but toggles a single object in icon grids and
+  canvases (Fi icon view, Kn, Fg). Which meaning applies depends on whether the items have an
+  order the user reads as a line.
+- **Cmd+click** toggles an item in lists, but opens a link in the terminal client, terminals and
+  browsers, adds a cursor in Sb, and selects inside a group in Fg. Inside an instance it already
+  opens hyperlinks; toggling a target would have to happen on the desktop level, where no link
+  competes.
+- **Adding a cursor** has no common key: Opt+click (VS, Zd), Cmd+click (Sb), Opt+Shift+click
+  (JB), Ctrl+Shift+click (Xc). Cmd+D for the next occurrence is the one binding VS, Zd and Sb
+  share; JB uses Ctrl+G.
+- **Expanding by structure** differs in every editor. Zd's Cmd+Ctrl+←/→ collides with the
+  desktop's Cmd+Ctrl+arrows (navigate); VS's Ctrl+Shift+Cmd+→ adds Shift to the same keys. JB's
+  Opt+↑/↓ takes paragraph movement from macOS text.
+- **Rectangle selection** is Opt+drag in most tools, with iT (Cmd+Opt) and Kt (Ctrl+Opt) the
+  outliers.
 
 ## Layouts
 

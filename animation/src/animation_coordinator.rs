@@ -127,6 +127,12 @@ impl AnimationCoordinator {
         }
     }
 
+    /// The animation timestamp of the current cycle. It is `None` while no cycle is open, which is
+    /// the case between frames.
+    pub fn cycle_time(&self) -> Option<Instant> {
+        self.cycle.as_ref().map(|cycle| cycle.start_time)
+    }
+
     /// Returns the timestamp that should be used for animated values.
     pub fn animation_time(&self) -> Instant {
         self.cycle().start_time

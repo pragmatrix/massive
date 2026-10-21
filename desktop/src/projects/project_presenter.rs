@@ -2,6 +2,7 @@ use std::cmp::max;
 
 use anyhow::Result;
 
+use massive_animation::Movement;
 use massive_applications::prelude::*;
 use massive_geometry::{Color, SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Size as LayoutSize};
@@ -13,9 +14,10 @@ use crate::desktop_system::{
     ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
     expand_main_axis_child_size, measure_container, place_container_children,
 };
-use crate::projects::{MatrixPlacement, ProjectId};
+use crate::projects::{ProjectId, SlotContent, SlotPosition};
 
 use super::matrix_layout::{measure_matrix, place_matrix_children};
+use super::slot_layout::SlotLayout;
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
 const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
@@ -27,10 +29,13 @@ const PROJECT_HEADER_SPACING: u32 = 10;
 #[derive(Debug)]
 pub struct ProjectPresenter {
     id: ProjectId,
-    scene_transform: Handle<Transform>,
+    movement: Movement<SlotLayout>,
+    /// The project's own scene location. It is kept so that the project can be attached to
+    /// another matrix when its slot moves there.
+    location: Handle<Location>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
-    pub last_focused_placement: Option<MatrixPlacement>,
+    pub last_focused_slot: Option<SlotPosition>,
 }
 
 impl ProjectPresenter {
@@ -47,19 +52,44 @@ impl ProjectPresenter {
         );
         header.set_text(&name);
         let matrix = ProjectMatrixPresenter::new(location.clone());
+        let movement = movement(SlotLayout::default(), move |layout, progress| {
+            if let Some(layout) = layout.proceed_with(progress) {
+                scene_transform.update_if_changed(layout.pivoted_at_origin());
+            }
+        })
+        .mount();
 
         Self {
             id,
-            scene_transform,
+            movement,
+            location,
             header,
             matrix,
-            last_focused_placement: None,
+            last_focused_slot: None,
         }
     }
 
-    pub fn set_layout(&mut self, layout: SizedTransform) {
-        let scene_transform = layout.to_origin_space();
-        self.scene_transform.update_if_changed(scene_transform);
+    pub fn set_parent_location(&self, parent: &Handle<Location>) {
+        self.location.update_if_changed_with(|location| {
+            location.parent = parent.to_ref().into();
+        });
+    }
+
+    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
+        self.movement.modify(move |slot_layout, context| {
+            slot_layout.set(context, layout);
+        });
+        if !animate {
+            self.movement.snap();
+        }
+    }
+
+    /// Converts the on-screen layout into the current parent's coordinates. See
+    /// [`SlotLayout::rebase`].
+    pub fn rebase(&self, previous_to_current: Transform) {
+        self.movement.modify(move |slot_layout, _context| {
+            slot_layout.rebase(previous_to_current);
+        });
     }
 }
 
@@ -67,16 +97,15 @@ impl ProjectPresenter {
 /// keyboard focus (ADR 0018).
 impl KeyHandler for ProjectPresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
-        let enters = matches!(
-            Shortcut::from_input(input),
-            Some(Shortcut::Enter | Shortcut::CommandEnter)
-        ) && context.is_focused;
-
-        if enters {
-            KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into())
-        } else {
-            KeyOutcome::Pass
+        if !context.is_focused {
+            return KeyOutcome::Pass;
         }
+        let command = match Shortcut::from_input(input) {
+            Some(Shortcut::Enter | Shortcut::CommandEnter) => DesktopCommand::Zoom(Zoom::Enter),
+            Some(Shortcut::RemoveSlot) => DesktopCommand::RemoveSlot(SlotContent::Project(self.id)),
+            _ => return KeyOutcome::Pass,
+        };
+        KeyOutcome::Consumed(command.into())
     }
 }
 
@@ -141,7 +170,7 @@ impl TargetLayout for ProjectPresenter {
                     "a project holds a header and a matrix"
                 );
                 // The matrix takes the height a stretched project gains, so it can center its
-                // tracks in it.
+                // intervals in it.
                 expand_main_axis_child_size(
                     LayoutAxis::VERTICAL,
                     children.parent_size,
@@ -177,7 +206,7 @@ impl TargetLayout for ProjectPresenter {
         animate: bool,
     ) -> Result<AppliedLayout> {
         match part {
-            ProjectPart::Project => self.set_layout(layout),
+            ProjectPart::Project => self.set_layout(layout, animate),
             ProjectPart::Header => self.header.set_layout(layout, animate),
             ProjectPart::Matrix => self.matrix.set_layout(layout),
         }
@@ -207,7 +236,7 @@ impl ProjectMatrixPresenter {
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform) {
-        let scene_transform = layout.to_origin_space();
+        let scene_transform = layout.pivoted_at_origin();
         self.scene_transform.update_if_changed(scene_transform);
     }
 }

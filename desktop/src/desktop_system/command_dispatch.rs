@@ -7,6 +7,8 @@ use super::change::{
     Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
     TopologyChange,
 };
+use super::grouping;
+use super::reparenting::Reparenting;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
     FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, ZoomLevel, view_size,
@@ -16,8 +18,8 @@ use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
-    LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment,
-    SlotContent,
+    LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
+    SlotPosition,
 };
 
 use massive_applications::prelude::*;
@@ -200,7 +202,76 @@ impl DesktopSystem {
                     new_slot_assignment(ConfigurationTarget::Launcher, None),
                 )
             }
+            DesktopCommand::RemoveSlot(content) => {
+                // The root project sits in no slot, so it cannot be removed.
+                let Some((parent, slot)) = self.aggregates.configuration.slot_of_content(content)
+                else {
+                    return Ok(Changes::Empty);
+                };
+                if self
+                    .aggregates
+                    .hierarchy
+                    .has_instances_below(&content.target())
+                {
+                    // The user is not told why nothing happens yet. Telling them needs the
+                    // notifications described in `docs/desktop-notifications-plan.md`.
+                    debug!("Keeping {content:?}, because instances run below it");
+                    return Ok(Changes::Empty);
+                }
+                self.plan_configuration(ConfigurationCommand::ClearSlot {
+                    parent,
+                    slot,
+                    shift: SlotShift::default(),
+                })
+            }
+            DesktopCommand::GroupSlot => {
+                let Some((parent, selected_slots)) =
+                    self.keyboard_focus.focused().and_then(|focused| {
+                        self.selection.selected_slots(
+                            focused,
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.configuration,
+                        )
+                    })
+                else {
+                    warn!("The focus sits in no slot to group");
+                    return Ok(Changes::Empty);
+                };
+                Ok(grouping::plan(
+                    parent,
+                    selected_slots,
+                    &self.aggregates.configuration,
+                ))
+            }
+            DesktopCommand::UngroupSlot => {
+                // Only a focused nested project is ungrouped, so the user sees which slots move.
+                let Some(FocusableTarget::Project(project)) = self.keyboard_focus.focused() else {
+                    return Ok(Changes::Empty);
+                };
+                if project == ProjectId::ROOT {
+                    return Ok(Changes::Empty);
+                }
+                let configuration = &self.aggregates.configuration;
+                if configuration.first_slot(project).is_none() {
+                    // An empty project has no slots to move, so ungrouping just removes it.
+                    let (parent, slot) = configuration
+                        .slot_of_content(project)
+                        .expect("a nested project sits in a slot");
+                    return self.plan_configuration(ConfigurationCommand::ClearSlot {
+                        parent,
+                        slot,
+                        shift: SlotShift::Keep,
+                    });
+                }
+                Ok(grouping::plan_ungroup(project, configuration))
+            }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
+            DesktopCommand::ExtendSelection(direction) => Ok(self.selection.plan_extend(
+                direction,
+                self.keyboard_focus.focused(),
+                &self.aggregates.hierarchy,
+                &self.aggregates.configuration,
+            )),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 if self.window_state.is_fullscreen
@@ -261,35 +332,35 @@ impl DesktopSystem {
         match command {
             ConfigurationCommand::AssignSlot {
                 parent,
-                placement,
+                slot,
                 content,
                 shift,
             } => {
                 let Some(parent) = parent else {
-                    return self.plan_root_creation(placement, content);
+                    return self.plan_root_creation(slot, content);
                 };
                 // The parsed aggregate already has boot slots, while the topology
                 // starts empty; only displace occupants that are live in the scene.
                 let assigned = self
                     .aggregates
                     .configuration
-                    .content_at(parent, placement)
+                    .content_at(parent, slot)
                     .filter(|previous| self.aggregates.hierarchy.exists(&previous.target()));
                 if assigned.is_some() {
                     match shift {
                         SlotShift::Shift => {
                             changes +=
-                                self.slot_shift_sequence(parent, placement, MoveDirection::Right)?;
+                                self.slot_shift_sequence(parent, slot, MoveDirection::Right)?;
                         }
                         SlotShift::Keep => {
-                            changes += self.plan_clear_slot(parent, placement, SlotShift::Keep)?;
+                            changes += self.plan_clear_slot(parent, slot, SlotShift::Keep)?;
                         }
                     }
                 }
 
                 changes <<= ConfigurationChange::AssignSlot {
                     parent: Some(parent),
-                    placement,
+                    slot,
                     assignment: content.clone(),
                 };
                 let under = DesktopTarget::Project(parent, ProjectPart::Matrix);
@@ -306,13 +377,14 @@ impl DesktopSystem {
             }
             ConfigurationCommand::ClearSlot {
                 parent,
-                placement,
+                slot,
                 shift,
             } => {
-                changes += self.plan_clear_slot(parent, placement, shift)?;
+                changes += self.plan_clear_slot(parent, slot, shift)?;
             }
             ConfigurationCommand::MoveSlot { source, dest } => {
                 if self.aggregates.configuration.can_move_slot(source, dest) {
+                    changes += Reparenting::plan(source, dest, &self.aggregates.configuration);
                     changes <<= ConfigurationChange::MoveSlot { source, dest };
                 }
             }
@@ -326,12 +398,8 @@ impl DesktopSystem {
 
     /// Creating the root is a parentless assignment of [`ProjectId::ROOT`] under
     /// the `Desktop` target: the root is hosted by no project and lives in no
-    /// slot, so `placement` is carried through but never slotted.
-    fn plan_root_creation(
-        &self,
-        placement: MatrixPlacement,
-        content: SlotAssignment,
-    ) -> Result<Changes> {
+    /// slot, so `slot` is carried through but never slotted.
+    fn plan_root_creation(&self, slot: SlotPosition, content: SlotAssignment) -> Result<Changes> {
         let (id, name) = match content {
             SlotAssignment::Project { id, name } => (id, name),
             // Only boot plans a parentless assignment, and it only creates the root.
@@ -353,7 +421,7 @@ impl DesktopSystem {
         let mut changes: Changes = Changes::Empty;
         changes <<= ConfigurationChange::AssignSlot {
             parent: None,
-            placement,
+            slot,
             assignment: SlotAssignment::Project { id, name },
         };
         changes += project_topology(id, DesktopTarget::Desktop);
@@ -363,14 +431,14 @@ impl DesktopSystem {
     fn slot_shift_sequence(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
+        slot: SlotPosition,
         direction: MoveDirection,
     ) -> Result<Changes> {
         let mut changes = Changes::Empty;
         for (source, dest) in self
             .aggregates
             .configuration
-            .shifted_slots(project, placement, direction)?
+            .shifted_slots(project, slot, direction)?
         {
             changes <<= ConfigurationChange::MoveSlot {
                 source: (project, source),
@@ -383,10 +451,10 @@ impl DesktopSystem {
     fn plan_clear_slot(
         &self,
         parent: ProjectId,
-        placement: MatrixPlacement,
+        slot: SlotPosition,
         shift: SlotShift,
     ) -> Result<Changes> {
-        let Some(content) = self.aggregates.configuration.content_at(parent, placement) else {
+        let Some(content) = self.aggregates.configuration.content_at(parent, slot) else {
             return Ok(Changes::Empty);
         };
 
@@ -404,13 +472,13 @@ impl DesktopSystem {
                 changes <<= TopologyChange::Remove(project.into());
             }
         }
-        changes <<= ConfigurationChange::ClearSlot { parent, placement };
+        changes <<= ConfigurationChange::ClearSlot { parent, slot };
 
         if shift == SlotShift::Shift {
             for (source, dest) in self
                 .aggregates
                 .configuration
-                .shifted_left_slots(parent, placement)
+                .shifted_left_slots(parent, slot)
             {
                 changes <<= ConfigurationChange::MoveSlot {
                     source: (parent, source),
@@ -517,6 +585,12 @@ impl DesktopSystem {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
+            DesktopChange::SetSelection(delta) => {
+                self.selection.set(delta);
+                let mut output = ChangeOutput::default();
+                output.surface.selection_set = true;
+                return Ok(output);
+            }
             DesktopChange::SetInputFocus(input_focus) => {
                 self.keyboard_focus.set_input_focus(input_focus);
             }
@@ -604,10 +678,13 @@ impl DesktopSystem {
                 // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
-                let measure_target = self.apply_topology_change(change, instance_manager)?;
+                let surface = self.apply_topology_change(change, instance_manager)?;
                 let current_focus = self.focused_target();
 
-                let mut output = ChangeOutput::measures(measure_target);
+                let mut output = ChangeOutput {
+                    surface,
+                    ..Default::default()
+                };
                 output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
@@ -637,7 +714,7 @@ impl DesktopSystem {
         &mut self,
         change: TopologyChange,
         instance_manager: &InstanceManager,
-    ) -> Result<DesktopTarget> {
+    ) -> Result<ChangeSurface> {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
@@ -646,11 +723,11 @@ impl DesktopSystem {
                 } else {
                     self.aggregates.hierarchy.add(under.clone(), what)?;
                 }
-                Ok(under)
+                Ok(ChangeSurface::measure(under))
             }
             TopologyChange::AddNested { what, under } => {
                 self.aggregates.hierarchy.add_nested(under.clone(), what)?;
-                Ok(under)
+                Ok(ChangeSurface::measure(under))
             }
             TopologyChange::Insert {
                 what,
@@ -660,7 +737,11 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .insert_at(under.clone(), at_index, what)?;
-                Ok(under)
+                Ok(ChangeSurface::measure(under))
+            }
+            TopologyChange::Reparent { what, under } => {
+                self.reparenting
+                    .apply(what, under, &mut self.aggregates, &self.layout_state)
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -668,7 +749,7 @@ impl DesktopSystem {
                 // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
                 self.refocus_to_parent_if_path_contains(&target, instance_manager)?;
-                self.remove_target(&target)
+                self.remove_target(&target).map(ChangeSurface::measure)
             }
         }
     }
@@ -677,7 +758,7 @@ impl DesktopSystem {
         match change {
             ConfigurationChange::AssignSlot {
                 parent,
-                placement,
+                slot,
                 assignment,
             } => {
                 let target = assignment.content();
@@ -688,11 +769,13 @@ impl DesktopSystem {
                 let host = self
                     .aggregates
                     .configuration
-                    .assign_slot(parent, placement, assignment);
+                    .assign_slot(parent, slot, assignment);
                 self.insert_slot_presenter(target, host)?;
             }
-            ConfigurationChange::ClearSlot { parent, placement } => {
-                if let Some(content) = self.aggregates.configuration.content_at(parent, placement) {
+            ConfigurationChange::ClearSlot { parent, slot } => {
+                // A cleared project takes its whole subtree along, so every presenter below it
+                // goes too.
+                for content in self.aggregates.configuration.clear_slot(parent, slot) {
                     match content {
                         SlotContent::Launcher(launcher) => {
                             self.aggregates.launchers.remove(&launcher)?;
@@ -702,7 +785,6 @@ impl DesktopSystem {
                         }
                     }
                 }
-                self.aggregates.configuration.clear_slot(parent, placement);
             }
             ConfigurationChange::MoveSlot { source, dest } => {
                 let (source_parent, _) = source;
@@ -713,6 +795,30 @@ impl DesktopSystem {
                 let mut output = ChangeOutput::default();
                 output.measure(DesktopTarget::Project(source_parent, ProjectPart::Matrix));
                 output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
+                return Ok(output);
+            }
+            ConfigurationChange::Group {
+                parent,
+                slots,
+                project,
+                name,
+            } => {
+                self.aggregates
+                    .configuration
+                    .group_slots(parent, &slots, project, &name);
+                self.insert_slot_presenter(SlotContent::Project(project), Some(parent))?;
+            }
+            ConfigurationChange::Ungroup { parent, slot } => {
+                let project = self.aggregates.configuration.ungroup_slot(parent, slot);
+                self.aggregates.projects.remove(&project)?;
+                let mut output = ChangeOutput::default();
+                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
+                return Ok(output);
+            }
+            ConfigurationChange::SwapSlots { parent, a, b } => {
+                self.aggregates.configuration.swap_slots(parent, a, b);
+                let mut output = ChangeOutput::default();
+                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
                 return Ok(output);
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
@@ -918,7 +1024,7 @@ impl DesktopSystem {
                 Ok(ChangeOutput::changes(self.plan_configuration(
                     ConfigurationCommand::AssignSlot {
                         parent: Some(parent),
-                        placement: MatrixPlacement {
+                        slot: SlotPosition {
                             column: *column,
                             row: *row,
                         },
@@ -970,37 +1076,35 @@ impl DesktopSystem {
                         SlotContent::Launcher(launcher)
                     }
                 };
-                let Some((parent, placement)) =
-                    self.aggregates.configuration.slot_of_content(content)
+                let Some((parent, slot)) = self.aggregates.configuration.slot_of_content(content)
                 else {
                     return Ok(ChangeOutput::default());
                 };
                 Ok(ChangeOutput::changes(self.plan_configuration(
                     ConfigurationCommand::ClearSlot {
                         parent,
-                        placement,
+                        slot,
                         shift: SlotShift::default(),
                     },
                 )?))
             }
             ConfigurationRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
-                let Some((parent, current_placement)) =
-                    self.aggregates.configuration.slot_of_content(launcher)
+                let Some((parent, slot)) = self.aggregates.configuration.slot_of_content(launcher)
                 else {
-                    warn!("The focused launcher has no matrix placement");
+                    warn!("The focused launcher has no slot");
                     return Ok(ChangeOutput::default());
                 };
-                let Some(placement) = current_placement.moved_placement(*direction) else {
+                let Some(next_slot) = slot.neighbor(*direction) else {
                     warn!(
-                        "Ignoring {direction:?} launcher move from matrix position ({}, {})",
-                        current_placement.column, current_placement.row,
+                        "Ignoring {direction:?} launcher move from slot ({}, {})",
+                        slot.column, slot.row,
                     );
                     return Ok(ChangeOutput::default());
                 };
 
-                let source = (parent, current_placement);
-                let destination = (parent, placement);
+                let source = (parent, slot);
+                let destination = (parent, next_slot);
                 if !self
                     .aggregates
                     .configuration
@@ -1013,21 +1117,13 @@ impl DesktopSystem {
                 if self
                     .aggregates
                     .configuration
-                    .content_at(parent, placement)
+                    .content_at(parent, next_slot)
                     .is_some()
                 {
-                    let temporary = self.next_free_root_slot(parent);
-                    changes <<= ConfigurationChange::MoveSlot {
-                        source,
-                        dest: (parent, temporary),
-                    };
-                    changes <<= ConfigurationChange::MoveSlot {
-                        source: destination,
-                        dest: source,
-                    };
-                    changes <<= ConfigurationChange::MoveSlot {
-                        source: (parent, temporary),
-                        dest: destination,
+                    changes <<= ConfigurationChange::SwapSlots {
+                        parent,
+                        a: slot,
+                        b: next_slot,
                     };
                 } else {
                     changes += self.plan_configuration(ConfigurationCommand::MoveSlot {
@@ -1039,18 +1135,17 @@ impl DesktopSystem {
             }
             ConfigurationRequest::PushLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
-                let Some((parent, current_placement)) =
-                    self.aggregates.configuration.slot_of_content(launcher)
+                let Some((parent, slot)) = self.aggregates.configuration.slot_of_content(launcher)
                 else {
-                    warn!("The focused launcher has no matrix placement");
+                    warn!("The focused launcher has no slot");
                     return Ok(ChangeOutput::default());
                 };
-                match self.slot_shift_sequence(parent, current_placement, *direction) {
+                match self.slot_shift_sequence(parent, slot, *direction) {
                     Ok(changes) => Ok(ChangeOutput::changes(changes)),
                     Err(_) => {
                         warn!(
-                            "Ignoring {direction:?} launcher push from matrix position ({}, {})",
-                            current_placement.column, current_placement.row,
+                            "Ignoring {direction:?} launcher push from slot ({}, {})",
+                            slot.column, slot.row,
                         );
                         Ok(ChangeOutput::default())
                     }
@@ -1096,7 +1191,7 @@ impl DesktopSystem {
             warn!("{anchor:?} sits in no slot to add next to");
             return Ok(Changes::Empty);
         };
-        let (parent, placement) = self
+        let (parent, slot) = self
             .aggregates
             .configuration
             .slot_of_content(anchor)
@@ -1105,28 +1200,15 @@ impl DesktopSystem {
         let focus = content.content().focusable_target();
         let mut changes = self.plan_configuration(ConfigurationCommand::AssignSlot {
             parent: Some(parent),
-            placement: MatrixPlacement {
-                column: placement.column + 1,
-                row: placement.row,
+            slot: SlotPosition {
+                column: slot.column + 1,
+                row: slot.row,
             },
             content,
             shift: SlotShift::default(),
         })?;
         changes += set_focus(Some(focus), KeyboardFocusReason::AddSlotContent);
         Ok(changes)
-    }
-
-    fn next_free_root_slot(&self, project: ProjectId) -> MatrixPlacement {
-        let mut row = 0;
-        while self
-            .aggregates
-            .configuration
-            .content_at(project, MatrixPlacement { column: 0, row })
-            .is_some()
-        {
-            row += 1;
-        }
-        MatrixPlacement { column: 0, row }
     }
 
     fn focused_project(&self) -> Option<ProjectId> {
@@ -1169,7 +1251,7 @@ impl DesktopSystem {
 }
 
 /// Adds a project and its header and matrix under the hosting target.
-fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
+pub fn project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
     let mut changes = Changes::Empty;
     changes <<= TopologyChange::Add {
         what: project.into(),
