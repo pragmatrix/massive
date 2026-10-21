@@ -73,6 +73,9 @@ impl KeyHandler for DesktopPresenter {
             Some(Shortcut::ExtendSelection(direction)) => {
                 DesktopCommand::ExtendSelection(direction)
             }
+            Some(Shortcut::Escape) if context.selection_is_extended => {
+                DesktopCommand::CollapseSelection
+            }
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
             Some(Shortcut::NewLauncher) => DesktopCommand::AddLauncher,

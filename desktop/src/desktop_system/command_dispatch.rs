@@ -312,6 +312,9 @@ impl DesktopSystem {
                 &self.aggregates.hierarchy,
                 &self.aggregates.configuration,
             )),
+            DesktopCommand::CollapseSelection => {
+                Ok(DesktopChange::SetSelection(Selection::default()).into())
+            }
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 let fully_in_on_instance = self.focused_path().instance().is_some()

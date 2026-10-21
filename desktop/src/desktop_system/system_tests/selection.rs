@@ -387,3 +387,62 @@ async fn cmd_a_from_an_instance_selects_all_slots_around_its_launcher() -> Resul
     })
     .await
 }
+
+/// Esc collapses an extended selection and keeps the focus. Without an extended selection, the
+/// desktop passes Esc on, so an application below keeps it (ADR 0030).
+#[tokio::test]
+async fn esc_collapses_only_an_extended_selection() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let TwoLaunchers {
+            mut system,
+            mut instance_manager,
+            a,
+            ..
+        } = two_launchers()?;
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(a),
+        )?;
+        let esc = KeyInput::new(
+            Key::Named(NamedKey::Escape),
+            ElementState::Pressed,
+            false,
+            ModifiersState::empty(),
+        );
+        let desktop_takes_esc = |system: &DesktopSystem| {
+            let context = KeyContext {
+                is_focused: false,
+                fully_zoomed_in: false,
+                focused_slot_project: Some(ProjectId::ROOT),
+                selection_is_extended: system.selection.is_extended(),
+                hierarchy: &system.aggregates.hierarchy,
+                configuration: &system.aggregates.configuration,
+            };
+            matches!(
+                system.desktop_presenter.handle_key(&esc, &context),
+                KeyOutcome::Consumed(_)
+            )
+        };
+
+        assert!(!desktop_takes_esc(&system));
+
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        assert!(desktop_takes_esc(&system));
+        let changes = system.deliver_key_along_focus_path(&esc)?;
+        system.transact(
+            changes,
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+
+        assert_eq!(system.selection, Selection::default());
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Launcher(a))
+        );
+
+        Ok(())
+    })
+    .await
+}

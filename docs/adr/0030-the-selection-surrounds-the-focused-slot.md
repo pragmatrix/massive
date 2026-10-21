@@ -37,6 +37,11 @@ whose matrix holds the focused slot consumes the key on its way down the keyboar
 with Shift+Cmd+arrow, an instance hands the focus to its launcher (ADR 0025). When all slots are
 already selected, Cmd+A changes nothing.
 
+**Esc collapses an extended selection.** The desktop takes plain Esc only while the selection
+reaches beyond the focused slot, and keeps the focus where it is. An instance never has the focus
+while a selection is extended, because extending and Cmd+A hand it to the launcher, so Esc always
+reaches an application that has the focus.
+
 ## Consequences
 
 - The application inside an instance never receives Cmd+A, so a terminal cannot bind it to select

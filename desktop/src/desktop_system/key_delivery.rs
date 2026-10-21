@@ -66,6 +66,7 @@ impl DesktopSystem {
                 is_focused: false,
                 fully_zoomed_in: self.zoom_navigation().is_fully_zoomed_in(),
                 focused_slot_project,
+                selection_is_extended: self.selection.is_extended(),
                 hierarchy: &self.aggregates.hierarchy,
                 configuration: &self.aggregates.configuration,
             };
@@ -183,6 +184,9 @@ pub struct KeyContext<'a> {
     /// target below it has the focus (ADR 0030). `None` when nothing, the desktop, or the root
     /// project has the focus, because no slot hosts them.
     pub focused_slot_project: Option<ProjectId>,
+    /// Whether the selection reaches beyond the focused slot. Only then the desktop takes Esc, to
+    /// collapse it (ADR 0030). An instance never has the focus then, so applications keep Esc.
+    pub selection_is_extended: bool,
     /// Cmd+T on an instance starts the new instance under that instance's launcher.
     pub hierarchy: &'a DesktopTopology,
     /// A launcher starts its instances with the parameters configured for it.
