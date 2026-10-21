@@ -36,6 +36,8 @@ impl Selection {
         self.delta
     }
 
+    /// Replaces the delta. The transaction reports this as `ChangeSurface::selection_set`, so the
+    /// selection survives the focus and configuration changes planned together with it.
     pub fn set(&mut self, delta: SelectionDelta) {
         self.delta = delta;
     }

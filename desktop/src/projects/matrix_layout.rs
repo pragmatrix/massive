@@ -113,6 +113,8 @@ struct MatrixGrid {
 }
 
 impl MatrixGrid {
+    /// The grid of the matrix that holds `slots`: each column's and row's extent, and where it
+    /// starts relative to the first one.
     fn new(slots: &[MatrixSlot], context: &LayoutContext) -> Self {
         let extents = matrix_extents(slots, slot_extent(context).width);
         let starts = array::from_fn(|axis| interval_starts(&extents[axis], INTERVAL_SPACING[axis]));

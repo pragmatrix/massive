@@ -119,7 +119,7 @@ async fn extending_from_an_instance_starts_at_its_launcher_until_the_focus_moves
 /// With a selection beyond the focused slot, the outline covers the rectangle of the selected
 /// slots: for two neighboring launchers, it is centered between them and wider than either.
 #[tokio::test]
-async fn the_outline_covers_the_selected_positions() -> Result<()> {
+async fn the_outline_covers_the_selected_slots() -> Result<()> {
     task_context::with_context(task_context(), async {
         let TwoLaunchers {
             mut system,
@@ -207,6 +207,39 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
             Some(FocusableTarget::Launcher(a))
         );
         assert_eq!(system.selection.delta(), SelectionDelta::new(1, 0));
+
+        Ok(())
+    })
+    .await
+}
+
+/// A selection set in the same transaction that adds a slot to its matrix is outlined after the
+/// transaction's layout, so the outline finds the new slot measured.
+#[tokio::test]
+async fn the_outline_reads_a_slot_added_in_the_same_transaction() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let TwoLaunchers {
+            mut system,
+            mut instance_manager,
+            a,
+            ..
+        } = two_launchers()?;
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(a),
+        )?;
+
+        let mut changes = system.plan(DesktopCommand::ExtendSelection(Direction::Right))?;
+        changes += system.plan(DesktopCommand::AddLauncher)?;
+        system.transact(
+            changes,
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+
+        assert_ne!(system.selection.delta(), SelectionDelta::zero());
+        assert!(system.hover_placement().is_some());
 
         Ok(())
     })

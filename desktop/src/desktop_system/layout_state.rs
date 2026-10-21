@@ -287,6 +287,8 @@ impl DesktopLayoutState {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
     }
 
+    /// The cached measurement of `target`. Every target in the topology is measured before it is
+    /// placed.
     pub fn measured(&self, target: &DesktopTarget) -> MeasuredLayout<2> {
         self.entries
             .get(target)
