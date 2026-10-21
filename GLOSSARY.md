@@ -44,6 +44,10 @@ _Avoid_: track, lane, band
 A rectangle of slots in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's position, and the zero delta selects only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Any focus, zoom, or configuration change collapses it to the zero delta.
 _Avoid_: anchor, far corner, multi-selection
 
+**Extended selection**:
+A selection whose delta is not zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection.
+_Avoid_: widened selection, multi-selection
+
 **Slot extent**:
 The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.
 _Avoid_: cell, slot size, default size
@@ -195,6 +199,14 @@ _Avoid_: parked z, offscreen depth
 **Visibility-gated hit testing**:
 The rule that invisible placements are excluded from hit-testing immediately, independent of in-flight fade animation.
 _Avoid_: alpha-threshold hit test, delayed interaction disable
+
+**Exceptional behavior**:
+A desktop behavior that deviates from the plain outcome of what the user asked for or from the obvious default, and that could reasonably have been decided differently. Refusing to remove slot content while instances run below it is one example. An outcome the model makes impossible, such as removing the root project, is an invariant, not an exceptional behavior.
+_Avoid_: special case, edge case, quirk
+
+**Desktop policy**:
+The one place that decides every exceptional behavior of the desktop (ADR 0029). For a command, it allows it, refuses it with a reason, or redirects it to another command. For a lifecycle default or a route, it chooses the outcome.
+_Avoid_: policy (alone, it collides with font policy), rules, guards
 
 **Shaping engine**:
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::{Context, Result, bail};
 use log::{debug, warn};
 use serde_json::json;
@@ -21,6 +23,7 @@ use crate::projects::{
     LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
     SlotPosition,
 };
+use crate::when::{self, RemovingSlotContent, TogglingFullScreen, Ungrouping, UngroupingProject};
 
 use massive_applications::prelude::*;
 use massive_applications::{
@@ -208,21 +211,20 @@ impl DesktopSystem {
                 else {
                     return Ok(Changes::Empty);
                 };
-                if self
+                let instances_run_below = self
                     .aggregates
                     .hierarchy
-                    .has_instances_below(&content.target())
-                {
-                    // The user is not told why nothing happens yet. Telling them needs the
-                    // notifications described in `docs/desktop-notifications-plan.md`.
-                    debug!("Keeping {content:?}, because instances run below it");
-                    return Ok(Changes::Empty);
+                    .has_instances_below(&content.target());
+                match when::removing_slot_content(instances_run_below) {
+                    RemovingSlotContent::Remove => {
+                        self.plan_configuration(ConfigurationCommand::ClearSlot {
+                            parent,
+                            slot,
+                            shift: SlotShift::default(),
+                        })
+                    }
+                    refusal @ RemovingSlotContent::KeepWhileInstancesRun => Ok(refused(refusal)),
                 }
-                self.plan_configuration(ConfigurationCommand::ClearSlot {
-                    parent,
-                    slot,
-                    shift: SlotShift::default(),
-                })
             }
             DesktopCommand::GroupSlot => {
                 let Some((parent, selected_slots)) =
@@ -244,26 +246,57 @@ impl DesktopSystem {
                 ))
             }
             DesktopCommand::UngroupSlot => {
-                // Only a focused nested project is ungrouped, so the user sees which slots move.
-                let Some(FocusableTarget::Project(project)) = self.keyboard_focus.focused() else {
-                    return Ok(Changes::Empty);
+                let focused = self.keyboard_focus.focused();
+                let focused_project = match focused {
+                    Some(FocusableTarget::Project(project)) => Some(project),
+                    _ => None,
                 };
+                // The root project has no parent matrix to take its slots, so selecting all of
+                // them does not count.
+                let selected_project = focused
+                    .and_then(|focused| {
+                        self.selection.fully_selected_project(
+                            focused,
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.configuration,
+                        )
+                    })
+                    .filter(|&project| project != ProjectId::ROOT);
+                let project = match when::ungrouping(
+                    focused_project.is_some(),
+                    selected_project.is_some(),
+                    self.selection.is_extended(),
+                ) {
+                    Ungrouping::UngroupFocusedProject => {
+                        focused_project.expect("the keyboard focus is on a project")
+                    }
+                    Ungrouping::UngroupSelectedProject => {
+                        selected_project.expect("the selection covers a project")
+                    }
+                    refusal @ Ungrouping::RefuseUnlessFocusedOrFullySelected => {
+                        return Ok(refused(refusal));
+                    }
+                };
+                // The root project has no parent matrix to take its slots.
                 if project == ProjectId::ROOT {
                     return Ok(Changes::Empty);
                 }
                 let configuration = &self.aggregates.configuration;
-                if configuration.first_slot(project).is_none() {
-                    // An empty project has no slots to move, so ungrouping just removes it.
-                    let (parent, slot) = configuration
-                        .slot_of_content(project)
-                        .expect("a nested project sits in a slot");
-                    return self.plan_configuration(ConfigurationCommand::ClearSlot {
-                        parent,
-                        slot,
-                        shift: SlotShift::Keep,
-                    });
+                match when::ungrouping_project(configuration.first_slot(project).is_none()) {
+                    UngroupingProject::MoveSlotsOut => {
+                        Ok(grouping::plan_ungroup(project, configuration))
+                    }
+                    UngroupingProject::RemoveProject => {
+                        let (parent, slot) = configuration
+                            .slot_of_content(project)
+                            .expect("a nested project sits in a slot");
+                        self.plan_configuration(ConfigurationCommand::ClearSlot {
+                            parent,
+                            slot,
+                            shift: SlotShift::Keep,
+                        })
+                    }
                 }
-                Ok(grouping::plan_ungroup(project, configuration))
             }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
             DesktopCommand::ExtendSelection(direction) => Ok(self.selection.plan_extend(
@@ -274,13 +307,15 @@ impl DesktopSystem {
             )),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
-                if self.window_state.is_fullscreen
-                    && self.focused_path().instance().is_some()
-                    && self.zoom_navigation().is_fully_zoomed_in()
-                {
-                    return self.plan_toggle_full_screen_mode();
+                let fully_in_on_instance = self.focused_path().instance().is_some()
+                    && self.zoom_navigation().is_fully_zoomed_in();
+                match when::toggling_full_screen(
+                    self.window_state.is_fullscreen,
+                    fully_in_on_instance,
+                ) {
+                    TogglingFullScreen::Mode => self.plan_toggle_full_screen_mode(),
+                    TogglingFullScreen::Window => Ok(DesktopChange::ToggleWindowFullScreen.into()),
                 }
-                Ok(DesktopChange::ToggleWindowFullScreen.into())
             }
         }
     }
@@ -1286,4 +1321,12 @@ fn new_slot_assignment(target: ConfigurationTarget, name: Option<String>) -> Slo
             },
         },
     }
+}
+
+/// A command a desktop policy guard refused plans nothing (ADR 0029).
+fn refused(refusal: impl fmt::Debug) -> Changes {
+    // The user is not told why nothing happens yet. Telling them needs the notifications described
+    // in `docs/desktop-notifications-plan.md`.
+    debug!("Refused: {refusal:?}");
+    Changes::Empty
 }

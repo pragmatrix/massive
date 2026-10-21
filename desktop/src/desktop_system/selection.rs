@@ -36,6 +36,11 @@ impl Selection {
         self.delta
     }
 
+    /// Whether the selection reaches beyond the focused slot.
+    pub fn is_extended(&self) -> bool {
+        self.delta != SelectionDelta::zero()
+    }
+
     /// Replaces the delta. The transaction reports this as `ChangeSurface::selection_set`, so the
     /// selection survives the focus and configuration changes planned together with it.
     pub fn set(&mut self, delta: SelectionDelta) {
@@ -83,6 +88,17 @@ impl Selection {
         }
         changes <<= DesktopChange::SetSelection(delta);
         changes
+    }
+
+    /// The project whose assigned slots all lie in the selection that starts at the `focused` target.
+    pub fn fully_selected_project(
+        &self,
+        focused: FocusableTarget,
+        hierarchy: &DesktopTopology,
+        configuration: &RuntimeConfiguration,
+    ) -> Option<ProjectId> {
+        let (project, selected) = self.selected_slots(focused, hierarchy, configuration)?;
+        (selected.len() == configuration.slots_ordered(project).count()).then_some(project)
     }
 
     /// The slots the selection that starts at the `focused` target covers: the project whose matrix

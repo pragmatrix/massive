@@ -20,6 +20,7 @@ use massive_applications::MoveDirection;
 use massive_util::CollectingVec;
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
+use crate::when::{self, Booting};
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
@@ -102,13 +103,11 @@ impl RuntimeConfiguration {
         };
 
         configuration.startup = startup.and_then(|path| {
-            match configuration.resolve_launcher_path(ProjectId::ROOT, path) {
-                Some(launcher) => Some(launcher),
-                None => {
-                    warn!("Startup '{path}' does not resolve; falling back to the first launcher");
-                    configuration.first_launcher_depth_first()
-                }
+            let resolved = configuration.resolve_launcher_path(ProjectId::ROOT, path);
+            if resolved.is_none() {
+                warn!("Startup '{path}' does not resolve");
             }
+            resolved
         });
 
         configuration
@@ -527,12 +526,15 @@ impl RuntimeConfiguration {
         false
     }
 
-    /// The launcher the session boots into: the startup launcher, or the first
-    /// launcher of the tree when no `startup` node names one. `None` is
+    /// The launcher the session boots into, as the desktop policy chooses it from
+    /// the resolved startup launcher and the first launcher of the tree. `None` is
     /// unreachable for a loaded configuration: the load gives a launcher-less one
     /// a launcher (ADR 0012).
     pub fn boot_launcher(&self) -> Option<LaunchProfileId> {
-        self.startup.or_else(|| self.first_launcher_depth_first())
+        match when::booting(self.startup.is_some()) {
+            Booting::StartupLauncher => self.startup,
+            Booting::FirstLauncher => self.first_launcher_depth_first(),
+        }
     }
 
     /// The startup address path as the configuration was loaded with, `None`

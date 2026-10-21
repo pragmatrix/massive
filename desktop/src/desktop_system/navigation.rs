@@ -9,6 +9,7 @@ use super::{
 use crate::projects::{
     LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
+use crate::when::{self, SlotSuccessor};
 
 mod focus_targets;
 mod matrix_navigation;
@@ -132,8 +133,8 @@ impl DesktopSystem {
         Ok(changes)
     }
 
-    /// The focus replacement when slot `content` is removed: the first available
-    /// right, left, down, or up neighbor in its matrix, else its hosting project.
+    /// The focus replacement when slot `content` is removed, as the desktop policy
+    /// chooses it from the nearest assigned slot in its matrix and its hosting project.
     pub fn slot_removal_focus(&self, content: SlotContent) -> FocusableTarget {
         let (parent, slot) = self
             .aggregates
@@ -142,18 +143,15 @@ impl DesktopSystem {
             .expect("removed content is assigned to a project slot");
         let matrix_navigation =
             MatrixNavigation::new(&self.aggregates.hierarchy, &self.aggregates.configuration);
-        [
-            Direction::Right,
-            Direction::Left,
-            Direction::Down,
-            Direction::Up,
-        ]
-        .into_iter()
-        .find_map(|direction| {
-            matrix_navigation.navigate_within_matrix(parent, slot, direction, None)
-        })
-        .map(|replacement| self.focus_targets().slot_focus_target(replacement))
-        .unwrap_or(FocusableTarget::Project(parent))
+        when::clearing_focused_slot()
+            .into_iter()
+            .find_map(|successor| match successor {
+                SlotSuccessor::Neighbor(direction) => matrix_navigation
+                    .navigate_within_matrix(parent, slot, direction, None)
+                    .map(|replacement| self.focus_targets().slot_focus_target(replacement)),
+                SlotSuccessor::HostingProject => Some(FocusableTarget::Project(parent)),
+            })
+            .expect("the hosting project always takes the focus")
     }
 
     pub(super) fn zoom_navigation(&self) -> ZoomNavigation<'_> {

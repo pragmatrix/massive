@@ -2,6 +2,7 @@ use massive_applications::InstanceId;
 
 use super::{DesktopTarget, FocusableTarget, InstancePart};
 use crate::focus_path::PathResolver;
+use crate::when::{self, InstanceSuccessor};
 use crate::{DirectionBias, OrderedHierarchy};
 
 impl OrderedHierarchy<DesktopTarget> {
@@ -14,27 +15,28 @@ impl OrderedHierarchy<DesktopTarget> {
             return None;
         }
 
-        if let Some(neighbor) = self.resolve_neighbor_for_stopping_instance(focused, instance) {
-            return Some(self.instance_focus_target(neighbor));
-        }
-
-        Some(FocusableTarget::Launcher(
-            self.launcher_of_instance(instance),
-        ))
+        when::stopping_focused_instance()
+            .into_iter()
+            .find_map(|successor| match successor {
+                InstanceSuccessor::Neighbor(bias) => self
+                    .resolve_neighbor_for_stopping_instance(focused, instance, bias)
+                    .map(|neighbor| self.instance_focus_target(neighbor)),
+                InstanceSuccessor::Launcher => Some(FocusableTarget::Launcher(
+                    self.launcher_of_instance(instance),
+                )),
+            })
     }
 
     fn resolve_neighbor_for_stopping_instance(
         &self,
         focused: &DesktopTarget,
         instance: InstanceId,
+        bias: DirectionBias,
     ) -> Option<InstanceId> {
         if self.resolve_path(Some(focused)).instance() != Some(instance) {
             return None;
         }
-        let neighbor = self
-            .entry(&instance.into())
-            .neighbor(DirectionBias::Begin)
-            .cloned()?;
+        let neighbor = self.entry(&instance.into()).neighbor(bias).cloned()?;
         let DesktopTarget::Instance(neighbor, InstancePart::Instance) = neighbor else {
             panic!("A launcher nests only instances, found {neighbor:?}");
         };
@@ -125,7 +127,8 @@ mod tests {
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         let focused = second.into();
-        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
+        let neighbor =
+            hierarchy.resolve_neighbor_for_stopping_instance(&focused, first, DirectionBias::Begin);
 
         assert_eq!(neighbor, None);
     }
@@ -137,7 +140,8 @@ mod tests {
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         let focused = first.into();
-        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
+        let neighbor =
+            hierarchy.resolve_neighbor_for_stopping_instance(&focused, first, DirectionBias::Begin);
 
         assert_eq!(neighbor, Some(second));
     }

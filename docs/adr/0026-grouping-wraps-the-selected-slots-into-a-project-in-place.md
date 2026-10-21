@@ -30,8 +30,8 @@ an instance has the focus, its launcher is meant.
   running and slide to their new places.
 - **The new project takes the focus,** and the selection collapses.
 
-**Ungrouping (Cmd+Shift+G) is the inverse.** It acts on the focused nested project only, never on
-the root.
+**Ungrouping (Cmd+Shift+G) is the inverse.** It acts on the focused nested project, or on the project whose slots
+are all selected (ADR 0029), never on the root.
 
 - **The slots land where the project was.** The top-left corner of their bounding box lands on the
   project's slot, and they keep their arrangement. Ungrouping a project that grouping just

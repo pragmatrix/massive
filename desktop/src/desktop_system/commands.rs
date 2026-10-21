@@ -34,8 +34,9 @@ pub enum DesktopCommand {
     /// Wraps the selected slots, or else the focused slot, into a new project (Cmd+G, ADR 0026).
     /// The new project takes the slots' place and receives the focus.
     GroupSlot,
-    /// Moves the slots of the focused nested project into its parent's matrix, removes the
-    /// project, and selects the ungrouped slots (Cmd+Shift+G, ADR 0026).
+    /// Moves the slots of the focused nested project, or of the project whose slots are all
+    /// selected, into its parent's matrix, removes the project, and selects the ungrouped slots
+    /// (Cmd+Shift+G, ADR 0026, ADR 0029).
     UngroupSlot,
 
     Navigate(Direction),

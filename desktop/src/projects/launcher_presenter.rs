@@ -25,6 +25,7 @@ use crate::desktop_system::{
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
 use crate::projects::{LaunchProfileId, LauncherMode, SlotContent};
+use crate::when::{self, PressingCommandEnter};
 
 use super::runtime_configuration::Params;
 
@@ -271,14 +272,19 @@ impl KeyHandler for LauncherPresenter {
         }
 
         match Shortcut::from_input(input) {
-            Some(Shortcut::CommandEnter) if !context.fully_zoomed_in => {
-                return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+            Some(Shortcut::CommandEnter) => {
+                match when::pressing_command_enter(context.fully_zoomed_in) {
+                    PressingCommandEnter::Act => {}
+                    PressingCommandEnter::ZoomFirst => {
+                        return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+                    }
+                }
             }
             Some(Shortcut::RemoveSlot) => {
                 let content = SlotContent::Launcher(self.id);
                 return KeyOutcome::Consumed(DesktopCommand::RemoveSlot(content).into());
             }
-            Some(Shortcut::Enter | Shortcut::CommandEnter | Shortcut::StartInstance) => {}
+            Some(Shortcut::Enter | Shortcut::StartInstance) => {}
             _ => return KeyOutcome::Pass,
         }
 
