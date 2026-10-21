@@ -9,8 +9,8 @@ only decides where their rules are made.
 ## Problem
 
 Most desktop commands do what the user asked for. A few do something else. Cmd+Shift+W keeps a
-launcher when instances run below it, Cmd+Enter zooms before it acts, and the desktop quits when its
-last instance ends. These exceptional behaviors are the decisions users notice and question most,
+launcher when instances run below it, Cmd+Enter zooms before it acts, and a configuration without a
+launcher is given one at load. These exceptional behaviors are the decisions users notice and question most,
 and the ones most likely to change once the desktop can tell the user why something happened
 (`docs/desktop-notifications-plan.md`).
 
@@ -21,9 +21,10 @@ reason, so a later notification has nothing to show.
 
 ## Decision
 
-**A desktop policy module (`desktop/src/policy.rs`) decides every exceptional behavior.** Each rule
-is a pure function named after the rule. It takes the facts it needs as parameters and returns a
-decision. The code that used to decide the rule now gathers those facts, asks the policy, and
+**A desktop policy module, `when` (`desktop/src/when.rs`), decides every exceptional behavior.**
+Each rule is a pure function named after the situation it decides, so a call reads as
+`when::ungrouping(…)` or `when::booting(…)`. It takes the facts it needs as parameters
+and returns a decision. The code that used to decide the rule now gathers those facts, asks the policy, and
 carries out the answer.
 
 **A behavior is exceptional when it could reasonably have been decided differently.** An operation
@@ -31,39 +32,44 @@ that the model makes impossible is an invariant, not a policy. It stays in the m
 the root project sits in no slot, so it can be neither removed nor ungrouped. That is not a rule the
 policy decides.
 
-**A rule that decides about a command returns a verdict.** The verdict is one of three outcomes.
+**A rule decides what the caller should not, and nothing more.** It takes the few facts behind its
+decision, mostly flags, and returns an action enum named after its situation. The caller derives
+the facts, and it finds or builds what the chosen action needs. A rule never selects a value the
+caller hands it. The `when` module therefore imports almost nothing from the desktop.
 
-- `Allow` means the command runs as asked.
-- `Refuse(reason)` means nothing happens. The reason is a typed value, so a notification can later
-  tell the user why.
-- `Redirect(command)` means a different command runs in its place.
+```rust
+match when::ungrouping(focused_project.is_some()) {
+    Ungrouping::UngroupFocusedProject => …,
+    Ungrouping::RefuseUnlessFocusedOnProject => …,
+}
+```
 
-**Any other rule returns its own value**, such as a launcher, a focus target, or a route. A
-lifecycle default or a routing choice does not refuse or replace a command, so the verdict cannot
-express it.
-
-**The policy decides the choice, not the search.** When a rule picks among candidates, the code that
-owns the data still finds them. For example, the configuration finds the first launcher depth-first,
-and the policy decides whether boot falls back to it. Each search keeps one home, and other callers,
-such as the focus fallback, keep using it.
+- The enum holds only the outcomes the rule can produce, so a caller handles every one of them.
+- A refusing variant names its reason, so a notification can later tell the user why nothing
+  happened.
+- No rule returns `Result`, `Option`, or a shared verdict type. A refusal is an expected answer,
+  not an error, and `Some` or `None` does not say what happens.
+- A rule that ranks candidates returns them in order of preference, such as
+  `[Neighbor(Right), …, HostingProject]`. The caller takes the first that exists, so each search
+  keeps its home in the code that owns the data.
 
 ### The rules
 
-Guards return `Refuse` when they apply.
+Guards refuse a command when they apply.
 
 - **Removing slot content while instances run below it is refused** (Cmd+Shift+W). A key press never
   quits running processes.
 - **Ungrouping is refused unless the keyboard focus is on a nested project.** The user then sees
   which slots move (ADR 0026).
 
-Redirects return `Redirect` when they apply.
+Redirects run another command when they apply.
 
 - **Ungrouping an empty project clears its slot instead.** The project has no slots to move, so only
   its removal is left.
 - **Cmd+Enter zooms to `Focus` first and acts only when the target is fully in.** The presenters that
   handle Cmd+Enter pass in whether the camera is fully in and stop deciding the rule themselves.
 
-The routing rule returns its own route value.
+The routing rule picks where an action goes.
 
 - **Ctrl+Cmd+F routes to the native window or to Full Screen Mode.** A windowed window enters native
   fullscreen. A fullscreen window toggles Full Screen Mode when keyboard focus is fully in on an
@@ -71,9 +77,8 @@ The routing rule returns its own route value.
 
 Lifecycle defaults return their own values.
 
-- **The desktop ends after its last instance ends.**
-- **A configuration without a launcher is given one at load.** The policy decides what that launcher
-  is. The load step still runs the rule (ADR 0012).
+- **A configuration without a launcher is given one at load.** The load step detects the
+  situation and builds the default launcher (ADR 0012).
 - **The startup launcher falls back to the first launcher depth-first** when its address path no
   longer resolves.
 - **A stopping instance that holds the focus hands it to its neighbor toward the launcher's
@@ -86,9 +91,8 @@ Lifecycle defaults return their own values.
 
 - Every exceptional behavior can be read in one file and tested without a desktop system.
 - A refusal now has a reason. Showing it is left to the notifications plan.
-- Changing an exception, such as keeping the desktop open after the last instance, means changing
-  one rule. The code that carries the rule out may still need to support the new answer. For
-  example, the run loop must stop waiting for instances once none remain.
+- Changing an exception means changing one rule. The code that carries the rule out may still need
+  to support the new answer.
 - The two focus replacement rules search in opposite directions. A stopping instance looks toward
   the beginning, a cleared slot looks right first. This ADR records both as they are. Placing them
   side by side makes the difference visible, but unifying them is a separate decision.
@@ -100,11 +104,15 @@ Lifecycle defaults return their own values.
 - **A filter in front of command planning.** Every command would pass through the policy before it
   is planned, which gives one entry point. Rejected, because the Cmd+Enter redirect is decided in a
   key handler before any command exists, and lifecycle defaults are not commands.
+- **One verdict type for every rule about a command,** with the outcomes allow, refuse, and
+  redirect. Rejected, because no rule produces all three. Every caller would either handle outcomes
+  its rule never gives or silently ignore them, and the type could not show which outcomes a rule
+  really has.
 - **A policy value with settings.** This would prepare for user-configurable rules. Rejected for
   now, because no rule is configurable yet and the settings would be speculative.
 - **Guards and redirects only.** This keeps the module about commands. Rejected, because the
   lifecycle defaults are the same kind of choice. Leaving them out would keep the choices users
-  notice most, such as quitting after the last instance, scattered across the code.
+  notice most, such as which target takes over the focus, scattered across the code.
 - **Include the invariants as guards.** Refusing to remove the root project would then also carry a
   reason. Rejected, because the policy would mix choices with structural facts, and the test for
   what belongs in it would be lost.
