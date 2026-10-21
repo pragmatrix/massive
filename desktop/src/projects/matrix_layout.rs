@@ -6,6 +6,7 @@ use std::array;
 use std::cmp::max;
 use std::collections::HashMap;
 
+use euclid::vec2;
 use massive_geometry::{Quaternion, Rect, RectPx, SizePx, Transform};
 use massive_layout::{MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size};
 
@@ -83,7 +84,8 @@ pub fn matrix_area(
     rect: MatrixRect,
 ) -> Option<LayoutRect<2>> {
     let grid = MatrixGrid::new(&matrix_slots(project, context, children), context);
-    let (top_left, bottom_right) = (rect.top_left.indices(), rect.bottom_right.indices());
+    let top_left = MatrixPlacement::from(rect.min).indices();
+    let bottom_right = MatrixPlacement::from(rect.max - vec2(1, 1)).indices();
     let mut start = [0; 2];
     let mut extent = [0; 2];
     for axis in 0..2 {

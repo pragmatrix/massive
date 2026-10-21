@@ -9,6 +9,7 @@ use std::ops::Index;
 
 use anyhow::{Context, Result, bail, ensure};
 use derive_more::{From, Into};
+use euclid::vec2;
 use indexmap::IndexMap;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -1334,11 +1335,36 @@ pub struct MatrixPlacement {
     pub row: u32,
 }
 
-/// A rectangle of placements in a matrix, both corners included.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MatrixRect {
-    pub top_left: MatrixPlacement,
-    pub bottom_right: MatrixPlacement,
+/// Coordinates in a project's matrix, counted in columns along x and rows along y (ADR 0028).
+pub struct MatrixUnit;
+
+/// A placement as a point in matrix coordinates, the column along x and the row along y.
+pub type MatrixPoint = euclid::Point2D<u32, MatrixUnit>;
+
+/// A rectangle of placements in a matrix. Like every `Box2D`, it excludes its maximum, so `max` lies
+/// one column and one row past the bottom-right placement it contains.
+pub type MatrixRect = euclid::Box2D<u32, MatrixUnit>;
+
+/// The smallest rectangle of placements that contains all `points`, of which there is at least
+/// one.
+pub fn matrix_rect_covering(points: impl IntoIterator<Item = MatrixPoint>) -> MatrixRect {
+    let rect = MatrixRect::from_points(points);
+    MatrixRect::new(rect.min, rect.max + vec2(1, 1))
+}
+
+impl From<MatrixPlacement> for MatrixPoint {
+    fn from(placement: MatrixPlacement) -> Self {
+        Self::new(placement.column, placement.row)
+    }
+}
+
+impl From<MatrixPoint> for MatrixPlacement {
+    fn from(point: MatrixPoint) -> Self {
+        Self {
+            column: point.x,
+            row: point.y,
+        }
+    }
 }
 
 impl MatrixPlacement {
@@ -1835,5 +1861,21 @@ mod tests {
 
     fn root_id_of(_configuration: &RuntimeConfiguration) -> ProjectId {
         ProjectId::ROOT
+    }
+
+    /// A `MatrixRect` excludes its maximum, so the covering rectangle reaches one past the last
+    /// point and contains both corners, but nothing beyond them.
+    #[test]
+    fn a_covering_rect_contains_its_corners_and_nothing_beyond() {
+        let rect = matrix_rect_covering([MatrixPoint::new(2, 1), MatrixPoint::new(0, 3)]);
+
+        assert_eq!(
+            rect,
+            MatrixRect::new(MatrixPoint::new(0, 1), MatrixPoint::new(3, 4))
+        );
+        assert!(rect.contains(MatrixPoint::new(0, 1)));
+        assert!(rect.contains(MatrixPoint::new(2, 3)));
+        assert!(!rect.contains(MatrixPoint::new(3, 3)));
+        assert!(!rect.contains(MatrixPoint::new(2, 4)));
     }
 }

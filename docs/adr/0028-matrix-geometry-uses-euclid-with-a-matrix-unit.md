@@ -1,6 +1,6 @@
 # Matrix geometry uses euclid with a matrix unit
 
-## Status: accepted, not implemented yet
+## Status: accepted
 
 Builds on [ADR 0025](./0025-slots-can-be-selected-beside-the-keyboard-focus.md), whose selection
 types it replaces.
@@ -19,7 +19,8 @@ coordinates apart, for example `SizePx`, `RectPx`, and `BoxPx` in `massive-geome
 
 ## Decision
 
-Matrix geometry gets its own euclid unit, `MatrixUnit`, next to the pixel unit.
+Matrix geometry gets its own euclid unit, `MatrixUnit`. Matrices are a concept of the desktop, so
+the unit lives in the desktop crate next to `MatrixPlacement`, not in `massive-geometry`.
 
 - The selection's delta becomes a `Vector2D<i32, MatrixUnit>`. The zero vector selects only the
   focused slot, and a step is a vector addition.

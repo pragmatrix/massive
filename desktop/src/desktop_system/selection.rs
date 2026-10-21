@@ -3,6 +3,9 @@
 //! focused slot and follows the keyboard focus. The selected slots are the occupied placements
 //! inside the rectangle.
 
+use std::iter;
+
+use euclid::{Vector2D, vec2};
 use massive_geometry::Transform;
 use massive_layout::{MeasuredLayout, Placement, Rect as LayoutRect};
 
@@ -13,17 +16,13 @@ use super::{
     DesktopTarget, Direction, FocusableTarget, KeyboardFocusReason, LayoutContext, ProjectPart,
 };
 use crate::projects::{
-    MatrixPlacement, MatrixRect, ProjectId, RuntimeConfiguration, SlotContent, intervals_origin,
-    matrix_area,
+    MatrixPlacement, MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration,
+    SlotContent, intervals_origin, matrix_area, matrix_rect_covering,
 };
 
 /// How many columns and rows the selection reaches from the focused slot's placement, negative
 /// towards the left and the top. The zero delta selects only the focused slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct SelectionDelta {
-    pub columns: i32,
-    pub rows: i32,
-}
+pub type SelectionDelta = Vector2D<i32, MatrixUnit>;
 
 /// The current selection, kept as its delta.
 #[derive(Debug, Default)]
@@ -43,7 +42,7 @@ impl Selection {
 
     /// Collapses the selection to the focused slot.
     pub fn collapse(&mut self) {
-        self.delta = SelectionDelta::default();
+        self.delta = SelectionDelta::zero();
     }
 
     /// Plans extending the selection one placement in `direction` (Shift+Cmd+arrow), starting from
@@ -69,7 +68,7 @@ impl Selection {
             placement,
             self.delta,
             direction,
-            matrix_bottom_right(project, configuration),
+            matrix_bounds(project, configuration),
         ) else {
             return Changes::Empty;
         };
@@ -94,7 +93,7 @@ impl Selection {
         layout_state: &DesktopLayoutState,
         context: &LayoutContext,
     ) -> Option<Placement<Transform, 2>> {
-        if self.delta == SelectionDelta::default() {
+        if self.delta == SelectionDelta::zero() {
             return None;
         }
         let (_, project, placement) =
@@ -145,61 +144,46 @@ fn focused_slot(
 
 /// The rectangle that `delta` spans from the `focused` slot's placement.
 fn selection_rect(focused: MatrixPlacement, delta: SelectionDelta) -> MatrixRect {
-    let column = focused.column.saturating_add_signed(delta.columns);
-    let row = focused.row.saturating_add_signed(delta.rows);
-    MatrixRect {
-        top_left: MatrixPlacement {
-            column: focused.column.min(column),
-            row: focused.row.min(row),
-        },
-        bottom_right: MatrixPlacement {
-            column: focused.column.max(column),
-            row: focused.row.max(row),
-        },
-    }
+    let focused = MatrixPoint::from(focused);
+    let reached = MatrixPoint::new(
+        focused.x.saturating_add_signed(delta.x),
+        focused.y.saturating_add_signed(delta.y),
+    );
+    matrix_rect_covering([focused, reached])
 }
 
-/// The selection's delta after one step in `direction`, or `None` when the step would leave the
-/// matrix. The selection starts at `focused`. The matrix spans from its top-left placement to
-/// `bottom_right`.
+/// The selection's delta after one step in `direction`, or `None` when the placement it reaches
+/// from `focused` would leave `bounds`, the rectangle of the matrix.
 fn extended_delta(
     focused: MatrixPlacement,
     delta: SelectionDelta,
     direction: Direction,
-    bottom_right: MatrixPlacement,
+    bounds: MatrixRect,
 ) -> Option<SelectionDelta> {
-    let (columns, rows) = match direction {
-        Direction::Left => (delta.columns - 1, delta.rows),
-        Direction::Right => (delta.columns + 1, delta.rows),
-        Direction::Up => (delta.columns, delta.rows - 1),
-        Direction::Down => (delta.columns, delta.rows + 1),
-    };
-    let inside = |start: u32, delta: i32, end: u32| {
-        (0..=i64::from(end)).contains(&(i64::from(start) + i64::from(delta)))
-    };
-    (inside(focused.column, columns, bottom_right.column)
-        && inside(focused.row, rows, bottom_right.row))
-    .then_some(SelectionDelta { columns, rows })
+    let delta = delta
+        + match direction {
+            Direction::Left => vec2(-1, 0),
+            Direction::Right => vec2(1, 0),
+            Direction::Up => vec2(0, -1),
+            Direction::Down => vec2(0, 1),
+        };
+    let reached = MatrixPoint::new(
+        focused.column.checked_add_signed(delta.x)?,
+        focused.row.checked_add_signed(delta.y)?,
+    );
+    bounds.contains(reached).then_some(delta)
 }
 
-/// The bottom-right corner of `project`'s matrix: the rightmost column and the lowest row that hold
-/// a slot. The corner itself may be empty, because the column and the row may belong to different
-/// slots.
-fn matrix_bottom_right(
-    project: ProjectId,
-    configuration: &RuntimeConfiguration,
-) -> MatrixPlacement {
-    configuration
+/// The rectangle of `project`'s matrix, from its top-left placement to the rightmost column and the
+/// lowest row that hold a slot. Its bottom-right placement may be empty, because that column and
+/// that row may belong to different slots.
+fn matrix_bounds(project: ProjectId, configuration: &RuntimeConfiguration) -> MatrixRect {
+    let slots = configuration
         .project(project)
         .expect("a selection's project is configured")
         .slot_contents()
-        .fold(
-            MatrixPlacement { column: 0, row: 0 },
-            |corner, (placement, _)| MatrixPlacement {
-                column: corner.column.max(placement.column),
-                row: corner.row.max(placement.row),
-            },
-        )
+        .map(|(placement, _)| placement.into());
+    matrix_rect_covering(iter::once(MatrixPoint::origin()).chain(slots))
 }
 
 #[cfg(test)]
@@ -207,7 +191,7 @@ mod tests {
     use super::*;
 
     fn delta(columns: i32, rows: i32) -> SelectionDelta {
-        SelectionDelta { columns, rows }
+        vec2(columns, rows)
     }
 
     /// The selection grows across empty placements, but never past the matrix's top-left or
@@ -215,8 +199,8 @@ mod tests {
     #[test]
     fn the_selection_extends_placement_by_placement_inside_the_matrix() {
         let focused = MatrixPlacement { column: 1, row: 0 };
-        let bottom_right = MatrixPlacement { column: 3, row: 1 };
-        let extend = |from, direction| extended_delta(focused, from, direction, bottom_right);
+        let bounds = MatrixRect::new(MatrixPoint::origin(), MatrixPoint::new(4, 2));
+        let extend = |from, direction| extended_delta(focused, from, direction, bounds);
 
         assert_eq!(extend(delta(0, 0), Direction::Right), Some(delta(1, 0)));
         assert_eq!(extend(delta(1, 0), Direction::Down), Some(delta(1, 1)));

@@ -33,7 +33,7 @@ async fn extending_from_an_instance_starts_at_its_launcher_until_the_focus_moves
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
-        let columns = |columns| SelectionDelta { columns, rows: 0 };
+        let columns = |columns| SelectionDelta::new(columns, 0);
         let extend =
             |system: &mut DesktopSystem, instance_manager: &mut InstanceManager, direction| {
                 run(
