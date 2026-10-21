@@ -44,6 +44,10 @@ _Avoid_: track, lane, band
 A rectangle of slots in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's position, and the zero delta selects only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Any focus, zoom, or configuration change collapses it to the zero delta.
 _Avoid_: anchor, far corner, multi-selection
 
+**Extended selection**:
+A selection whose delta is not zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection.
+_Avoid_: widened selection, multi-selection
+
 **Slot extent**:
 The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.
 _Avoid_: cell, slot size, default size

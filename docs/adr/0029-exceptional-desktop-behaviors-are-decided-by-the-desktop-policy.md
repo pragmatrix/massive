@@ -38,9 +38,9 @@ the facts, and it finds or builds what the chosen action needs. A rule never sel
 caller hands it. The `when` module therefore imports almost nothing from the desktop.
 
 ```rust
-match when::ungrouping(focused_project.is_some()) {
-    Ungrouping::UngroupFocusedProject => …,
-    Ungrouping::RefuseUnlessFocusedOnProject => …,
+match when::pressing_command_enter(fully_zoomed_in) {
+    PressingCommandEnter::Act => …,
+    PressingCommandEnter::ZoomFirst => …,
 }
 ```
 
@@ -59,8 +59,10 @@ Guards refuse a command when they apply.
 
 - **Removing slot content while instances run below it is refused** (Cmd+Shift+W). A key press never
   quits running processes.
-- **Ungrouping is refused unless the keyboard focus is on a nested project.** The user then sees
-  which slots move (ADR 0026).
+- **Ungrouping acts on the focused nested project, or on the project whose slots are all
+  selected, and is refused otherwise.** The user then sees which slots move (ADR 0026). An
+  extended selection is deliberate, so a project it covers entirely wins
+  over a focused one. A project whose only slot holds the focus counts as fully selected.
 
 Redirects run another command when they apply.
 

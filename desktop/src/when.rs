@@ -25,16 +25,27 @@ pub fn removing_slot_content(instances_run_below: bool) -> RemovingSlotContent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ungrouping {
     UngroupFocusedProject,
+    /// The project whose slots are all selected.
+    UngroupSelectedProject,
     /// The user sees which slots move.
-    RefuseUnlessFocusedOnProject,
+    RefuseUnlessFocusedOrFullySelected,
 }
 
+/// An extended selection is deliberate, so when it covers its whole project,
+/// that project wins over a focused one.
 #[must_use]
-pub fn ungrouping(focus_on_project: bool) -> Ungrouping {
+pub fn ungrouping(
+    focus_on_project: bool,
+    selection_covers_project: bool,
+    selection_extended: bool,
+) -> Ungrouping {
+    if selection_covers_project && (selection_extended || !focus_on_project) {
+        return Ungrouping::UngroupSelectedProject;
+    }
     if focus_on_project {
         return Ungrouping::UngroupFocusedProject;
     }
-    Ungrouping::RefuseUnlessFocusedOnProject
+    Ungrouping::RefuseUnlessFocusedOrFullySelected
 }
 
 /// How a nested project is ungrouped.
@@ -151,4 +162,33 @@ pub fn clearing_focused_slot() -> [SlotSuccessor; 5] {
         SlotSuccessor::Neighbor(Direction::Up),
         SlotSuccessor::HostingProject,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_extended_selection_over_its_whole_project_outranks_the_focused_project() {
+        assert_eq!(
+            ungrouping(true, true, false),
+            Ungrouping::UngroupFocusedProject
+        );
+        assert_eq!(
+            ungrouping(true, true, true),
+            Ungrouping::UngroupSelectedProject
+        );
+        assert_eq!(
+            ungrouping(true, false, true),
+            Ungrouping::UngroupFocusedProject
+        );
+        assert_eq!(
+            ungrouping(false, true, false),
+            Ungrouping::UngroupSelectedProject
+        );
+        assert_eq!(
+            ungrouping(false, false, true),
+            Ungrouping::RefuseUnlessFocusedOrFullySelected
+        );
+    }
 }

@@ -245,3 +245,54 @@ async fn the_outline_reads_a_slot_added_in_the_same_transaction() -> Result<()> 
     })
     .await
 }
+
+/// Cmd+Shift+G from inside a project ungroups it once the selection covers all of its slots
+/// (ADR 0029).
+#[tokio::test]
+async fn selecting_all_slots_of_a_project_ungroups_it() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let TwoLaunchers {
+            mut system,
+            mut instance_manager,
+            a,
+            b,
+        } = two_launchers()?;
+        let at = |column| SlotPosition { column, row: 0 };
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(a),
+        )?;
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
+
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(a),
+        )?;
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::UngroupSlot,
+        )?;
+
+        let configuration = &system.aggregates.configuration;
+        assert_eq!(
+            configuration.slot_of_content(a),
+            Some((ProjectId::ROOT, at(0)))
+        );
+        assert_eq!(
+            configuration.slot_of_content(b),
+            Some((ProjectId::ROOT, at(1)))
+        );
+
+        Ok(())
+    })
+    .await
+}

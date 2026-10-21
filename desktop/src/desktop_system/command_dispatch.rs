@@ -246,15 +246,30 @@ impl DesktopSystem {
                 ))
             }
             DesktopCommand::UngroupSlot => {
-                let focused_project = match self.keyboard_focus.focused() {
+                let focused = self.keyboard_focus.focused();
+                let focused_project = match focused {
                     Some(FocusableTarget::Project(project)) => Some(project),
                     _ => None,
                 };
-                let project = match when::ungrouping(focused_project.is_some()) {
+                let selected_project = focused.and_then(|focused| {
+                    self.selection.fully_selected_project(
+                        focused,
+                        &self.aggregates.hierarchy,
+                        &self.aggregates.configuration,
+                    )
+                });
+                let project = match when::ungrouping(
+                    focused_project.is_some(),
+                    selected_project.is_some(),
+                    self.selection.is_extended(),
+                ) {
                     Ungrouping::UngroupFocusedProject => {
                         focused_project.expect("the keyboard focus is on a project")
                     }
-                    refusal @ Ungrouping::RefuseUnlessFocusedOnProject => {
+                    Ungrouping::UngroupSelectedProject => {
+                        selected_project.expect("the selection covers a project")
+                    }
+                    refusal @ Ungrouping::RefuseUnlessFocusedOrFullySelected => {
                         return Ok(refused(refusal));
                     }
                 };
