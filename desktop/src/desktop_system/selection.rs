@@ -87,25 +87,21 @@ impl Selection {
     }
 
     /// Plans selecting the bounding box of all assigned slots of `project` around the `focused`
-    /// target (Cmd+A, ADR 0030). The focus stays, except that an instance hands it to its
-    /// launcher, as when extending. When the focus sits in no slot of `project`, nothing changes.
+    /// target (Cmd+A, ADR 0030). The focus stays where it is. Only the project whose matrix holds
+    /// the focused slot asks for this, so the focus always sits in a slot of `project`.
     pub fn plan_select_all(
         project: ProjectId,
         focused: Option<FocusableTarget>,
         hierarchy: &DesktopTopology,
         configuration: &RuntimeConfiguration,
     ) -> Changes {
-        let Some(focused) = focused else {
-            return Changes::Empty;
-        };
-        let Some((content, focused_project, slot)) =
-            focused_slot(focused, hierarchy, configuration)
-        else {
-            return Changes::Empty;
-        };
-        if focused_project != project {
-            return Changes::Empty;
-        }
+        let focused = focused.expect("selecting all starts from the keyboard focus");
+        let (content, focused_project, slot) = focused_slot(focused, hierarchy, configuration)
+            .expect("selecting all starts from a focused slot");
+        assert_eq!(
+            focused_project, project,
+            "selecting all acts on the project of the focused slot"
+        );
         let slots = configuration
             .slots_ordered(project)
             .map(|(slot, _)| slot.into());
@@ -183,9 +179,14 @@ impl Selection {
     }
 
     /// The rectangle the selection spans around the `focused` slot's position. The selection stays
-    /// inside the matrix, so it never reaches past its top-left slot.
+    /// inside the matrix, so it never reaches past its top-left slot. Release builds do not check
+    /// integer overflow, so the assertion keeps a broken selection from wrapping around silently.
     fn rect(self, focused: SlotPosition) -> MatrixRect {
         let focused = MatrixPoint::from(focused);
+        assert!(
+            !self.top_left.greater_than(focused.to_vector()).any(),
+            "a selection stays inside its matrix"
+        );
         matrix_bounding_box([focused - self.top_left, focused + self.bottom_right])
     }
 

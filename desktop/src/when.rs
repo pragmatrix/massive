@@ -3,7 +3,7 @@
 //! Each rule is named after its situation and is a pure function of the facts its caller passes in.
 
 use crate::DirectionBias;
-use crate::desktop_system::Direction;
+use crate::desktop_system::{Direction, KeyFocus};
 
 /// What Cmd+Shift+W does to a launcher or a nested project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,7 @@ pub fn ungrouping_project(is_empty: bool) -> UngroupingProject {
 /// What Esc and Cmd+Esc do (ADR 0030, ADR 0031).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PressingEscape {
+    /// An extended selection collapses before anything is escaped (ADR 0030).
     CollapseSelection,
     /// Escapes the focused instance, launcher, or project by one level.
     Escape,
@@ -75,23 +76,15 @@ pub enum PressingEscape {
 }
 
 /// Cmd+Esc is the desktop's Esc, so it also escapes an instance, while plain Esc stays with the
-/// instance's application. An instance never has the focus while a selection is extended.
+/// instance's application.
 #[must_use]
-pub fn pressing_escape(
-    with_command: bool,
-    focus_in_instance: bool,
-    selection_extended: bool,
-) -> PressingEscape {
-    if focus_in_instance {
-        if with_command {
-            return PressingEscape::Escape;
-        }
-        return PressingEscape::PassToApplication;
+pub fn pressing_escape(with_command: bool, focus: KeyFocus) -> PressingEscape {
+    match focus {
+        KeyFocus::Instance if with_command => PressingEscape::Escape,
+        KeyFocus::Instance => PressingEscape::PassToApplication,
+        KeyFocus::ExtendedSelection => PressingEscape::CollapseSelection,
+        KeyFocus::Desktop => PressingEscape::Escape,
     }
-    if selection_extended {
-        return PressingEscape::CollapseSelection;
-    }
-    PressingEscape::Escape
 }
 
 /// Where Ctrl+Cmd+F goes (ADR 0014).
@@ -199,21 +192,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn esc_belongs_to_an_instance_and_collapses_a_selection_before_it_leaves() {
+    fn esc_belongs_to_an_instance_and_collapses_a_selection_before_it_escapes() {
         assert_eq!(
-            pressing_escape(false, true, false),
+            pressing_escape(false, KeyFocus::Instance),
             PressingEscape::PassToApplication
         );
-        assert_eq!(pressing_escape(true, true, false), PressingEscape::Escape);
         assert_eq!(
-            pressing_escape(false, false, true),
-            PressingEscape::CollapseSelection
+            pressing_escape(true, KeyFocus::Instance),
+            PressingEscape::Escape
         );
-        assert_eq!(
-            pressing_escape(true, false, true),
-            PressingEscape::CollapseSelection
-        );
-        assert_eq!(pressing_escape(false, false, false), PressingEscape::Escape);
+        for with_command in [false, true] {
+            assert_eq!(
+                pressing_escape(with_command, KeyFocus::ExtendedSelection),
+                PressingEscape::CollapseSelection
+            );
+            assert_eq!(
+                pressing_escape(with_command, KeyFocus::Desktop),
+                PressingEscape::Escape
+            );
+        }
     }
 
     #[test]

@@ -109,9 +109,9 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
 }
 
 /// The selection that covers all ungrouped slots at `landings` (ADR 0026): the landing at a corner
-/// of their bounding box, which takes the focus, and the selection that reaches the opposite corner. The
-/// corners are tried from the top-left, then the top-right, the bottom-left, and the bottom-right.
-/// `None` when every corner is unassigned.
+/// of their bounding box, which takes the focus, and the selection that reaches the opposite
+/// corner. The corners are tried from the top-left, then the top-right, the bottom-left, and the
+/// bottom-right. `None` when every corner is unassigned.
 fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selection)> {
     let bounds = matrix_bounding_box(landings.iter().map(|&landing| landing.into()));
     let (first, last) = (bounds.min, bounds.max - vec2(1, 1));

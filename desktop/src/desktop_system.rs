@@ -68,7 +68,7 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 pub use commands::{ConfigurationCommand, DesktopCommand};
 pub use effects::Effects;
 pub use fullscreen::{fullscreen_scale, view_size};
-pub use key_delivery::{KeyContext, KeyHandler, KeyOutcome};
+pub use key_delivery::{KeyContext, KeyFocus, KeyHandler, KeyOutcome};
 pub use key_input::KeyInput;
 pub use keyboard_focus::InputFocus;
 pub use keyboard_shortcuts::Shortcut;
@@ -171,8 +171,8 @@ pub enum KeyboardFocusReason {
     AddSlotContent,
     /// Ungrouping removes the focused project, so one of its ungrouped slots takes the focus.
     Ungroup,
-    /// Extending the selection from an instance, or selecting all slots (Cmd+A), moves the focus
-    /// to its launcher, where the selection starts (ADR 0025, ADR 0030).
+    /// Extending the selection from an instance moves the focus to its launcher, where the
+    /// selection starts (ADR 0025).
     ExtendSelection,
 }
 

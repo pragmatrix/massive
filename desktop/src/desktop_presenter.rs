@@ -75,11 +75,7 @@ impl KeyHandler for DesktopPresenter {
                 DesktopCommand::ExtendSelection(direction)
             }
             Some(shortcut @ (Shortcut::Escape | Shortcut::CommandEscape)) => {
-                match when::pressing_escape(
-                    shortcut == Shortcut::CommandEscape,
-                    context.focus_in_instance,
-                    context.selection_is_extended,
-                ) {
+                match when::pressing_escape(shortcut == Shortcut::CommandEscape, context.focus) {
                     PressingEscape::CollapseSelection => DesktopCommand::CollapseSelection,
                     PressingEscape::Escape => DesktopCommand::Escape,
                     PressingEscape::PassToApplication => return KeyOutcome::Pass,

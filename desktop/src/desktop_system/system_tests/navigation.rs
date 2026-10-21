@@ -106,12 +106,12 @@ async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
     .await
 }
 
-/// Esc and Cmd+Esc climb one level at a time (ADR 0031). Plain Esc stays with an instance's
+/// Esc and Cmd+Esc escape one level at a time (ADR 0031). Plain Esc stays with an instance's
 /// application, and Cmd+Esc escapes the instance to its launcher at the same zoom level. Esc then
 /// escapes the nested project, which takes the focus, and in the root project it frames the whole
 /// root, where it stops.
 #[tokio::test]
-async fn esc_climbs_from_an_instance_to_the_root_frame() -> Result<()> {
+async fn esc_escapes_from_an_instance_to_the_root_frame() -> Result<()> {
     task_context::with_context(task_context(), async {
         let frame = massive_applications::begin_frame();
         let NestedSiblings {

@@ -21,7 +21,7 @@ Esc from an application that has the focus.
 **Esc escapes the focused launcher or project by one level.** Like navigation, which escapes to
 the slot hosting a project when its matrix has no neighbor, the project whose matrix holds the
 focused slot takes the focus at the zoom level `Focus`, where Zoom Out lands when it leaves a
-project. On a focused nested project, Esc therefore climbs to the project that holds it. Enter
+project. On a focused nested project, Esc therefore escapes to the project that holds it. Enter
 goes back to the remembered slot. In the root project, which has no parent, Esc frames the whole
 root, and there it stops.
 
@@ -39,8 +39,8 @@ The desktop policy decides between collapsing, leaving, and passing the key on
 
 ## Consequences
 
-- Pressing Cmd+Esc repeatedly climbs from anywhere to the root's outermost frame. Plain Esc climbs
-  the same way once the focus is outside an instance.
+- Pressing Cmd+Esc repeatedly escapes from anywhere to the root's outermost frame. Plain Esc
+  escapes the same way once the focus is outside an instance.
 - A stray Esc on a launcher moves the camera out to the enclosing project. Enter brings it back.
 - An application that enabled the Kitty keyboard protocol does not receive Cmd+Esc. Passing it on
   only to applications that do not use it would need a way for an application to tell the desktop,

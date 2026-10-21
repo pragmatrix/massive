@@ -54,7 +54,8 @@ impl DesktopSystem {
     /// Delivers a key down the keyboard focus path and plans what the receiving level asks for.
     pub(super) fn deliver_key_along_focus_path(&self, input: &KeyInput) -> Result<Changes> {
         let delivery = {
-            let focused_slot_project = self.keyboard_focus.focused().and_then(|focused| {
+            let focused = self.keyboard_focus.focused();
+            let focused_slot_project = focused.and_then(|focused| {
                 focused_slot(
                     focused,
                     &self.aggregates.hierarchy,
@@ -66,11 +67,7 @@ impl DesktopSystem {
                 is_focused: false,
                 fully_zoomed_in: self.zoom_navigation().is_fully_zoomed_in(),
                 focused_slot_project,
-                focus_in_instance: self
-                    .keyboard_focus
-                    .focused()
-                    .is_some_and(|focused| focused.is_instance_target()),
-                selection_is_extended: self.selection.is_extended(),
+                focus: KeyFocus::new(focused, self.selection.is_extended()),
                 hierarchy: &self.aggregates.hierarchy,
                 configuration: &self.aggregates.configuration,
             };
@@ -188,14 +185,43 @@ pub struct KeyContext<'a> {
     /// or a nested project has the focus (ADR 0030). `None` when nothing, the desktop, or the root
     /// project has the focus, because no slot hosts them.
     pub focused_slot_project: Option<ProjectId>,
-    /// Whether an instance or one of its views has the keyboard focus. The application then keeps
-    /// the keys it shares with the desktop, such as Cmd+A and Esc.
-    pub focus_in_instance: bool,
-    /// Whether the selection reaches beyond the focused slot. Only then the desktop takes Esc, to
-    /// collapse it (ADR 0030). An instance never has the focus then, so applications keep Esc.
-    pub selection_is_extended: bool,
+    /// Who owns the keys the desktop shares with applications, such as Cmd+A and Esc.
+    pub focus: KeyFocus,
     /// Cmd+T on an instance starts the new instance under that instance's launcher.
     pub hierarchy: &'a DesktopTopology,
     /// A launcher starts its instances with the parameters configured for it.
     pub configuration: &'a RuntimeConfiguration,
+}
+
+/// Where the keyboard focus sits, as far as the keys the desktop shares with applications are
+/// concerned. Extending from an instance hands the focus to its launcher (ADR 0025), and Cmd+A
+/// starts only outside an instance (ADR 0030), so an instance never has the focus while a
+/// selection is extended, and no variant stands for that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyFocus {
+    /// An instance or one of its views has the focus, so its application keeps the shared keys.
+    Instance,
+    /// A launcher or a project has the focus, and the selection reaches beyond its slot.
+    ExtendedSelection,
+    /// Any other focus outside an instance, including no focus at all.
+    Desktop,
+}
+
+impl KeyFocus {
+    /// Derives the key focus from the keyboard focus and the selection, once per key. It panics
+    /// when an instance has the focus while a selection is extended, because then the focus
+    /// hand-over above was skipped somewhere.
+    pub fn new(focused: Option<FocusableTarget>, selection_is_extended: bool) -> Self {
+        match focused {
+            Some(focused) if focused.is_instance_target() => {
+                assert!(
+                    !selection_is_extended,
+                    "an instance never has the focus while a selection is extended"
+                );
+                Self::Instance
+            }
+            _ if selection_is_extended => Self::ExtendedSelection,
+            _ => Self::Desktop,
+        }
+    }
 }
