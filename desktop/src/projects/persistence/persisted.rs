@@ -39,6 +39,7 @@ use crate::projects::{
     LauncherMode, Params, Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot,
     SlotAssignment, SlotPayload, SlotPosition,
 };
+use crate::when::{self, LoadingWithoutLauncher};
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
 /// address path and the root project's slots, with every nested project hanging
@@ -203,26 +204,30 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
     }
     warn!("Configuration defines no launcher; adding one to the root project");
 
-    let position = SlotPosition {
-        column: 0,
-        row: configuration
-            .slots_ordered(ProjectId::ROOT)
-            .map(|(position, _)| position.row)
-            .max()
-            .map_or(0, |row| row + 1),
-    };
-    let profile = LaunchProfile {
-        name: DEFAULT_NEW_LAUNCHER_NAME.into(),
-        mode: LauncherMode::Visor,
-        params: Params::new(),
-        full_screen_mode: FullScreenMode::Regular,
-    };
-    let id = LaunchProfileId::new();
-    configuration.assign_slot(
-        Some(ProjectId::ROOT),
-        position,
-        SlotAssignment::Launcher { id, profile },
-    );
+    match when::loading_without_launcher() {
+        LoadingWithoutLauncher::AddDefaultLauncher => {
+            // The new row below the root's slots displaces nothing.
+            let position = SlotPosition {
+                column: 0,
+                row: configuration
+                    .slots_ordered(ProjectId::ROOT)
+                    .map(|(position, _)| position.row)
+                    .max()
+                    .map_or(0, |row| row + 1),
+            };
+            let profile = LaunchProfile {
+                name: DEFAULT_NEW_LAUNCHER_NAME.into(),
+                mode: LauncherMode::Visor,
+                params: Params::new(),
+                full_screen_mode: FullScreenMode::Regular,
+            };
+            let assignment = SlotAssignment::Launcher {
+                id: LaunchProfileId::new(),
+                profile,
+            };
+            configuration.assign_slot(Some(ProjectId::ROOT), position, assignment);
+        }
+    }
 }
 
 /// Builds one project node's slots from the aggregate, recursing into nested

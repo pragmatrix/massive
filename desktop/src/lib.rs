@@ -13,6 +13,7 @@ mod instance_presenter;
 mod projects;
 mod targeted_event;
 mod view_presenter;
+mod when;
 mod window_state;
 
 pub use aggregates::*;

@@ -26,6 +26,7 @@ use crate::desktop_system::{
 };
 use crate::projects::{FullScreenMode, TitleBarPresenter, TitleBarStyle};
 use crate::view_presenter::ViewPresenter;
+use crate::when::{self, PressingCommandEnter};
 
 /// What an instance was started as (ADR 0014). A `Primary` instance presents in
 /// its launcher's persisted Full Screen Mode; an `Assistant` instance carries
@@ -461,8 +462,13 @@ impl InstancePresenter {
 impl KeyHandler for InstancePresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
         match Shortcut::from_input(input) {
-            Some(Shortcut::CommandEnter) if !context.fully_zoomed_in => {
-                return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+            Some(Shortcut::CommandEnter) => {
+                match when::pressing_command_enter(context.fully_zoomed_in) {
+                    PressingCommandEnter::Act => {}
+                    PressingCommandEnter::ZoomFirst => {
+                        return KeyOutcome::Consumed(DesktopCommand::Zoom(Zoom::Enter).into());
+                    }
+                }
             }
             Some(Shortcut::StartInstance) => {
                 return KeyOutcome::Consumed(self.start_instance(input, context).into());
