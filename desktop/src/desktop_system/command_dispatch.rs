@@ -773,7 +773,9 @@ impl DesktopSystem {
                 self.insert_slot_presenter(target, host)?;
             }
             ConfigurationChange::ClearSlot { parent, slot } => {
-                if let Some(content) = self.aggregates.configuration.content_at(parent, slot) {
+                // A cleared project takes its whole subtree along, so every presenter below it
+                // goes too.
+                for content in self.aggregates.configuration.clear_slot(parent, slot) {
                     match content {
                         SlotContent::Launcher(launcher) => {
                             self.aggregates.launchers.remove(&launcher)?;
@@ -783,7 +785,6 @@ impl DesktopSystem {
                         }
                     }
                 }
-                self.aggregates.configuration.clear_slot(parent, slot);
             }
             ConfigurationChange::MoveSlot { source, dest } => {
                 let (source_parent, _) = source;

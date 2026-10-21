@@ -399,6 +399,17 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
                 .slot_of_content(idle_project)
                 .is_none()
         );
+        // No record or presenter of the removed project or its launcher stays behind.
+        assert!(
+            system
+                .aggregates
+                .configuration
+                .project(idle_project)
+                .is_none()
+        );
+        assert!(system.aggregates.configuration.launcher(idle).is_none());
+        assert!(system.aggregates.projects.get(&idle_project).is_none());
+        assert!(system.aggregates.launchers.get(&idle).is_none());
         let hierarchy = &system.aggregates.hierarchy;
         assert!(!hierarchy.exists(&DesktopTarget::Project(idle_project, ProjectPart::Project)));
         assert!(!hierarchy.exists(&DesktopTarget::Launcher(idle)));

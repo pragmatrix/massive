@@ -138,31 +138,15 @@ impl RuntimeConfiguration {
     // construction path (`new`), where positions come from the document and a
     // startup path has not been resolved to an id yet.
 
-    /// Removes the project and every project nested below it: a project cannot
-    /// outlive the slot hosting it. The root is not removable.
+    /// Removes the project and everything nested below it, together with the slot hosting it (see
+    /// [`Self::clear_slot`]). The root is not removable, because no slot hosts it.
     ///
-    /// Removing a project's last slot does not remove the project — empty projects
-    /// are legal, and only this explicit removal cascades.
+    /// Removing a project's last slot does not remove the project — empty projects are legal.
     #[cfg(test)]
     pub fn remove_project(&mut self, id: ProjectId) {
-        if id == ProjectId::ROOT {
-            return;
+        if let Some((parent, slot)) = self.slot_of_content(id) {
+            self.clear_slot(parent, slot);
         }
-        let doomed: Vec<ProjectId> = self
-            .projects
-            .values()
-            .map(|project| project.id)
-            .filter(|candidate| *candidate == id || self.is_in_subtree(id, *candidate))
-            .collect();
-
-        for project in self.projects.values_mut() {
-            project.slots.retain(
-                |slot| !matches!(slot.content(), SlotContent::Project(child) if doomed.contains(&child)),
-            );
-        }
-
-        self.projects
-            .retain(|project_id, _| !doomed.contains(project_id));
     }
 
     /// Assigns `content` to `parent`'s slot at `position`, returning the host
@@ -229,12 +213,39 @@ impl RuntimeConfiguration {
         debug_assert!(replaced.is_none(), "duplicate project id {id:?}");
     }
 
-    /// Unassigns `project`'s `slot`. An unassigned slot is not stored, so clearing
-    /// it again does nothing.
-    pub fn clear_slot(&mut self, project: ProjectId, slot: SlotPosition) {
+    /// Unassigns `project`'s `slot`. A nested project in it is removed with every project and
+    /// launcher below it, because a project cannot outlive the slot hosting it. An unassigned slot
+    /// is not stored, so clearing it again does nothing.
+    ///
+    /// Returns the content that left the configuration: the slot's content and, for a nested
+    /// project, everything below it. The caller removes their presenters.
+    pub fn clear_slot(&mut self, project: ProjectId, slot: SlotPosition) -> Vec<SlotContent> {
+        let Some(content) = self.content_at(project, slot) else {
+            return Vec::new();
+        };
         self.project_mut(project)
             .expect("the project hosting the slot exists")
             .remove_slot(slot);
+        let mut removed = vec![content];
+        if let SlotContent::Project(nested) = content {
+            self.remove_project_records(nested, &mut removed);
+        }
+        removed
+    }
+
+    /// Removes the record of `project` and of every project nested below it, and appends the
+    /// content of their slots to `removed`. The slot hosting `project` is already unassigned.
+    fn remove_project_records(&mut self, project: ProjectId, removed: &mut Vec<SlotContent>) {
+        let record = self
+            .projects
+            .shift_remove(&project)
+            .expect("a nested project has a record");
+        for (_, content) in record.slot_contents() {
+            removed.push(content);
+            if let SlotContent::Project(nested) = content {
+                self.remove_project_records(nested, removed);
+            }
+        }
     }
 
     /// Moves the content of `source` to `dest`, returning whether the move
@@ -1660,25 +1671,35 @@ mod tests {
         );
     }
 
+    /// Clearing a slot that hosts a project removes the project's whole subtree, so no record of
+    /// it stays behind, and reports everything that left.
     #[test]
-    fn clearing_a_slot_leaves_the_nested_project_empty_rather_than_removed() {
-        let position = SlotPosition { column: 0, row: 0 };
-        let mut configuration = configuration([("only", position)]);
+    fn clearing_a_project_slot_removes_its_subtree_and_reports_it() {
+        let slot = SlotPosition { column: 0, row: 0 };
+        let mut configuration = configuration([("top", SlotPosition { column: 1, row: 0 })]);
         let root = root_id_of(&configuration);
-        configuration.assign_slot(
-            Some(root),
-            position,
-            named_project(ProjectId::new(), "labs"),
-        );
+        let labs = ProjectId::new();
+        configuration.assign_slot(Some(root), slot, named_project(labs, "labs"));
+        let inner = ProjectId::new();
+        configuration.assign_slot(Some(labs), slot, named_project(inner, "inner"));
+        let launcher = LaunchProfileId::new();
+        configuration.assign_slot(Some(inner), slot, launcher_assignment_for(launcher));
 
-        configuration.clear_slot(root, position);
+        let removed = configuration.clear_slot(root, slot);
 
-        assert_eq!(configuration.content_at(root, position), None);
         assert_eq!(
-            configuration.projects().count(),
-            2,
-            "the nested project stays"
+            removed,
+            [
+                SlotContent::Project(labs),
+                SlotContent::Project(inner),
+                SlotContent::Launcher(launcher)
+            ]
         );
+        assert_eq!(configuration.content_at(root, slot), None);
+        assert!(configuration.project(labs).is_none());
+        assert!(configuration.project(inner).is_none());
+        assert!(configuration.launcher(launcher).is_none());
+        assert_eq!(configuration.projects().count(), 1);
     }
 
     #[test]
