@@ -15,6 +15,9 @@ pub struct ChangeSurface {
     pub window_size_changed: bool,
     /// A configuration change was applied to the aggregate; the transaction emits persistence.
     pub configuration_changed: bool,
+    /// The slot selection was set. A selection set by the transaction survives its focus, zoom,
+    /// and configuration changes (ADR 0025).
+    pub selection_set: bool,
     pub window_fullscreen_changed: bool,
 }
 
@@ -40,6 +43,7 @@ impl ChangeSurface {
         self.reparented += other.reparented;
         self.window_size_changed |= other.window_size_changed;
         self.configuration_changed |= other.configuration_changed;
+        self.selection_set |= other.selection_set;
         self.window_fullscreen_changed |= other.window_fullscreen_changed;
     }
 }

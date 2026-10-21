@@ -70,6 +70,9 @@ impl KeyHandler for DesktopPresenter {
             // root project.
             Some(Shortcut::CommandEnter) if context.is_focused => DesktopCommand::Zoom(Zoom::Enter),
             Some(Shortcut::Navigate(direction)) => DesktopCommand::Navigate(direction),
+            Some(Shortcut::ExtendSelection(direction)) => {
+                DesktopCommand::ExtendSelection(direction)
+            }
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
             Some(Shortcut::NewLauncher) => DesktopCommand::AddLauncher,

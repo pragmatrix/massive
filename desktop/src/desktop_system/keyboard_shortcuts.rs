@@ -27,6 +27,8 @@ pub enum Shortcut {
     Ungroup,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
+    /// Cmd+Shift+Arrow with no other modifier.
+    ExtendSelection(Direction),
     /// Cmd+Ctrl+Up
     ZoomIn,
     /// Cmd+Ctrl+Down
@@ -97,6 +99,9 @@ fn command_arrow(input: &KeyInput) -> Option<Shortcut> {
     Some(match direction {
         Direction::Up if input.is_ctrl() => Shortcut::ZoomIn,
         Direction::Down if input.is_ctrl() => Shortcut::ZoomOut,
+        direction if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
+            Shortcut::ExtendSelection(direction)
+        }
         direction => Shortcut::Navigate(direction),
     })
 }
@@ -127,5 +132,27 @@ mod tests {
         assert_eq!(repeated(enter), None);
         assert_eq!(repeated(Key::Character("t".into())), None);
         assert_eq!(repeated(left), Some(Shortcut::Navigate(Direction::Left)));
+    }
+
+    /// Shift turns a navigation into a selection, but only without further modifiers.
+    #[test]
+    fn shift_cmd_arrows_extend_the_selection() {
+        let right = |modifiers| {
+            Shortcut::from_input(&input(
+                Key::Named(NamedKey::ArrowRight),
+                ElementState::Pressed,
+                true,
+                modifiers,
+            ))
+        };
+
+        assert_eq!(
+            right(COMMAND | ModifiersState::SHIFT),
+            Some(Shortcut::ExtendSelection(Direction::Right))
+        );
+        assert_ne!(
+            right(COMMAND | ModifiersState::SHIFT | ModifiersState::ALT),
+            Some(Shortcut::ExtendSelection(Direction::Right))
+        );
     }
 }

@@ -30,6 +30,7 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod reparenting;
+mod selection;
 #[cfg(test)]
 mod system_tests;
 mod target;
@@ -61,6 +62,7 @@ use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 use reparenting::Reparenting;
+use selection::Selection;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub use commands::{ConfigurationCommand, DesktopCommand};
@@ -168,6 +170,9 @@ pub enum KeyboardFocusReason {
     AddSlotContent,
     /// Ungrouping removes the focused project, so one of its unpacked slots takes the focus.
     Ungroup,
+    /// Extending the selection from an instance moves the focus to its launcher, where the
+    /// selection starts (ADR 0025).
+    ExtendSelection,
 }
 
 impl KeyboardFocusReason {
@@ -180,7 +185,8 @@ impl KeyboardFocusReason {
             | KeyboardFocusReason::PromotePrimaryView
             | KeyboardFocusReason::Zoom
             | KeyboardFocusReason::AddSlotContent
-            | KeyboardFocusReason::Ungroup => true,
+            | KeyboardFocusReason::Ungroup
+            | KeyboardFocusReason::ExtendSelection => true,
         }
     }
 }
@@ -235,6 +241,7 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     keyboard_focus: KeyboardFocus,
+    selection: Selection,
 
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
@@ -318,6 +325,7 @@ impl DesktopSystem {
 
             event_router,
             keyboard_focus: KeyboardFocus::default(),
+            selection: Selection::default(),
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
@@ -421,6 +429,14 @@ impl DesktopSystem {
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
         let zoom_level_changed = self.zoom_level_state() != previous_zoom_level_state;
+        // A focus, zoom, or configuration change collapses the selection, unless the transaction set
+        // it, because then the operation that set it planned these changes (ADR 0025). The zoom
+        // level state includes the keyboard focus.
+        if (zoom_level_changed || change_surface.configuration_changed)
+            && !change_surface.selection_set
+        {
+            self.selection.collapse();
+        }
         let update_zoom_level_indicator = zoom_level_changed || change_surface.window_size_changed;
         let update_camera = change_surface.camera_invalid();
 

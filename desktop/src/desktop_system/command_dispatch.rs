@@ -3,12 +3,12 @@ use log::{debug, warn};
 use serde_json::json;
 
 use super::change::set_focus;
-use super::grouping;
-use super::reparenting::Reparenting;
 use super::change::{
     Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
     TopologyChange,
 };
+use super::grouping;
+use super::reparenting::Reparenting;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
     FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, ZoomLevel, view_size,
@@ -258,6 +258,7 @@ impl DesktopSystem {
                 Ok(grouping::plan_ungroup(project, configuration))
             }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
+            DesktopCommand::ExtendSelection(direction) => Ok(self.plan_extend_selection(direction)),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 if self.window_state.is_fullscreen
@@ -574,6 +575,12 @@ impl DesktopSystem {
             DesktopChange::SetNavigationAffinity(column_affinity) => {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
+            }
+            DesktopChange::SetSelection(delta) => {
+                self.selection.set(delta);
+                let mut output = ChangeOutput::default();
+                output.surface.selection_set = true;
+                return Ok(output);
             }
             DesktopChange::SetInputFocus(input_focus) => {
                 self.keyboard_focus.set_input_focus(input_focus);

@@ -4,7 +4,7 @@
 
 Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md), whose slots and
 placements it selects, and on [ADR 0021](./0021-keyboard-focus-state-lives-beside-the-router-not-in-it.md),
-whose keyboard focus anchors the selection.
+whose keyboard focus the selection starts from.
 
 ## Problem
 
@@ -18,23 +18,22 @@ a group, then a move for each further slot. The desktop has no way to say "these
 A **selection** is a rectangle of placements in one project's matrix. The selected slots are the
 occupied placements inside it.
 
-- **The anchor is the focused slot.** One corner of the rectangle is the placement of the slot
-  that has the keyboard focus. The anchor is derived from the focus and never stored, so the two
-  cannot disagree.
-- **Only the far corner is stored.** The selection is a placement in the anchor's matrix, or none.
-  The rectangle spans the anchor and the far corner in any direction. No selection means only the
-  focused slot is meant, which is the behavior every operation has today.
-- **The far corner moves placement by placement.** Shift+Cmd+arrow moves it by one column or one
-  row, across empty placements too, so the rectangle grows and shrinks like a text selection. The
-  keys repeat. The corner stays inside the matrix's columns and rows, and at an edge the key does
+- **The selection is a delta from the focused slot.** It is stored as the number of columns and
+  rows it reaches from the focused slot's placement, negative towards the left and the top. The
+  rectangle spans the focused slot's placement and the placement the delta reaches. The zero delta
+  selects only the focused slot, which is the behavior every operation has today. The focused
+  slot is never stored a second time, so the selection always starts where the focus is.
+- **The delta grows placement by placement.** Shift+Cmd+arrow changes it by one column or one row,
+  across empty placements too, so the rectangle grows and shrinks like a text selection. The keys
+  repeat. The rectangle stays inside the matrix's columns and rows, and at an edge the key does
   nothing.
-- **An instance anchors at its launcher.** When an instance has the focus, the first
-  Shift+Cmd+arrow moves the focus to the instance's launcher, which then anchors the selection.
-  A selection is about slots, and the keys an instance receives stay its own until the user
+- **An instance selects from its launcher.** When an instance has the focus, the first
+  Shift+Cmd+arrow moves the focus to the instance's launcher, where the selection then starts. A
+  selection is about slots, and the keys an instance receives stay its own until the user
   extends.
 - **Anything else collapses the selection.** A focus change, a zoom, or a configuration change
-  clears it, unless the operation sets a new selection itself. A stored corner therefore never
-  points into a matrix that has changed.
+  resets the delta to zero, unless the operation sets a new selection itself. A stored delta
+  therefore never reaches into a matrix that has changed.
 - **The selection lives beside the keyboard focus.** Like the keyboard focus (ADR 0021), it is a
   component that owns values only. Its operations return a change, which goes through the desktop's
   command and change pipeline (ADR 0002), so extending is a `DesktopCommand` that is planned into a
@@ -59,13 +58,16 @@ do, and how, is decided per operation. Grouping and ungrouping are decided in
 
 ## Considered options
 
-- **Move the corner slot by slot.** The corner would jump to the next occupied slot in the
-  direction, and the outline could be built from known slot rectangles alone. Rejected, because the
+- **Grow slot by slot.** The rectangle would jump to the next occupied slot in the direction, and the outline could be built from known slot rectangles alone. Rejected, because the
   rectangle would grow in uneven steps over gaps, and the user could not tell from the keys alone
   how far the next press reaches.
-- **Keep the focus in the instance while selecting.** The anchor would still be the launcher, but
-  the instance would keep the keys. Rejected, because the focus outline and the selection outline
+- **Keep the focus in the instance while selecting.** The selection would still start at the
+  launcher, but the instance would keep the keys. Rejected, because the focus outline and the selection outline
   would then sit on different targets, and the user could not tell which one the next key acts on.
+- **Store the far corner as a placement.** The selection would be the placement opposite the
+  focused slot, or none. Rejected, because "none" and a corner on the focused slot would mean the
+  same, and the stored placement would have to agree with the matrix of the focused slot, which
+  the focus already determines.
 - **Store a set of selected slots.** This would allow selections that are not rectangles, such as
   Cmd+click picks. Rejected for now, because every operation planned on a selection, grouping
   first, needs a rectangle to keep the slots' arrangement.

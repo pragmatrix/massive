@@ -28,6 +28,10 @@ _Avoid_: cell, launcher cell, tile, container, occupied
 A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
 _Avoid_: coordinates
 
+**Selection**:
+A rectangle of placements in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's placement, and the zero delta selects only the focused slot. The selected slots are the occupied placements inside the rectangle. Any focus, zoom, or configuration change collapses it to the zero delta.
+_Avoid_: anchor, far corner, multi-selection
+
 **Slot extent**:
 The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.
 _Avoid_: cell, slot size, default size

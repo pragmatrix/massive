@@ -31,6 +31,7 @@ mod configuration;
 mod focus;
 mod fullscreen;
 mod navigation;
+mod selection;
 
 /// Tests run at the scale factor of a standard display.
 const TEST_SCALE_FACTOR: f64 = 1.0;

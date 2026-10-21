@@ -34,6 +34,7 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+G | desktop | Wrap the focused slot in a new project at its placement and focus the project | find next (mac, Term, Br, VS, Gh) · group (Fg, Sketch, Illustrator) · graph view (Ob) |
 | Cmd+Shift+G | desktop (project) | Unpack the focused project into its parent's matrix and remove it | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
+| Cmd+Shift+←/→/↑/↓ | desktop | Extend the slot selection by one placement; repeats when held | select to line start/end, document top/bottom (mac text) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
 | Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |
@@ -117,8 +118,9 @@ From the terminal client's find proposal, not implemented:
 
 ## Selection
 
-How comparable applications extend a selection and select several things at once. Nothing on
-the desktop selects more than one target today; this is the vocabulary users bring. Checked
+How comparable applications extend a selection and select several things at once. The desktop
+selects only a rectangle of slots with Cmd+Shift+arrows (ADR 0025); this is the vocabulary users
+bring. Checked
 2026-10-19: WezTerm against `wezterm-gui/src/inputmap.rs`, Kitty against
 `kitty/options/definition.py`, Ghostty against `src/surface_mouse.zig`, Zed against
 `assets/keymaps/default-macos.json`; the rest from documented defaults.

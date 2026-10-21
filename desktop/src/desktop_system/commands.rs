@@ -39,6 +39,9 @@ pub enum DesktopCommand {
     UngroupSlot,
 
     Navigate(Direction),
+    /// Moves the far corner of the slot selection one placement in the direction (Shift+Cmd+arrow,
+    /// ADR 0025).
+    ExtendSelection(Direction),
 
     Zoom(Zoom),
     /// Routes a fullscreen request to the focused instance or the native window.

@@ -41,7 +41,7 @@ the root.
   touched. The slots in such a row move right just far enough to clear the landings, and empty
   placements between slots absorb the push.
 - **The unpacked slots are selected.** The focus goes to the slot at a corner of their bounding
-  box, the top-left corner first, and the selection's far corner goes to the opposite corner. The
+  box, the top-left corner first, and the selection's delta reaches the opposite corner. The
   user can then group them again, or narrow the selection first. When no corner of the bounding
   box is occupied, only the focus moves and nothing is selected, because a selection has to start
   at the focused slot.
