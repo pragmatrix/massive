@@ -620,8 +620,8 @@ impl DesktopSystem {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
-            DesktopChange::SetSelection(delta) => {
-                self.selection.set(delta);
+            DesktopChange::SetSelection(selection) => {
+                self.selection.set(selection);
                 let mut output = ChangeOutput::default();
                 output.surface.selection_set = true;
                 return Ok(output);

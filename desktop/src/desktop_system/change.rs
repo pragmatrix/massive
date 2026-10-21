@@ -2,7 +2,7 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::selection::SelectionDelta;
+use super::selection::Selection;
 use super::{FocusableTarget, InputFocus, KeyboardFocusReason};
 use crate::DesktopTarget;
 use crate::desktop_system::ZoomLevel;
@@ -44,8 +44,8 @@ pub enum DesktopChange {
     /// Sets the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
     SetNavigationAffinity(Option<u32>),
-    /// Sets the slot selection's delta from the focused slot (ADR 0025).
-    SetSelection(SelectionDelta),
+    /// Sets the slot selection around the focused slot (ADR 0025, ADR 0030).
+    SetSelection(Selection),
     /// Sets the camera's zoom level (ADR 0018).
     SetZoomLevel(ZoomLevel),
     /// Toggles the Full Screen Mode of the focused launcher (its primary instances)

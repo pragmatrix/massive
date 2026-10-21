@@ -1,7 +1,7 @@
-//! The slot selection (ADR 0025). A selection is a rectangle of slots in one project's matrix. It
-//! is stored as a delta from the focused slot's position, so it always starts at the focused slot
-//! and follows the keyboard focus. Operations on the selection act on the assigned slots inside the
-//! rectangle.
+//! The slot selection (ADR 0025, ADR 0030). A selection is a rectangle of slots in one project's
+//! matrix. It is stored as two offsets from the focused slot's position, one towards each of its
+//! corners, so it always contains the focused slot and follows the keyboard focus. Operations on
+//! the selection act on the assigned slots inside the rectangle.
 
 use std::iter;
 
@@ -20,36 +20,45 @@ use crate::projects::{
     SlotPosition, intervals_origin, matrix_area, matrix_rect_covering,
 };
 
-/// How many columns and rows the selection reaches from the focused slot's position, negative
-/// towards the left and the top. The zero delta selects only the focused slot.
-pub type SelectionDelta = Vector2D<i32, MatrixUnit>;
-
-/// The current selection, kept as its delta.
-#[derive(Debug, Default)]
+/// The current selection: its offsets from the focused slot's position. `top_left` counts the
+/// columns to the left and the rows above, `bottom_right` the columns to the right and the rows
+/// below. The zero offsets select only the focused slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Selection {
-    delta: SelectionDelta,
+    top_left: Vector2D<u32, MatrixUnit>,
+    bottom_right: Vector2D<u32, MatrixUnit>,
 }
 
 impl Selection {
-    #[cfg(test)]
-    pub fn delta(&self) -> SelectionDelta {
-        self.delta
+    /// The selection whose diagonal runs from the focused slot to the slot at `offset`, with
+    /// negative columns and rows towards the left and the top.
+    pub fn from_diagonal(offset: Vector2D<i32, MatrixUnit>) -> Self {
+        Self {
+            top_left: vec2(
+                offset.x.min(0).unsigned_abs(),
+                offset.y.min(0).unsigned_abs(),
+            ),
+            bottom_right: vec2(
+                offset.x.max(0).unsigned_abs(),
+                offset.y.max(0).unsigned_abs(),
+            ),
+        }
     }
 
     /// Whether the selection reaches beyond the focused slot.
     pub fn is_extended(&self) -> bool {
-        self.delta != SelectionDelta::zero()
+        *self != Self::default()
     }
 
-    /// Replaces the delta. The transaction reports this as `ChangeSurface::selection_set`, so the
-    /// selection survives the focus and configuration changes planned together with it.
-    pub fn set(&mut self, delta: SelectionDelta) {
-        self.delta = delta;
+    /// Replaces the selection. The transaction reports this as `ChangeSurface::selection_set`, so
+    /// the selection survives the focus and configuration changes planned together with it.
+    pub fn set(&mut self, selection: Selection) {
+        *self = selection;
     }
 
     /// Collapses the selection to the focused slot.
     pub fn collapse(&mut self) {
-        self.delta = SelectionDelta::zero();
+        *self = Self::default();
     }
 
     /// Plans extending the selection by one slot in `direction` (Shift+Cmd+arrow), starting from
@@ -70,12 +79,8 @@ impl Selection {
         let Some((content, project, slot)) = focused_slot(focused, hierarchy, configuration) else {
             return Changes::Empty;
         };
-        let Some(delta) = extended_delta(
-            slot,
-            self.delta,
-            direction,
-            matrix_bounds(project, configuration),
-        ) else {
+        let Some(extended) = self.extended(slot, direction, matrix_bounds(project, configuration))
+        else {
             return Changes::Empty;
         };
 
@@ -86,11 +91,11 @@ impl Selection {
                 KeyboardFocusReason::ExtendSelection,
             );
         }
-        changes <<= DesktopChange::SetSelection(delta);
+        changes <<= DesktopChange::SetSelection(extended);
         changes
     }
 
-    /// The project whose assigned slots all lie in the selection that starts at the `focused` target.
+    /// The project whose assigned slots all lie in the selection around the `focused` target.
     pub fn fully_selected_project(
         &self,
         focused: FocusableTarget,
@@ -101,7 +106,7 @@ impl Selection {
         (selected.len() == configuration.slots_ordered(project).count()).then_some(project)
     }
 
-    /// The slots the selection that starts at the `focused` target covers: the project whose matrix
+    /// The slots the selection around the `focused` target covers: the project whose matrix
     /// holds them, and its assigned slots inside the selection, in the matrix's slot order. Without
     /// a selection beyond the focused slot, this is the focused slot alone. `None` when the focus
     /// sits in no slot.
@@ -112,7 +117,7 @@ impl Selection {
         configuration: &RuntimeConfiguration,
     ) -> Option<(ProjectId, Vec<SlotPosition>)> {
         let (_, project, slot) = focused_slot(focused, hierarchy, configuration)?;
-        let rect = selection_rect(slot, self.delta);
+        let rect = self.rect(slot);
         let slots = configuration
             .project(project)
             .expect("a selection's project is configured")
@@ -123,7 +128,7 @@ impl Selection {
         Some((project, slots))
     }
 
-    /// Where the outline of the selection that starts at the `focused` target goes, in the
+    /// Where the outline of the selection around the `focused` target goes, in the
     /// coordinates of the layout root. `None` when only the focused slot is selected, so the
     /// outline marks the focused target as usual.
     pub fn outline_placement(
@@ -132,7 +137,7 @@ impl Selection {
         layout_state: &DesktopLayoutState,
         context: &LayoutContext,
     ) -> Option<Placement<Transform, 2>> {
-        if self.delta == SelectionDelta::zero() {
+        if !self.is_extended() {
             return None;
         }
         let (_, project, slot) = focused_slot(focused, context.hierarchy, context.configuration)?;
@@ -144,12 +149,7 @@ impl Selection {
             .iter()
             .map(|child| layout_state.measured(child))
             .collect();
-        let area = matrix_area(
-            project,
-            context,
-            &children,
-            selection_rect(slot, self.delta),
-        )?;
+        let area = matrix_area(project, context, &children, self.rect(slot))?;
 
         let matrix_placement = layout_state.absolute_placement(&matrix, context.hierarchy);
         let offset = intervals_origin(
@@ -162,6 +162,60 @@ impl Selection {
             area_origin.pivoted_at(DesktopLayoutState::layout_local_center(area.size)),
             LayoutRect::new(matrix_placement.rect.offset + offset, area.size),
         ))
+    }
+
+    /// The rectangle the selection spans around the `focused` slot's position. The selection stays
+    /// inside the matrix, so it never reaches past its top-left slot.
+    fn rect(self, focused: SlotPosition) -> MatrixRect {
+        let focused = MatrixPoint::from(focused);
+        matrix_rect_covering([focused - self.top_left, focused + self.bottom_right])
+    }
+
+    /// The selection after one step in `direction`, or `None` when the step would leave `bounds`, the
+    /// rectangle of the matrix, around the `focused` slot. A step first shrinks the selection from
+    /// the opposite side while it reaches beyond the focused slot there, and grows it otherwise
+    /// (ADR 0030).
+    fn extended(
+        self,
+        focused: SlotPosition,
+        direction: Direction,
+        bounds: MatrixRect,
+    ) -> Option<Self> {
+        let step: Vector2D<i32, MatrixUnit> = match direction {
+            Direction::Left => vec2(-1, 0),
+            Direction::Right => vec2(1, 0),
+            Direction::Up => vec2(0, -1),
+            Direction::Down => vec2(0, 1),
+        };
+        // The step first shrinks the side it points away from, as far as that side reaches, and
+        // the rest of it grows the side it points to.
+        let backward = (-step).max(Vector2D::zero()).to_u32();
+        let forward = step.max(Vector2D::zero()).to_u32();
+        let shrunk_top_left = self.top_left.min(forward);
+        let shrunk_bottom_right = self.bottom_right.min(backward);
+        let extended = Self {
+            top_left: self.top_left - shrunk_top_left + (backward - shrunk_bottom_right),
+            bottom_right: self.bottom_right - shrunk_bottom_right + (forward - shrunk_top_left),
+        };
+
+        Self::filling(focused, bounds)
+            .contains(extended)
+            .then_some(extended)
+    }
+
+    /// The selection around the `focused` slot that fills `bounds`, which contain the slot.
+    fn filling(focused: SlotPosition, bounds: MatrixRect) -> Self {
+        let focused = MatrixPoint::from(focused);
+        Self {
+            top_left: focused - bounds.min,
+            bottom_right: bounds.max - vec2(1, 1) - focused,
+        }
+    }
+
+    /// Whether `other` reaches no further than this selection on any side.
+    fn contains(self, other: Self) -> bool {
+        !other.top_left.greater_than(self.top_left).any()
+            && !other.bottom_right.greater_than(self.bottom_right).any()
     }
 }
 
@@ -180,38 +234,6 @@ fn focused_slot(
     Some((content, project, slot))
 }
 
-/// The rectangle that `delta` spans from the `focused` slot's position.
-fn selection_rect(focused: SlotPosition, delta: SelectionDelta) -> MatrixRect {
-    let focused = MatrixPoint::from(focused);
-    let reached = MatrixPoint::new(
-        focused.x.saturating_add_signed(delta.x),
-        focused.y.saturating_add_signed(delta.y),
-    );
-    matrix_rect_covering([focused, reached])
-}
-
-/// The selection's delta after one step in `direction`, or `None` when the slot it reaches
-/// from `focused` would leave `bounds`, the rectangle of the matrix.
-fn extended_delta(
-    focused: SlotPosition,
-    delta: SelectionDelta,
-    direction: Direction,
-    bounds: MatrixRect,
-) -> Option<SelectionDelta> {
-    let delta = delta
-        + match direction {
-            Direction::Left => vec2(-1, 0),
-            Direction::Right => vec2(1, 0),
-            Direction::Up => vec2(0, -1),
-            Direction::Down => vec2(0, 1),
-        };
-    let reached = MatrixPoint::new(
-        focused.column.checked_add_signed(delta.x)?,
-        focused.row.checked_add_signed(delta.y)?,
-    );
-    bounds.contains(reached).then_some(delta)
-}
-
 /// The rectangle of `project`'s matrix, from its top-left slot to the rightmost column and the
 /// lowest row that hold an assigned slot. Its bottom-right slot may be unassigned, because that
 /// column and that row may belong to different slots.
@@ -228,8 +250,15 @@ fn matrix_bounds(project: ProjectId, configuration: &RuntimeConfiguration) -> Ma
 mod tests {
     use super::*;
 
-    fn delta(columns: i32, rows: i32) -> SelectionDelta {
-        vec2(columns, rows)
+    fn diagonal(columns: i32, rows: i32) -> Selection {
+        Selection::from_diagonal(vec2(columns, rows))
+    }
+
+    fn selection(top_left: (u32, u32), bottom_right: (u32, u32)) -> Selection {
+        Selection {
+            top_left: top_left.into(),
+            bottom_right: bottom_right.into(),
+        }
     }
 
     /// The selection grows across unassigned slots, but never past the matrix's top-left or
@@ -238,14 +267,43 @@ mod tests {
     fn the_selection_extends_one_slot_at_a_time_inside_the_matrix() {
         let focused = SlotPosition { column: 1, row: 0 };
         let bounds = MatrixRect::new(MatrixPoint::origin(), MatrixPoint::new(4, 2));
-        let extend = |from, direction| extended_delta(focused, from, direction, bounds);
+        let extend = |from: Selection, direction| from.extended(focused, direction, bounds);
 
-        assert_eq!(extend(delta(0, 0), Direction::Right), Some(delta(1, 0)));
-        assert_eq!(extend(delta(1, 0), Direction::Down), Some(delta(1, 1)));
-        assert_eq!(extend(delta(0, 0), Direction::Left), Some(delta(-1, 0)));
-        assert_eq!(extend(delta(-1, 0), Direction::Left), None);
-        assert_eq!(extend(delta(2, 1), Direction::Right), None);
-        assert_eq!(extend(delta(2, 1), Direction::Down), None);
-        assert_eq!(extend(delta(0, 0), Direction::Up), None);
+        assert_eq!(
+            extend(diagonal(0, 0), Direction::Right),
+            Some(diagonal(1, 0))
+        );
+        assert_eq!(
+            extend(diagonal(1, 0), Direction::Down),
+            Some(diagonal(1, 1))
+        );
+        assert_eq!(
+            extend(diagonal(0, 0), Direction::Left),
+            Some(diagonal(-1, 0))
+        );
+        assert_eq!(extend(diagonal(-1, 0), Direction::Left), None);
+        assert_eq!(extend(diagonal(2, 1), Direction::Right), None);
+        assert_eq!(extend(diagonal(2, 1), Direction::Down), None);
+        assert_eq!(extend(diagonal(0, 0), Direction::Up), None);
+    }
+
+    /// A step shrinks the side opposite to it while that side reaches beyond the focused slot, so
+    /// a selection around the focused slot shrinks towards it before it grows again (ADR 0030).
+    #[test]
+    fn a_step_shrinks_the_opposite_side_before_it_grows() {
+        let focused = SlotPosition { column: 1, row: 1 };
+        let bounds = MatrixRect::new(MatrixPoint::origin(), MatrixPoint::new(3, 3));
+        let extend = |from: Selection, direction| from.extended(focused, direction, bounds);
+        let all = selection((1, 1), (1, 1));
+        let right_half = selection((0, 1), (1, 1));
+
+        assert_eq!(extend(all, Direction::Right), Some(right_half));
+        assert_eq!(extend(all, Direction::Up), Some(selection((1, 1), (1, 0))));
+        assert_eq!(extend(right_half, Direction::Right), None);
+        // The opposite step shrinks the side that is left, as with a one-sided selection.
+        assert_eq!(
+            extend(right_half, Direction::Left),
+            Some(selection((0, 1), (0, 1)))
+        );
     }
 }

@@ -42,8 +42,9 @@ are all selected (ADR 0029), never on the root.
 - **The ungrouped slots are selected.** The focus goes to the slot at a corner of their bounding
   box, the top-left corner first, and the selection's delta reaches the opposite corner. The
   user can then group them again, or narrow the selection first. When every corner of the
-  bounding box is unassigned, only the focus moves and nothing is selected, because a selection
-  has to start at the focused slot.
+  bounding box is unassigned, only the focus moves and nothing is selected. This was needed while
+  a selection had to start at the focused slot. ADR 0030 lifts that constraint, but ungrouping
+  keeps this behavior for now.
 - **An empty project is removed.** It has no slots to move.
 
 Grouping and ungrouping are each one change in the configuration (ADR 0011). The content and the

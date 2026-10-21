@@ -2,6 +2,9 @@
 
 ## Status: accepted
 
+Amended by [ADR 0030](./0030-the-selection-surrounds-the-focused-slot.md): the selection is two offsets
+around the focused slot instead of one delta from it.
+
 Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md), whose slots it
 selects, and on [ADR 0021](./0021-keyboard-focus-state-lives-beside-the-router-not-in-it.md),
 whose keyboard focus the selection starts from.

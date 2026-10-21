@@ -9,7 +9,7 @@ use euclid::{point2, vec2};
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::command_dispatch::project_topology;
 use super::reparenting::Reparenting;
-use super::selection::SelectionDelta;
+use super::selection::Selection;
 use super::{DesktopTarget, FocusableTarget, KeyboardFocusReason, ProjectPart};
 use crate::projects::{
     DEFAULT_NEW_PROJECT_NAME, ProjectId, RuntimeConfiguration, SlotPosition, group_landings,
@@ -102,17 +102,17 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
     }
     changes <<= TopologyChange::Remove(DesktopTarget::Project(project, ProjectPart::Project));
     changes <<= ConfigurationChange::Ungroup { parent, slot };
-    if let Some((_, delta)) = selection {
-        changes <<= DesktopChange::SetSelection(delta);
+    if let Some((_, ungrouped)) = selection {
+        changes <<= DesktopChange::SetSelection(ungrouped);
     }
     changes
 }
 
 /// The selection that covers all ungrouped slots at `landings` (ADR 0026): the landing at a corner
-/// of their bounding box, which takes the focus, and the delta to the opposite corner. The corners
-/// are tried from the top-left, then the top-right, the bottom-left, and the bottom-right. `None`
-/// when every corner is unassigned, because a selection has to start at the focused slot.
-fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, SelectionDelta)> {
+/// of their bounding box, which takes the focus, and the selection that reaches the opposite corner. The
+/// corners are tried from the top-left, then the top-right, the bottom-left, and the bottom-right.
+/// `None` when every corner is unassigned.
+fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selection)> {
     let bounds = matrix_rect_covering(landings.iter().map(|&landing| landing.into()));
     let (first, last) = (bounds.min, bounds.max - vec2(1, 1));
     let top_right = point2(last.x, first.y);
@@ -125,7 +125,10 @@ fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selec
     ]
     .into_iter()
     .find(|(corner, _)| landings.contains(&(*corner).into()))
-    .map(|(corner, opposite)| (corner.into(), opposite.to_i32() - corner.to_i32()))
+    .map(|(corner, opposite)| {
+        let offset = opposite.to_i32() - corner.to_i32();
+        (corner.into(), Selection::from_diagonal(offset))
+    })
 }
 
 #[cfg(test)]
@@ -142,11 +145,11 @@ mod tests {
     fn the_ungrouped_selection_starts_at_the_first_assigned_corner() {
         assert_eq!(
             ungrouped_selection(&[at(1, 1), at(2, 2)]),
-            Some((at(1, 1), vec2(1, 1)))
+            Some((at(1, 1), Selection::from_diagonal(vec2(1, 1))))
         );
         assert_eq!(
             ungrouped_selection(&[at(2, 1), at(1, 2)]),
-            Some((at(2, 1), vec2(-1, 1)))
+            Some((at(2, 1), Selection::from_diagonal(vec2(-1, 1))))
         );
         assert_eq!(
             ungrouped_selection(&[at(1, 0), at(0, 1), at(2, 1), at(1, 2)]),
@@ -154,7 +157,7 @@ mod tests {
         );
         assert_eq!(
             ungrouped_selection(&[at(3, 0)]),
-            Some((at(3, 0), vec2(0, 0)))
+            Some((at(3, 0), Selection::default()))
         );
     }
 }

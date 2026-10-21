@@ -41,11 +41,11 @@ The stretch a column or a row of a project's matrix covers along its axis. Every
 _Avoid_: track, lane, band
 
 **Selection**:
-A rectangle of slots in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's position, and the zero delta selects only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Any focus, zoom, or configuration change collapses it to the zero delta.
+A rectangle of slots in one project's matrix that contains the keyboard-focused slot. It is two offsets of columns and rows from that slot's position, one towards its top-left slot and one towards its bottom-right slot, and the zero offsets select only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Any focus, zoom, or configuration change collapses it to the zero offsets.
 _Avoid_: anchor, far corner, multi-selection
 
 **Extended selection**:
-A selection whose delta is not zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection.
+A selection whose offsets are not both zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection, and Cmd+A extends it over all assigned slots of its project.
 _Avoid_: widened selection, multi-selection
 
 **Slot extent**:
