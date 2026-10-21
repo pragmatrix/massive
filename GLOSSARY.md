@@ -196,6 +196,14 @@ _Avoid_: parked z, offscreen depth
 The rule that invisible placements are excluded from hit-testing immediately, independent of in-flight fade animation.
 _Avoid_: alpha-threshold hit test, delayed interaction disable
 
+**Exceptional behavior**:
+A desktop behavior that deviates from the plain outcome of what the user asked for or from the obvious default, and that could reasonably have been decided differently. Refusing to remove slot content while instances run below it is one example. An outcome the model makes impossible, such as removing the root project, is an invariant, not an exceptional behavior.
+_Avoid_: special case, edge case, quirk
+
+**Desktop policy**:
+The one place that decides every exceptional behavior of the desktop (ADR 0029). For a command, it allows it, refuses it with a reason, or redirects it to another command. For a lifecycle default or a route, it chooses the outcome.
+_Avoid_: policy (alone, it collides with font policy), rules, guards
+
 **Shaping engine**:
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.
 _Avoid_: font system, shaper backend, text layout engine
