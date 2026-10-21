@@ -38,6 +38,8 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
             let context = KeyContext {
                 is_focused: true,
                 fully_zoomed_in,
+                focused_slot_project: None,
+                focus: KeyFocus::Desktop,
                 hierarchy: &system.aggregates.hierarchy,
                 configuration: &system.aggregates.configuration,
             };

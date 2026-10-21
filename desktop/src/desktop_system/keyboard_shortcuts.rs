@@ -25,6 +25,12 @@ pub enum Shortcut {
     Group,
     /// Cmd+Shift+G with no other modifier.
     Ungroup,
+    /// Cmd+A with no other modifier.
+    SelectAll,
+    /// Esc with no modifier.
+    Escape,
+    /// Cmd+Esc with no other modifier.
+    CommandEscape,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
     /// Cmd+Shift+Arrow with no other modifier.
@@ -42,6 +48,7 @@ impl Shortcut {
         }
 
         enter(input)
+            .or_else(|| escape(input))
             .or_else(|| command_character(input))
             .or_else(|| command_arrow(input))
     }
@@ -57,6 +64,18 @@ fn enter(input: &KeyInput) -> Option<Shortcut> {
     } else {
         Shortcut::Enter
     })
+}
+
+fn escape(input: &KeyInput) -> Option<Shortcut> {
+    if input.repeat || input.logical_key != Key::Named(NamedKey::Escape) {
+        return None;
+    }
+
+    match input.modifiers {
+        modifiers if modifiers.is_empty() => Some(Shortcut::Escape),
+        ModifiersState::SUPER => Some(Shortcut::CommandEscape),
+        _ => None,
+    }
 }
 
 fn command_character(input: &KeyInput) -> Option<Shortcut> {
@@ -76,6 +95,7 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
             "g" | "G" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
                 Some(Shortcut::Ungroup)
             }
+            "a" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::SelectAll),
             _ => None,
         },
         _ => None,

@@ -11,6 +11,7 @@ use super::change::{
 };
 use super::grouping;
 use super::reparenting::Reparenting;
+use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
     FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, ZoomLevel, view_size,
@@ -305,6 +306,16 @@ impl DesktopSystem {
                 &self.aggregates.hierarchy,
                 &self.aggregates.configuration,
             )),
+            DesktopCommand::SelectAll(project) => Ok(Selection::plan_select_all(
+                project,
+                self.keyboard_focus.focused(),
+                &self.aggregates.hierarchy,
+                &self.aggregates.configuration,
+            )),
+            DesktopCommand::CollapseSelection => {
+                Ok(DesktopChange::SetSelection(Selection::default()).into())
+            }
+            DesktopCommand::Escape => Ok(self.zoom_navigation().plan_escape()),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 let fully_in_on_instance = self.focused_path().instance().is_some()
@@ -620,8 +631,8 @@ impl DesktopSystem {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
-            DesktopChange::SetSelection(delta) => {
-                self.selection.set(delta);
+            DesktopChange::SetSelection(selection) => {
+                self.selection.set(selection);
                 let mut output = ChangeOutput::default();
                 output.surface.selection_set = true;
                 return Ok(output);

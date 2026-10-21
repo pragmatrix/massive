@@ -73,6 +73,28 @@ impl<'a> ZoomNavigation<'a> {
         }
     }
 
+    /// Plans escaping the focused target by one level (Esc, Cmd+Esc, ADR 0031). An instance hands
+    /// the focus to its launcher and keeps the zoom level. A launcher or a nested project escapes to
+    /// the slot hosting its zoom project, as Zoom Out does from `Row`, so that project takes the
+    /// focus at `Focus`. The root project has no parent, so escaping in it frames the whole root.
+    pub fn plan_escape(&self) -> Changes {
+        let Some(focused) = self.focused else {
+            return Changes::Empty;
+        };
+        let project = self.geometry.project_of(focused);
+        // The root project sits in no slot, so there is nothing to escape from.
+        let Some((content, _)) = self.geometry.slot_in_project(project, focused) else {
+            return Changes::Empty;
+        };
+        if focused.is_instance_target() {
+            return set_focus(Some(content.focusable_target()), KeyboardFocusReason::Zoom);
+        }
+        match self.geometry.parent_project_of(project) {
+            Some(_) => self.focus_at_zoom_level(project, ZoomLevel::Focus),
+            None => self.set_zoom_level(ZoomLevel::Project),
+        }
+    }
+
     /// Whether the camera points at the focused target itself at the zoom level.
     pub fn is_fully_zoomed_in(&self) -> bool {
         self.focused.is_some_and(|focused| {

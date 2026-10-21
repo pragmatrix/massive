@@ -1,5 +1,6 @@
+use euclid::vec2;
+
 use super::*;
-use crate::desktop_system::selection::SelectionDelta;
 
 /// Two launchers booted side by side in the root project, `a` at column 0 and `b` at column 1,
 /// with nothing focused yet.
@@ -86,22 +87,22 @@ async fn extending_from_an_instance_starts_at_its_launcher_until_the_focus_moves
             &mut instance_manager,
             FocusableTarget::Instance(instance),
         )?;
-        let columns = |columns| SelectionDelta::new(columns, 0);
+        let columns = |columns| Selection::from_diagonal(vec2(columns, 0));
 
         extend(&mut system, &mut instance_manager, Direction::Right)?;
         assert_eq!(
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Launcher(a))
         );
-        assert_eq!(system.selection.delta(), columns(1));
+        assert_eq!(system.selection, columns(1));
 
         // The selection ends at the last column of the matrix.
         extend(&mut system, &mut instance_manager, Direction::Right)?;
-        assert_eq!(system.selection.delta(), columns(1));
+        assert_eq!(system.selection, columns(1));
 
-        // Back at the zero delta, only the focused slot is selected.
+        // Back at the zero offsets, only the focused slot is selected.
         extend(&mut system, &mut instance_manager, Direction::Left)?;
-        assert_eq!(system.selection.delta(), columns(0));
+        assert_eq!(system.selection, columns(0));
 
         extend(&mut system, &mut instance_manager, Direction::Right)?;
         run(
@@ -109,7 +110,7 @@ async fn extending_from_an_instance_starts_at_its_launcher_until_the_focus_moves
             &mut instance_manager,
             DesktopCommand::Navigate(Direction::Right),
         )?;
-        assert_eq!(system.selection.delta(), columns(0));
+        assert_eq!(system.selection, columns(0));
 
         Ok(())
     })
@@ -185,7 +186,7 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Project(group))
         );
-        assert_eq!(system.selection.delta(), SelectionDelta::zero());
+        assert_eq!(system.selection, Selection::default());
 
         run(
             &mut system,
@@ -206,7 +207,7 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Launcher(a))
         );
-        assert_eq!(system.selection.delta(), SelectionDelta::new(1, 0));
+        assert_eq!(system.selection, Selection::from_diagonal(vec2(1, 0)));
 
         Ok(())
     })
@@ -238,7 +239,7 @@ async fn the_outline_reads_a_slot_added_in_the_same_transaction() -> Result<()> 
             TransactionEffectsMode::Setup,
         )?;
 
-        assert_ne!(system.selection.delta(), SelectionDelta::zero());
+        assert_ne!(system.selection, Selection::default());
         assert!(system.hover_placement().is_some());
 
         Ok(())
@@ -338,6 +339,59 @@ async fn selecting_all_root_slots_ungroups_the_focused_project() -> Result<()> {
             system.aggregates.configuration.slot_of_content(a),
             Some((ProjectId::ROOT, SlotPosition { column: 0, row: 0 }))
         );
+
+        Ok(())
+    })
+    .await
+}
+
+/// Cmd+A from an instance passes the desktop's levels and leaves focus and selection alone, so the
+/// application keeps it. From a launcher, the project whose matrix holds the launcher's slot
+/// selects all of its slots around it, without moving the focus to a corner (ADR 0030).
+#[tokio::test]
+async fn cmd_a_selects_all_slots_around_a_launcher_but_not_from_an_instance() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let TwoLaunchers {
+            mut system,
+            mut instance_manager,
+            b,
+            ..
+        } = two_launchers()?;
+        let instance = start_instance(&mut system, &mut instance_manager, b, 0)?;
+        let cmd_a = KeyInput::new(
+            Key::Character("a".into()),
+            ElementState::Pressed,
+            false,
+            ModifiersState::SUPER,
+        );
+        let press_cmd_a = |system: &mut DesktopSystem, instance_manager: &mut InstanceManager| {
+            let changes = system.deliver_key_along_focus_path(&cmd_a)?;
+            system.transact(changes, instance_manager, TransactionEffectsMode::Setup)
+        };
+
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Instance(instance),
+        )?;
+        press_cmd_a(&mut system, &mut instance_manager)?;
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance))
+        );
+        assert_eq!(system.selection, Selection::default());
+
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(b),
+        )?;
+        press_cmd_a(&mut system, &mut instance_manager)?;
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Launcher(b))
+        );
+        assert_eq!(system.selection, Selection::from_diagonal(vec2(-1, 0)));
 
         Ok(())
     })

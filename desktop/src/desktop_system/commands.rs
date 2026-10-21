@@ -42,6 +42,12 @@ pub enum DesktopCommand {
     Navigate(Direction),
     /// Extends the slot selection by one slot in the direction (Shift+Cmd+arrow, ADR 0025).
     ExtendSelection(Direction),
+    /// Selects all assigned slots of the project, around the focused slot (Cmd+A, ADR 0030).
+    SelectAll(ProjectId),
+    /// Collapses the selection to the focused slot (Esc, ADR 0030).
+    CollapseSelection,
+    /// Escapes the focused instance, launcher, or project by one level (Esc, Cmd+Esc, ADR 0031).
+    Escape,
 
     Zoom(Zoom),
     /// Routes a fullscreen request to the focused instance or the native window.

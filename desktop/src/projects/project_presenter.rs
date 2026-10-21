@@ -10,8 +10,8 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
-    ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
+    AppliedLayout, DesktopCommand, KeyContext, KeyFocus, KeyHandler, KeyInput, KeyOutcome,
+    LayoutContext, ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
     expand_main_axis_child_size, measure_container, place_container_children,
 };
 use crate::projects::{ProjectId, SlotContent, SlotPosition};
@@ -94,13 +94,15 @@ impl ProjectPresenter {
 }
 
 /// A project receives no text input, so Enter, with or without Cmd, enters it while it is the
-/// keyboard focus (ADR 0018).
+/// keyboard focus (ADR 0018). Cmd+A selects all slots of the project whose matrix holds the focused
+/// slot, unless an instance has the focus, whose application keeps Cmd+A (ADR 0030).
 impl KeyHandler for ProjectPresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
-        if !context.is_focused {
-            return KeyOutcome::Pass;
-        }
+        let selects_all =
+            context.focused_slot_project == Some(self.id) && context.focus != KeyFocus::Instance;
         let command = match Shortcut::from_input(input) {
+            Some(Shortcut::SelectAll) if selects_all => DesktopCommand::SelectAll(self.id),
+            _ if !context.is_focused => return KeyOutcome::Pass,
             Some(Shortcut::Enter | Shortcut::CommandEnter) => DesktopCommand::Zoom(Zoom::Enter),
             Some(Shortcut::RemoveSlot) => DesktopCommand::RemoveSlot(SlotContent::Project(self.id)),
             _ => return KeyOutcome::Pass,

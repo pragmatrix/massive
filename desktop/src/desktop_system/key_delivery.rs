@@ -8,11 +8,12 @@ use anyhow::Result;
 use massive_applications::{InstanceId, ViewEvent, ViewId};
 
 use super::change::{Changes, DesktopChange};
+use super::selection::focused_slot;
 use super::{
     Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, FocusableTarget, InputFocus, KeyInput,
 };
 use crate::desktop_system::topology::DesktopTopology;
-use crate::projects::RuntimeConfiguration;
+use crate::projects::{ProjectId, RuntimeConfiguration};
 use crate::targeted_event::EventTransition;
 
 /// A level of the keyboard focus path that may consume a key.
@@ -53,9 +54,20 @@ impl DesktopSystem {
     /// Delivers a key down the keyboard focus path and plans what the receiving level asks for.
     pub(super) fn deliver_key_along_focus_path(&self, input: &KeyInput) -> Result<Changes> {
         let delivery = {
+            let focused = self.keyboard_focus.focused();
+            let focused_slot_project = focused.and_then(|focused| {
+                focused_slot(
+                    focused,
+                    &self.aggregates.hierarchy,
+                    &self.aggregates.configuration,
+                )
+                .map(|(_, project, _)| project)
+            });
             let context = KeyContext {
                 is_focused: false,
                 fully_zoomed_in: self.zoom_navigation().is_fully_zoomed_in(),
+                focused_slot_project,
+                focus: KeyFocus::new(focused, self.selection.is_extended()),
                 hierarchy: &self.aggregates.hierarchy,
                 configuration: &self.aggregates.configuration,
             };
@@ -169,8 +181,47 @@ pub struct KeyContext<'a> {
     /// Whether the camera frames the keyboard-focused target itself (zoom level `Focus`). Cmd+Enter
     /// zooms there first and acts only when already there; presenters cannot read the zoom state.
     pub fully_zoomed_in: bool,
+    /// The project whose matrix holds the keyboard-focused slot. It takes Cmd+A while a launcher
+    /// or a nested project has the focus (ADR 0030). `None` when nothing, the desktop, or the root
+    /// project has the focus, because no slot hosts them.
+    pub focused_slot_project: Option<ProjectId>,
+    /// Who owns the keys the desktop shares with applications, such as Cmd+A and Esc.
+    pub focus: KeyFocus,
     /// Cmd+T on an instance starts the new instance under that instance's launcher.
     pub hierarchy: &'a DesktopTopology,
     /// A launcher starts its instances with the parameters configured for it.
     pub configuration: &'a RuntimeConfiguration,
+}
+
+/// Where the keyboard focus sits, as far as the keys the desktop shares with applications are
+/// concerned. Extending from an instance hands the focus to its launcher (ADR 0025), and Cmd+A
+/// starts only outside an instance (ADR 0030), so an instance never has the focus while a
+/// selection is extended, and no variant stands for that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyFocus {
+    /// An instance or one of its views has the focus, so its application keeps the shared keys.
+    Instance,
+    /// A launcher or a project has the focus, and the selection reaches beyond its slot.
+    ExtendedSelection,
+    /// Any other focus outside an instance, including no focus at all.
+    Desktop,
+}
+
+impl KeyFocus {
+    /// Derives the key focus from the keyboard focus and the selection, once per key. It panics
+    /// when an instance has the focus while a selection is extended, because then the focus
+    /// hand-over above was skipped somewhere.
+    pub fn new(focused: Option<FocusableTarget>, selection_is_extended: bool) -> Self {
+        match focused {
+            Some(focused) if focused.is_instance_target() => {
+                assert!(
+                    !selection_is_extended,
+                    "an instance never has the focus while a selection is extended"
+                );
+                Self::Instance
+            }
+            _ if selection_is_extended => Self::ExtendedSelection,
+            _ => Self::Desktop,
+        }
+    }
 }

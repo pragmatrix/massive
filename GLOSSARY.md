@@ -41,11 +41,11 @@ The stretch a column or a row of a project's matrix covers along its axis. Every
 _Avoid_: track, lane, band
 
 **Selection**:
-A rectangle of slots in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's position, and the zero delta selects only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Any focus, zoom, or configuration change collapses it to the zero delta.
+A rectangle of slots in one project's matrix that contains the keyboard-focused slot. It is two offsets of columns and rows from that slot's position, one towards its top-left slot and one towards its bottom-right slot, and the zero offsets select only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Esc or Cmd+Esc, and any focus, zoom, or configuration change, collapses it to the zero offsets.
 _Avoid_: anchor, far corner, multi-selection
 
 **Extended selection**:
-A selection whose delta is not zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection.
+A selection whose offsets are not both zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection, and Cmd+A extends it over all assigned slots of its project.
 _Avoid_: widened selection, multi-selection
 
 **Slot extent**:
@@ -123,6 +123,10 @@ _Avoid_: current project, camera project
 **Navigate**:
 Directional movement of keyboard focus one step from the current target, driven by an arrow key. It depends only on the keyboard-focused target, never on the zoom level. When the project's matrix has no neighbor in that direction, the search escapes to the slot hosting the project in its parent's matrix and retries from there, up to the root; with no neighbor at any level the key does nothing. Landing on a project slot enters the project through its focus slots down to a leaf, so moving back restores the focus; a project with no remembered focus slot is focused as a slot itself. Landing on a launcher slot focuses its instance anchor, else its directional edge instance.
 _Avoid_: move, arrow
+
+**Escape**:
+Moving the keyboard focus one level out with Esc or Cmd+Esc, as **Navigate** escapes to the slot hosting a project. A launcher or a nested project hands the focus to the project whose matrix holds it; in the root project, the camera frames the whole root. Plain Esc leaves a focused instance to its application, while Cmd+Esc escapes the instance to its launcher. An extended selection collapses first.
+_Avoid_: leave, climb, exit
 
 **Navigate to target**:
 An explicit keyboard-focus change to a named target (or to nothing, which only removes focus and has no camera effect). It is the deferred outcome of a pointer click or a window focus change, applied as a command rather than mutated inline.

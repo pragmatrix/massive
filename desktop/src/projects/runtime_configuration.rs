@@ -1347,9 +1347,9 @@ pub type MatrixPoint = euclid::Point2D<u32, MatrixUnit>;
 /// one column and one row past the bottom-right position it contains.
 pub type MatrixRect = euclid::Box2D<u32, MatrixUnit>;
 
-/// The smallest rectangle of positions that contains all `points`, of which there is at least
-/// one.
-pub fn matrix_rect_covering(points: impl IntoIterator<Item = MatrixPoint>) -> MatrixRect {
+/// The bounding box of `points`: the smallest rectangle of positions that contains all of them.
+/// There is at least one point.
+pub fn matrix_bounding_box(points: impl IntoIterator<Item = MatrixPoint>) -> MatrixRect {
     let rect = MatrixRect::from_points(points);
     MatrixRect::new(rect.min, rect.max + vec2(1, 1))
 }
@@ -1361,7 +1361,7 @@ pub fn matrix_rect_covering(points: impl IntoIterator<Item = MatrixPoint>) -> Ma
 pub fn group_landings(
     grouped: &[SlotPosition],
 ) -> (SlotPosition, Vec<(SlotPosition, SlotPosition)>) {
-    let top_left = matrix_rect_covering(grouped.iter().map(|&slot| slot.into())).min;
+    let top_left = matrix_bounding_box(grouped.iter().map(|&slot| slot.into())).min;
     let landings = grouped
         .iter()
         .map(|&slot| {
@@ -1906,7 +1906,7 @@ mod tests {
     /// point and contains both corners, but nothing beyond them.
     #[test]
     fn a_covering_rect_contains_its_corners_and_nothing_beyond() {
-        let rect = matrix_rect_covering([MatrixPoint::new(2, 1), MatrixPoint::new(0, 3)]);
+        let rect = matrix_bounding_box([MatrixPoint::new(2, 1), MatrixPoint::new(0, 3)]);
 
         assert_eq!(
             rect,

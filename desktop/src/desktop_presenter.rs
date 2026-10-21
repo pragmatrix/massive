@@ -15,6 +15,7 @@ use crate::desktop_system::{
     Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
     place_container_children,
 };
+use crate::when::{self, PressingEscape};
 
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
@@ -72,6 +73,13 @@ impl KeyHandler for DesktopPresenter {
             Some(Shortcut::Navigate(direction)) => DesktopCommand::Navigate(direction),
             Some(Shortcut::ExtendSelection(direction)) => {
                 DesktopCommand::ExtendSelection(direction)
+            }
+            Some(shortcut @ (Shortcut::Escape | Shortcut::CommandEscape)) => {
+                match when::pressing_escape(shortcut == Shortcut::CommandEscape, context.focus) {
+                    PressingEscape::CollapseSelection => DesktopCommand::CollapseSelection,
+                    PressingEscape::Escape => DesktopCommand::Escape,
+                    PressingEscape::PassToApplication => return KeyOutcome::Pass,
+                }
             }
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
