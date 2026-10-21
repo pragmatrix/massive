@@ -41,7 +41,7 @@ The stretch a column or a row of a project's matrix covers along its axis. Every
 _Avoid_: track, lane, band
 
 **Selection**:
-A rectangle of slots in one project's matrix that contains the keyboard-focused slot. It is two offsets of columns and rows from that slot's position, one towards its top-left slot and one towards its bottom-right slot, and the zero offsets select only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Esc, and any focus, zoom, or configuration change, collapses it to the zero offsets.
+A rectangle of slots in one project's matrix that contains the keyboard-focused slot. It is two offsets of columns and rows from that slot's position, one towards its top-left slot and one towards its bottom-right slot, and the zero offsets select only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Esc or Cmd+Esc, and any focus, zoom, or configuration change, collapses it to the zero offsets.
 _Avoid_: anchor, far corner, multi-selection
 
 **Extended selection**:

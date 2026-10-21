@@ -29,6 +29,8 @@ pub enum Shortcut {
     SelectAll,
     /// Esc with no modifier.
     Escape,
+    /// Cmd+Esc with no other modifier.
+    CommandEscape,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
     /// Cmd+Shift+Arrow with no other modifier.
@@ -65,8 +67,15 @@ fn enter(input: &KeyInput) -> Option<Shortcut> {
 }
 
 fn escape(input: &KeyInput) -> Option<Shortcut> {
-    let plain = !input.repeat && input.modifiers.is_empty();
-    (plain && input.logical_key == Key::Named(NamedKey::Escape)).then_some(Shortcut::Escape)
+    if input.repeat || input.logical_key != Key::Named(NamedKey::Escape) {
+        return None;
+    }
+
+    match input.modifiers {
+        modifiers if modifiers.is_empty() => Some(Shortcut::Escape),
+        ModifiersState::SUPER => Some(Shortcut::CommandEscape),
+        _ => None,
+    }
 }
 
 fn command_character(input: &KeyInput) -> Option<Shortcut> {

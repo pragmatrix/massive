@@ -66,6 +66,10 @@ impl DesktopSystem {
                 is_focused: false,
                 fully_zoomed_in: self.zoom_navigation().is_fully_zoomed_in(),
                 focused_slot_project,
+                focus_in_instance: self
+                    .keyboard_focus
+                    .focused()
+                    .is_some_and(|focused| focused.is_instance_target()),
                 selection_is_extended: self.selection.is_extended(),
                 hierarchy: &self.aggregates.hierarchy,
                 configuration: &self.aggregates.configuration,
@@ -180,10 +184,13 @@ pub struct KeyContext<'a> {
     /// Whether the camera frames the keyboard-focused target itself (zoom level `Focus`). Cmd+Enter
     /// zooms there first and acts only when already there; presenters cannot read the zoom state.
     pub fully_zoomed_in: bool,
-    /// The project whose matrix holds the keyboard-focused slot. It takes Cmd+A even when a
-    /// target below it has the focus (ADR 0030). `None` when nothing, the desktop, or the root
+    /// The project whose matrix holds the keyboard-focused slot. It takes Cmd+A while a launcher
+    /// or a nested project has the focus (ADR 0030). `None` when nothing, the desktop, or the root
     /// project has the focus, because no slot hosts them.
     pub focused_slot_project: Option<ProjectId>,
+    /// Whether an instance or one of its views has the keyboard focus. The application then keeps
+    /// the keys it shares with the desktop, such as Cmd+A and Esc.
+    pub focus_in_instance: bool,
     /// Whether the selection reaches beyond the focused slot. Only then the desktop takes Esc, to
     /// collapse it (ADR 0030). An instance never has the focus then, so applications keep Esc.
     pub selection_is_extended: bool,

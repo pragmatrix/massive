@@ -35,8 +35,8 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+Shift+G | desktop (project) | Move the slots of the focused project, or of the project whose slots are all selected, into its parent's matrix, remove it, and select the ungrouped slots | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
 | Cmd+Shift+←/→/↑/↓ | desktop | Extend the slot selection by one placement; repeats when held | select to line start/end, document top/bottom (mac text) |
-| Cmd+A | desktop (project) | Select all slots of the project whose matrix holds the focused slot; from an instance, its launcher takes the focus. The application never receives it | select all (mac, everywhere) |
-| Esc | desktop | Collapse an extended slot selection to the focused slot; otherwise Esc reaches the application | deselect (Fg, Kn, Sketch) · collapse multiple cursors (VS, Zd) |
+| Cmd+A | desktop (project) | Select all slots of the project whose matrix holds the focused launcher or project; inside an instance, the application receives it | select all (mac, everywhere) |
+| Esc, Cmd+Esc | desktop | Collapse an extended slot selection to the focused slot; otherwise the key reaches the application | deselect (Fg, Kn, Sketch) · collapse multiple cursors (VS, Zd) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
 | Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |

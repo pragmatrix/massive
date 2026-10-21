@@ -345,11 +345,11 @@ async fn selecting_all_root_slots_ungroups_the_focused_project() -> Result<()> {
     .await
 }
 
-/// Cmd+A from an instance reaches the project whose matrix holds the instance's launcher before
-/// the instance does. The launcher takes the focus, and the selection covers all of the project's
-/// slots around it, without moving the focus to a corner (ADR 0030).
+/// Cmd+A from an instance passes the desktop's levels and leaves focus and selection alone, so the
+/// application keeps it. From a launcher, the project whose matrix holds the launcher's slot
+/// selects all of its slots around it, without moving the focus to a corner (ADR 0030).
 #[tokio::test]
-async fn cmd_a_from_an_instance_selects_all_slots_around_its_launcher() -> Result<()> {
+async fn cmd_a_selects_all_slots_around_a_launcher_but_not_from_an_instance() -> Result<()> {
     task_context::with_context(task_context(), async {
         let TwoLaunchers {
             mut system,
@@ -358,25 +358,35 @@ async fn cmd_a_from_an_instance_selects_all_slots_around_its_launcher() -> Resul
             ..
         } = two_launchers()?;
         let instance = start_instance(&mut system, &mut instance_manager, b, 0)?;
-        focus(
-            &mut system,
-            &mut instance_manager,
-            FocusableTarget::Instance(instance),
-        )?;
         let cmd_a = KeyInput::new(
             Key::Character("a".into()),
             ElementState::Pressed,
             false,
             ModifiersState::SUPER,
         );
+        let press_cmd_a = |system: &mut DesktopSystem, instance_manager: &mut InstanceManager| {
+            let changes = system.deliver_key_along_focus_path(&cmd_a)?;
+            system.transact(changes, instance_manager, TransactionEffectsMode::Setup)
+        };
 
-        let changes = system.deliver_key_along_focus_path(&cmd_a)?;
-        system.transact(
-            changes,
+        focus(
+            &mut system,
             &mut instance_manager,
-            TransactionEffectsMode::Setup,
+            FocusableTarget::Instance(instance),
         )?;
+        press_cmd_a(&mut system, &mut instance_manager)?;
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance))
+        );
+        assert_eq!(system.selection, Selection::default());
 
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(b),
+        )?;
+        press_cmd_a(&mut system, &mut instance_manager)?;
         assert_eq!(
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Launcher(b))
@@ -388,10 +398,17 @@ async fn cmd_a_from_an_instance_selects_all_slots_around_its_launcher() -> Resul
     .await
 }
 
-/// Esc collapses an extended selection and keeps the focus. Without an extended selection, the
-/// desktop passes Esc on, so an application below keeps it (ADR 0030).
+/// Esc and Cmd+Esc collapse an extended selection and keep the focus. Without an extended
+/// selection, the desktop passes them on, so an application below keeps them (ADR 0030).
 #[tokio::test]
 async fn esc_collapses_only_an_extended_selection() -> Result<()> {
+    for modifiers in [ModifiersState::empty(), ModifiersState::SUPER] {
+        esc_collapses_only_an_extended_selection_with(modifiers).await?;
+    }
+    Ok(())
+}
+
+async fn esc_collapses_only_an_extended_selection_with(modifiers: ModifiersState) -> Result<()> {
     task_context::with_context(task_context(), async {
         let TwoLaunchers {
             mut system,
@@ -408,13 +425,14 @@ async fn esc_collapses_only_an_extended_selection() -> Result<()> {
             Key::Named(NamedKey::Escape),
             ElementState::Pressed,
             false,
-            ModifiersState::empty(),
+            modifiers,
         );
         let desktop_takes_esc = |system: &DesktopSystem| {
             let context = KeyContext {
                 is_focused: false,
                 fully_zoomed_in: false,
                 focused_slot_project: Some(ProjectId::ROOT),
+                focus_in_instance: false,
                 selection_is_extended: system.selection.is_extended(),
                 hierarchy: &system.aggregates.hierarchy,
                 configuration: &system.aggregates.configuration,

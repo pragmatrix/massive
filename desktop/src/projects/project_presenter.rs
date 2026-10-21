@@ -95,13 +95,13 @@ impl ProjectPresenter {
 
 /// A project receives no text input, so Enter, with or without Cmd, enters it while it is the
 /// keyboard focus (ADR 0018). Cmd+A selects all slots of the project whose matrix holds the focused
-/// slot, before any target below it sees the key (ADR 0030).
+/// slot, unless an instance has the focus, whose application keeps Cmd+A (ADR 0030).
 impl KeyHandler for ProjectPresenter {
     fn handle_key(&self, input: &KeyInput, context: &KeyContext<'_>) -> KeyOutcome {
+        let selects_all =
+            context.focused_slot_project == Some(self.id) && !context.focus_in_instance;
         let command = match Shortcut::from_input(input) {
-            Some(Shortcut::SelectAll) if context.focused_slot_project == Some(self.id) => {
-                DesktopCommand::SelectAll(self.id)
-            }
+            Some(Shortcut::SelectAll) if selects_all => DesktopCommand::SelectAll(self.id),
             _ if !context.is_focused => return KeyOutcome::Pass,
             Some(Shortcut::Enter | Shortcut::CommandEnter) => DesktopCommand::Zoom(Zoom::Enter),
             Some(Shortcut::RemoveSlot) => DesktopCommand::RemoveSlot(SlotContent::Project(self.id)),

@@ -33,19 +33,20 @@ exactly as under ADR 0025.
 
 **Cmd+A selects the bounding box of all assigned slots of the focused slot's project.** The project
 whose matrix holds the focused slot consumes the key on its way down the keyboard focus path
-(ADR 0020), so it reaches neither a launcher nor an instance. The focus stays on its slot. As
-with Shift+Cmd+arrow, an instance hands the focus to its launcher (ADR 0025). When all slots are
-already selected, Cmd+A changes nothing.
+(ADR 0020) while a launcher or a nested project has the focus. The focus stays where it is. When
+an instance has the focus, the key passes on to its application, which uses Cmd+A for its own
+"select all", as Terminal.app, iTerm2 and Ghostty do. When all slots are already selected, Cmd+A
+changes nothing.
 
-**Esc collapses an extended selection.** The desktop takes plain Esc only while the selection
+**Esc and Cmd+Esc collapse an extended selection.** The desktop takes them only while the selection
 reaches beyond the focused slot, and keeps the focus where it is. An instance never has the focus
-while a selection is extended, because extending and Cmd+A hand it to the launcher, so Esc always
-reaches an application that has the focus.
+while a selection is extended, because extending hands it to the launcher and Cmd+A starts only
+from a launcher or a project, so both keys always reach an application that has the focus.
 
 ## Consequences
 
-- The application inside an instance never receives Cmd+A, so a terminal cannot bind it to select
-  all of its text.
+- Selecting all slots from inside an instance takes a step out first, to the launcher. The
+  terminal client drops Cmd+A until it binds it to select all of its text.
 - Ungrouping still focuses a corner of the ungrouped slots and selects to the opposite one
   (ADR 0026). It could now keep the focus elsewhere, but that is left for a later decision.
 - A selection made with Cmd+A shrinks towards the focused slot from whichever side the arrow points
