@@ -35,7 +35,7 @@ pub struct ProjectPresenter {
     location: Handle<Location>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
-    pub last_focused_position: Option<SlotPosition>,
+    pub last_focused_slot: Option<SlotPosition>,
 }
 
 impl ProjectPresenter {
@@ -65,7 +65,7 @@ impl ProjectPresenter {
             location,
             header,
             matrix,
-            last_focused_position: None,
+            last_focused_slot: None,
         }
     }
 

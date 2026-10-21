@@ -2,8 +2,8 @@
 
 ## Status: accepted
 
-Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md), whose slots and
-positions it selects, and on [ADR 0021](./0021-keyboard-focus-state-lives-beside-the-router-not-in-it.md),
+Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md), whose slots it
+selects, and on [ADR 0021](./0021-keyboard-focus-state-lives-beside-the-router-not-in-it.md),
 whose keyboard focus the selection starts from.
 
 ## Problem
@@ -20,7 +20,7 @@ Operations on the selection act on the assigned slots inside it.
 
 - **The selection is a delta from the focused slot.** It is stored as the number of columns and
   rows it reaches from the focused slot's position, negative towards the left and the top. The
-  rectangle spans the focused slot's position and the position the delta reaches. The zero delta
+  rectangle spans the focused slot and the slot the delta reaches. The zero delta
   selects only the focused slot, which is the behavior every operation has today. The focused
   slot is never stored a second time, so the selection always starts where the focus is.
 - **The delta grows one slot at a time.** Shift+Cmd+arrow changes it by one column or one row,

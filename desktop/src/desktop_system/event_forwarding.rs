@@ -113,7 +113,7 @@ impl DesktopSystem {
             return;
         };
         let project = *project;
-        let position = self
+        let slot = self
             .aggregates
             .configuration
             .project(project)
@@ -123,6 +123,6 @@ impl DesktopSystem {
             .projects
             .get_mut(&project)
             .expect("project has a presenter")
-            .last_focused_position = Some(position);
+            .last_focused_slot = Some(slot);
     }
 }

@@ -39,8 +39,7 @@ pub enum DesktopCommand {
     UngroupSlot,
 
     Navigate(Direction),
-    /// Moves the far corner of the slot selection one position in the direction (Shift+Cmd+arrow,
-    /// ADR 0025).
+    /// Extends the slot selection by one slot in the direction (Shift+Cmd+arrow, ADR 0025).
     ExtendSelection(Direction),
 
     Zoom(Zoom),
@@ -54,17 +53,17 @@ pub enum ConfigurationCommand {
     ///
     /// A `None` parent creates the assigned project instead — there is no separate
     /// "add project" operation. The root is assigned to the `Desktop` target, which
-    /// hosts no slots, so `position` and `shift` are ignored; only
+    /// hosts no slots, so `slot` and `shift` are ignored; only
     /// [`ProjectId::ROOT`] may be assigned there, exactly once.
     AssignSlot {
         parent: Option<ProjectId>,
-        position: SlotPosition,
+        slot: SlotPosition,
         content: SlotAssignment,
         shift: SlotShift,
     },
     ClearSlot {
         parent: ProjectId,
-        position: SlotPosition,
+        slot: SlotPosition,
         shift: SlotShift,
     },
     MoveSlot {

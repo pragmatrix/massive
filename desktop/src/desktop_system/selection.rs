@@ -45,7 +45,7 @@ impl Selection {
         self.delta = SelectionDelta::zero();
     }
 
-    /// Plans extending the selection one position in `direction` (Shift+Cmd+arrow), starting from
+    /// Plans extending the selection by one slot in `direction` (Shift+Cmd+arrow), starting from
     /// the `focused` target.
     ///
     /// When an instance has the focus, its launcher takes the focus, and the selection starts
@@ -60,12 +60,11 @@ impl Selection {
         let Some(focused) = focused else {
             return Changes::Empty;
         };
-        let Some((content, project, position)) = focused_slot(focused, hierarchy, configuration)
-        else {
+        let Some((content, project, slot)) = focused_slot(focused, hierarchy, configuration) else {
             return Changes::Empty;
         };
         let Some(delta) = extended_delta(
-            position,
+            slot,
             self.delta,
             direction,
             matrix_bounds(project, configuration),
@@ -85,25 +84,25 @@ impl Selection {
     }
 
     /// The slots the selection that starts at the `focused` target covers: the project whose matrix
-    /// holds them, and the positions of its assigned slots inside the selection, in the matrix's
-    /// slot order. Without a selection beyond the focused slot, this is the focused slot alone.
-    /// `None` when the focus sits in no slot.
+    /// holds them, and its assigned slots inside the selection, in the matrix's slot order. Without
+    /// a selection beyond the focused slot, this is the focused slot alone. `None` when the focus
+    /// sits in no slot.
     pub fn selected_slots(
         &self,
         focused: FocusableTarget,
         hierarchy: &DesktopTopology,
         configuration: &RuntimeConfiguration,
     ) -> Option<(ProjectId, Vec<SlotPosition>)> {
-        let (_, project, position) = focused_slot(focused, hierarchy, configuration)?;
-        let rect = selection_rect(position, self.delta);
-        let positions = configuration
+        let (_, project, slot) = focused_slot(focused, hierarchy, configuration)?;
+        let rect = selection_rect(slot, self.delta);
+        let slots = configuration
             .project(project)
             .expect("a selection's project is configured")
             .slot_contents()
-            .map(|(position, _)| position)
-            .filter(|&position| rect.contains(position.into()))
+            .map(|(slot, _)| slot)
+            .filter(|&slot| rect.contains(slot.into()))
             .collect();
-        Some((project, positions))
+        Some((project, slots))
     }
 
     /// Where the outline of the selection that starts at the `focused` target goes, in the
@@ -118,8 +117,7 @@ impl Selection {
         if self.delta == SelectionDelta::zero() {
             return None;
         }
-        let (_, project, position) =
-            focused_slot(focused, context.hierarchy, context.configuration)?;
+        let (_, project, slot) = focused_slot(focused, context.hierarchy, context.configuration)?;
 
         let matrix = DesktopTarget::Project(project, ProjectPart::Matrix);
         let children: Vec<MeasuredLayout<2>> = context
@@ -132,7 +130,7 @@ impl Selection {
             project,
             context,
             &children,
-            selection_rect(position, self.delta),
+            selection_rect(slot, self.delta),
         )?;
 
         let matrix_placement = layout_state.absolute_placement(&matrix, context.hierarchy);
@@ -150,7 +148,7 @@ impl Selection {
 }
 
 /// The slot the `focused` target belongs to: its content, the project whose matrix holds it, and
-/// its position there. An instance belongs to its launcher's slot. `None` when the focus sits in
+/// the slot itself. An instance belongs to its launcher's slot. `None` when the focus sits in
 /// no slot, which is the case for the root project.
 fn focused_slot(
     focused: FocusableTarget,
@@ -158,10 +156,10 @@ fn focused_slot(
     configuration: &RuntimeConfiguration,
 ) -> Option<(SlotContent, ProjectId, SlotPosition)> {
     let content = hierarchy.slot_content_of_target(&focused.into())?;
-    let (project, position) = configuration
+    let (project, slot) = configuration
         .slot_of_content(content)
         .expect("slot content sits in a slot");
-    Some((content, project, position))
+    Some((content, project, slot))
 }
 
 /// The rectangle that `delta` spans from the `focused` slot's position.
@@ -174,7 +172,7 @@ fn selection_rect(focused: SlotPosition, delta: SelectionDelta) -> MatrixRect {
     matrix_rect_covering([focused, reached])
 }
 
-/// The selection's delta after one step in `direction`, or `None` when the position it reaches
+/// The selection's delta after one step in `direction`, or `None` when the slot it reaches
 /// from `focused` would leave `bounds`, the rectangle of the matrix.
 fn extended_delta(
     focused: SlotPosition,
@@ -196,7 +194,7 @@ fn extended_delta(
     bounds.contains(reached).then_some(delta)
 }
 
-/// The rectangle of `project`'s matrix, from its top-left position to the rightmost column and the
+/// The rectangle of `project`'s matrix, from its top-left slot to the rightmost column and the
 /// lowest row that hold an assigned slot. Its bottom-right slot may be unassigned, because that
 /// column and that row may belong to different slots.
 fn matrix_bounds(project: ProjectId, configuration: &RuntimeConfiguration) -> MatrixRect {
@@ -219,7 +217,7 @@ mod tests {
     /// The selection grows across unassigned slots, but never past the matrix's top-left or
     /// bottom-right corner.
     #[test]
-    fn the_selection_extends_position_by_position_inside_the_matrix() {
+    fn the_selection_extends_one_slot_at_a_time_inside_the_matrix() {
         let focused = SlotPosition { column: 1, row: 0 };
         let bounds = MatrixRect::new(MatrixPoint::origin(), MatrixPoint::new(4, 2));
         let extend = |from, direction| extended_delta(focused, from, direction, bounds);

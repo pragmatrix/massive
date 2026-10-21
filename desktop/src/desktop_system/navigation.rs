@@ -92,7 +92,7 @@ pub struct NavigationPlan {
 enum NavigationOrigin {
     MatrixSlot {
         project: ProjectId,
-        position: SlotPosition,
+        slot: SlotPosition,
     },
     Child {
         launcher: LaunchProfileId,
@@ -135,7 +135,7 @@ impl DesktopSystem {
     /// The focus replacement when slot `content` is removed: the first available
     /// right, left, down, or up neighbor in its matrix, else its hosting project.
     pub fn slot_removal_focus(&self, content: SlotContent) -> FocusableTarget {
-        let (parent, position) = self
+        let (parent, slot) = self
             .aggregates
             .configuration
             .slot_of_content(content)
@@ -150,7 +150,7 @@ impl DesktopSystem {
         ]
         .into_iter()
         .find_map(|direction| {
-            matrix_navigation.navigate_within_matrix(parent, position, direction, None)
+            matrix_navigation.navigate_within_matrix(parent, slot, direction, None)
         })
         .map(|replacement| self.focus_targets().slot_focus_target(replacement))
         .unwrap_or(FocusableTarget::Project(parent))
@@ -232,8 +232,8 @@ fn remembered_project_target(
 ) -> FocusableTarget {
     let remembered = projects
         .get(&project)
-        .and_then(|presenter| presenter.last_focused_position)
-        .and_then(|position| configuration.content_at(project, position));
+        .and_then(|presenter| presenter.last_focused_slot)
+        .and_then(|slot| configuration.content_at(project, slot));
 
     match remembered {
         Some(SlotContent::Project(nested)) => {
@@ -251,14 +251,14 @@ fn resolve_navigation_origin(
 ) -> Option<NavigationOrigin> {
     match from {
         FocusableTarget::Launcher(launcher_id) => {
-            let (project, position) = configuration.slot_of_content(launcher_id)?;
-            Some(NavigationOrigin::MatrixSlot { project, position })
+            let (project, slot) = configuration.slot_of_content(launcher_id)?;
+            Some(NavigationOrigin::MatrixSlot { project, slot })
         }
         FocusableTarget::Project(project) => {
-            let (parent, position) = configuration.slot_of_content(project)?;
+            let (parent, slot) = configuration.slot_of_content(project)?;
             Some(NavigationOrigin::MatrixSlot {
                 project: parent,
-                position,
+                slot,
             })
         }
         FocusableTarget::Instance(instance_id) => {
@@ -282,10 +282,10 @@ fn navigation_origin_position(
     origin: NavigationOrigin,
 ) -> Option<SlotPosition> {
     match origin {
-        NavigationOrigin::MatrixSlot { position, .. } => Some(position),
+        NavigationOrigin::MatrixSlot { slot, .. } => Some(slot),
         NavigationOrigin::Child { launcher, .. } => configuration
             .slot_of_content(launcher)
-            .map(|(_, position)| position),
+            .map(|(_, slot)| slot),
     }
 }
 
@@ -296,8 +296,9 @@ fn navigate_from_origin(
     preferred_column: Option<u32>,
 ) -> Option<NavigationStep> {
     match origin {
-        NavigationOrigin::MatrixSlot { project, position } => matrix_navigation
-            .navigate_from_matrix_slot(project, position, direction, preferred_column),
+        NavigationOrigin::MatrixSlot { project, slot } => {
+            matrix_navigation.navigate_from_matrix_slot(project, slot, direction, preferred_column)
+        }
         NavigationOrigin::Child { launcher, index } => {
             matrix_navigation.navigate_from_child(launcher, index, direction, preferred_column)
         }

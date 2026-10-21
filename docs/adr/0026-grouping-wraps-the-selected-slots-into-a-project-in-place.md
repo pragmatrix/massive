@@ -19,7 +19,7 @@ tedious. Dissolving a project means moving each of its slots out and removing th
 selection, the meant slot is the focused one. With a selection, they are the selected slots. When
 an instance has the focus, its launcher is meant.
 
-- **The new project sits where the slots were.** It takes the top-left position of the slots'
+- **The new project sits where the slots were.** It takes the top-left slot of the slots'
   bounding box in the parent's matrix. The bounding box spans the assigned slots only, so
   selected unassigned slots at the selection's border do not shift the result.
 - **The slots keep their arrangement.** Inside the new project, each slot keeps its offset from the
@@ -34,9 +34,9 @@ an instance has the focus, its launcher is meant.
 the root.
 
 - **The slots land where the project was.** The top-left corner of their bounding box lands on the
-  project's position, and they keep their arrangement. Ungrouping a project that grouping just
+  project's slot, and they keep their arrangement. Ungrouping a project that grouping just
   created therefore gives back exactly what was grouped.
-- **Slots in the way are pushed right.** Only rows in which a landing position is taken are
+- **Slots in the way are pushed right.** Only rows in which a landing slot is assigned are
   touched. The slots in such a row move right just far enough to clear the landings, and
   unassigned slots between them absorb the push.
 - **The ungrouped slots are selected.** The focus goes to the slot at a corner of their bounding
@@ -47,7 +47,7 @@ the root.
 - **An empty project is removed.** It has no slots to move.
 
 Grouping and ungrouping are each one change in the configuration (ADR 0011). The content and the
-project need the same position at the same time, which separate moves could only reach through a
+project need the same slot at the same time, which separate moves could only reach through a
 temporary slot.
 
 ## Consequences
@@ -56,7 +56,7 @@ temporary slot.
   as ungrouping does.
 - The `Group` change takes several slots, and each of them is re-parented on its own.
 - Grouping never moves anything outside the selection, but ungrouping can push slots of the
-  parent. The asymmetry is deliberate. A project needs one position, while its ungrouped slots can
+  parent. The asymmetry is deliberate. A project needs one slot, while its ungrouped slots can
   need many.
 
 ## Considered options

@@ -9,7 +9,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
         let changes = system.plan(DesktopCommand::Configuration(
             ConfigurationCommand::AssignSlot {
                 parent: None,
-                position: SlotPosition { column: 0, row: 0 },
+                slot: SlotPosition { column: 0, row: 0 },
                 content: SlotAssignment::Project {
                     id: ProjectId::ROOT,
                     name: crate::projects::ROOT_PROJECT_NAME.into(),
@@ -29,7 +29,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
                     .plan(DesktopCommand::Configuration(
                         ConfigurationCommand::AssignSlot {
                             parent: None,
-                            position: SlotPosition { column: 0, row: 0 },
+                            slot: SlotPosition { column: 0, row: 0 },
                             content: SlotAssignment::Project {
                                 id,
                                 name: "again".into(),
@@ -120,7 +120,7 @@ async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
             ..
         } = nested_siblings()?;
         let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
-        let (project_a, position_a) = system
+        let (project_a, slot_a) = system
             .aggregates
             .configuration
             .slot_of_content(launcher_a)
@@ -140,7 +140,7 @@ async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
             &mut system,
             &mut instance_manager,
             DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
-                source: (project_a, position_a),
+                source: (project_a, slot_a),
                 dest: (project_b, dest),
             }),
         )?;
@@ -187,7 +187,7 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
             ))
         };
         let (project_a, project_b) = (project_of(instance_a), project_of(instance_b));
-        let (_, position_b) = system
+        let (_, slot_b) = system
             .aggregates
             .configuration
             .slot_of_content(project_b)
@@ -198,7 +198,7 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
             &mut system,
             &mut instance_manager,
             DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
-                source: (ProjectId::ROOT, position_b),
+                source: (ProjectId::ROOT, slot_b),
                 dest: (project_a, dest),
             }),
         )?;
@@ -225,11 +225,11 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
     .await
 }
 
-/// Cmd+G wraps the content of the focused slot into a new project at the content's position.
+/// Cmd+G wraps the content of the focused slot into a new project in the content's slot.
 /// The content moves into the project together with its running instance. Afterwards, the parent
 /// holds only the new project, and the new project has the focus.
 #[tokio::test]
-async fn group_wraps_the_focused_slot_in_a_new_project_at_its_position() -> Result<()> {
+async fn group_wraps_the_focused_slot_in_a_new_project_in_its_slot() -> Result<()> {
     task_context::with_context(task_context(), async {
         let NestedSiblings {
             mut system,
@@ -238,7 +238,7 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_position() -> Resu
             ..
         } = nested_siblings()?;
         let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
-        let (project_a, position_a) = system
+        let (project_a, slot_a) = system
             .aggregates
             .configuration
             .slot_of_content(launcher_a)
@@ -251,9 +251,8 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_position() -> Resu
         )?;
 
         let configuration = &system.aggregates.configuration;
-        let Some(SlotContent::Project(group)) = configuration.content_at(project_a, position_a)
-        else {
-            panic!("a project takes the grouped content's position");
+        let Some(SlotContent::Project(group)) = configuration.content_at(project_a, slot_a) else {
+            panic!("a project takes the grouped content's slot");
         };
         assert_eq!(
             configuration.slot_of_content(launcher_a),
@@ -282,7 +281,7 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_position() -> Resu
 }
 
 /// Cmd+Shift+G on a project that Cmd+G created gives back exactly what was grouped. The content
-/// returns to its position with its running instance and takes the focus, and the project is gone.
+/// returns to its slot with its running instance and takes the focus, and the project is gone.
 #[tokio::test]
 async fn ungroup_reverses_group() -> Result<()> {
     task_context::with_context(task_context(), async {

@@ -117,7 +117,7 @@ async fn extending_from_an_instance_starts_at_its_launcher_until_the_focus_moves
 }
 
 /// With a selection beyond the focused slot, the outline covers the rectangle of the selected
-/// positions: for two neighboring launchers, it is centered between them and wider than either.
+/// slots: for two neighboring launchers, it is centered between them and wider than either.
 #[tokio::test]
 async fn the_outline_covers_the_selected_positions() -> Result<()> {
     task_context::with_context(task_context(), async {
@@ -148,7 +148,7 @@ async fn the_outline_covers_the_selected_positions() -> Result<()> {
 }
 
 /// Cmd+G with a selection wraps all selected slots into one project at the selection's top-left
-/// position, keeping their arrangement. Cmd+Shift+G gives them back and selects them again
+/// slot, keeping their arrangement. Cmd+Shift+G gives them back and selects them again
 /// (ADR 0026).
 #[tokio::test]
 async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Result<()> {
@@ -176,7 +176,7 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
         let configuration = &system.aggregates.configuration;
         let Some(SlotContent::Project(group)) = configuration.content_at(ProjectId::ROOT, at(0))
         else {
-            panic!("a project takes the selection's top-left position");
+            panic!("a project takes the selection's top-left slot");
         };
         assert_eq!(configuration.slots_ordered(ProjectId::ROOT).count(), 1);
         assert_eq!(configuration.slot_of_content(a), Some((group, at(0))));

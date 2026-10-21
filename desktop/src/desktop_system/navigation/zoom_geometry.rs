@@ -67,10 +67,10 @@ impl<'a> ZoomGeometry<'a> {
         let target_path = self.hierarchy.resolve_path(Some(&target.into()));
         self.configuration
             .slots_ordered(project)
-            .find_map(|(position, content)| {
+            .find_map(|(slot, content)| {
                 target_path
                     .contains(&content.target())
-                    .then_some((content, position))
+                    .then_some((content, slot))
             })
     }
 
@@ -80,7 +80,7 @@ impl<'a> ZoomGeometry<'a> {
         level: ZoomLevel,
     ) -> PixelCamera {
         let project = self.project_of(target);
-        let Some((content, position)) = self.slot_in_project(project, target) else {
+        let Some((content, slot)) = self.slot_in_project(project, target) else {
             return self.project_camera(project);
         };
 
@@ -97,7 +97,7 @@ impl<'a> ZoomGeometry<'a> {
                 .expect("a configured project slot must have a camera"),
             ZoomLevel::Row => {
                 let rect = self
-                    .matrix_row_rect_for_project(project, position.row)
+                    .matrix_row_rect_for_project(project, slot.row)
                     .expect("a row containing the focused target must have bounds");
                 self.camera_for_rect(rect)
                     .expect("a row containing the focused target must have a camera")

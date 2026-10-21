@@ -20,7 +20,7 @@ pub struct MatrixNavigation<'a> {
 #[derive(Debug, Clone)]
 pub struct NavigationStep {
     pub target: FocusableTarget,
-    /// The position of the slot the search escaped to in an ancestor matrix, if the target was
+    /// The slot the search escaped to in an ancestor matrix, if the target was
     /// not found in the origin's own matrix.
     pub escaped_from: Option<SlotPosition>,
 }
@@ -50,18 +50,18 @@ impl<'a> MatrixNavigation<'a> {
     pub fn navigate_from_matrix_slot(
         &self,
         project_id: ProjectId,
-        origin_position: SlotPosition,
+        origin_slot: SlotPosition,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<NavigationStep> {
         let mut project = project_id;
-        let mut position = origin_position;
+        let mut slot = origin_slot;
         let mut preferred_column = preferred_column;
         let mut escaped_from = None;
 
         loop {
             if let Some(content) =
-                self.navigate_within_matrix(project, position, direction, preferred_column)
+                self.navigate_within_matrix(project, slot, direction, preferred_column)
             {
                 return Some(NavigationStep {
                     target: content.focusable_target(),
@@ -69,21 +69,21 @@ impl<'a> MatrixNavigation<'a> {
                 });
             }
 
-            (project, position) = self.configuration.slot_of_content(project)?;
+            (project, slot) = self.configuration.slot_of_content(project)?;
             preferred_column = None;
-            escaped_from = Some(position);
+            escaped_from = Some(slot);
         }
     }
 
     pub fn navigate_within_matrix(
         &self,
         project_id: ProjectId,
-        origin_position: SlotPosition,
+        origin_slot: SlotPosition,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<SlotContent> {
         let entries = self.create_project_matrix_entries(project_id);
-        select_matrix_neighbor(&entries, origin_position, direction, preferred_column)
+        select_matrix_neighbor(&entries, origin_slot, direction, preferred_column)
     }
 
     pub fn navigate_from_child(
@@ -115,8 +115,8 @@ impl<'a> MatrixNavigation<'a> {
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<NavigationStep> {
-        let (project_id, origin_position) = self.configuration.slot_of_content(content)?;
-        self.navigate_from_matrix_slot(project_id, origin_position, direction, preferred_column)
+        let (project_id, origin_slot) = self.configuration.slot_of_content(content)?;
+        self.navigate_from_matrix_slot(project_id, origin_slot, direction, preferred_column)
     }
 
     fn create_project_matrix_entries(
@@ -373,9 +373,9 @@ mod tests {
             )
         }
 
-        fn target_at(&self, project: ProjectId, position: (u32, u32)) -> FocusableTarget {
+        fn target_at(&self, project: ProjectId, slot: (u32, u32)) -> FocusableTarget {
             self.configuration
-                .content_at(project, position.into())
+                .content_at(project, slot.into())
                 .unwrap()
                 .focusable_target()
         }

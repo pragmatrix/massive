@@ -9,7 +9,7 @@ types it replaces.
 
 The slot selection describes geometry in a project's matrix, counted in columns and rows. It uses
 two hand-written types for that. `SelectionDelta` holds how far the selection reaches from the
-focused slot, and `MatrixRect` holds the top-left and bottom-right positions of a rectangle in a
+focused slot, and `MatrixRect` holds the top-left and bottom-right slots of a rectangle in a
 matrix, which the selection and the matrix layout share. Every operation on them is written by
 hand: stepping the delta, spanning the rectangle, and soon testing which slots lie inside it, which
 grouping a selection needs (ADR 0026).

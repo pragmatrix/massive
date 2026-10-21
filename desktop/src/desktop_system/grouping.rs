@@ -1,8 +1,8 @@
 //! Grouping wraps slots into a new project (Cmd+G, ADR 0026). The new project takes the slots'
 //! place, so they stay where they were on the desktop, one nesting level deeper.
 //!
-//! Ungrouping is the inverse (Cmd+Shift+G). It moves a project's slots into the project's parent
-//! at the project's position, removes the project, and selects the ungrouped slots.
+//! Ungrouping is the inverse (Cmd+Shift+G). It moves a project's slots into the project's parent,
+//! starting at the project's own slot, removes the project, and selects the ungrouped slots.
 
 use euclid::{point2, vec2};
 
@@ -16,7 +16,7 @@ use crate::projects::{
     matrix_rect_covering,
 };
 
-/// Plans grouping the slots at `positions` in `parent` and focusing the new project.
+/// Plans grouping the `selected_slots` of `parent` and focusing the new project.
 ///
 /// The changes run in this order, because each one needs what the one before it creates. The
 /// `Group` change creates the project and its presenter. The topology change adds the project's
@@ -33,7 +33,7 @@ pub fn plan(
     let mut changes = Changes::Empty;
     changes <<= ConfigurationChange::Group {
         parent,
-        positions: selected_slots,
+        slots: selected_slots,
         project,
         name: DEFAULT_NEW_PROJECT_NAME.into(),
     };
@@ -63,20 +63,20 @@ pub fn plan(
 /// 6. The selection reaches from the focused slot to the opposite corner. It comes last, so that
 ///    it survives the focus and configuration changes before it.
 pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) -> Changes {
-    let (parent, position) = configuration
+    let (parent, slot) = configuration
         .slot_of_content(project)
         .expect("an ungrouped project sits in a slot");
-    let landings = configuration.ungroup_landings(project, position);
-    let landing_positions: Vec<_> = landings.iter().map(|(_, landing)| *landing).collect();
-    let selection = ungrouped_selection(&landing_positions);
-    // Without an assigned corner, the slot on the project's position takes the focus, or else the
-    // first slot.
+    let landings = configuration.ungroup_landings(project, slot);
+    let landing_slots: Vec<_> = landings.iter().map(|(_, landing)| *landing).collect();
+    let selection = ungrouped_selection(&landing_slots);
+    // Without an assigned corner, the slot that lands on the project's own slot takes the focus, or
+    // else the first slot.
     let focused_landing = selection.map(|(corner, _)| corner).unwrap_or_else(|| {
-        landing_positions
+        landing_slots
             .iter()
             .copied()
-            .find(|landing| *landing == position)
-            .or(landing_positions.first().copied())
+            .find(|landing| *landing == slot)
+            .or(landing_slots.first().copied())
             .expect("only a project with slots is ungrouped")
     });
     let (focused_inner, _) = landings
@@ -91,7 +91,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
         Some(focused.focusable_target()),
         KeyboardFocusReason::Ungroup,
     );
-    for (from, to) in configuration.ungroup_pushes(parent, position, &landing_positions) {
+    for (from, to) in configuration.ungroup_pushes(parent, slot, &landing_slots) {
         changes <<= ConfigurationChange::MoveSlot {
             source: (parent, from),
             dest: (parent, to),
@@ -101,7 +101,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
         changes += Reparenting::plan((project, inner), (parent, landing), configuration);
     }
     changes <<= TopologyChange::Remove(DesktopTarget::Project(project, ProjectPart::Project));
-    changes <<= ConfigurationChange::Ungroup { parent, position };
+    changes <<= ConfigurationChange::Ungroup { parent, slot };
     if let Some((_, delta)) = selection {
         changes <<= DesktopChange::SetSelection(delta);
     }

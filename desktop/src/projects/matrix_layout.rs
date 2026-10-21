@@ -202,7 +202,7 @@ fn matrix_slots(
                 scale,
                 position: *positions
                     .get(&content)
-                    .expect("slot content has a matrix position"),
+                    .expect("slot content sits in a slot"),
             }
         })
         .collect()
