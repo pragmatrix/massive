@@ -64,6 +64,36 @@ pub fn ungrouping_project(is_empty: bool) -> UngroupingProject {
     UngroupingProject::MoveSlotsOut
 }
 
+/// What Esc and Cmd+Esc do (ADR 0030, ADR 0031).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressingEscape {
+    CollapseSelection,
+    /// Escapes the focused instance, launcher, or project by one level.
+    Escape,
+    /// Applications use Esc themselves, for example to leave vim's insert mode.
+    PassToApplication,
+}
+
+/// Cmd+Esc is the desktop's Esc, so it also escapes an instance, while plain Esc stays with the
+/// instance's application. An instance never has the focus while a selection is extended.
+#[must_use]
+pub fn pressing_escape(
+    with_command: bool,
+    focus_in_instance: bool,
+    selection_extended: bool,
+) -> PressingEscape {
+    if focus_in_instance {
+        if with_command {
+            return PressingEscape::Escape;
+        }
+        return PressingEscape::PassToApplication;
+    }
+    if selection_extended {
+        return PressingEscape::CollapseSelection;
+    }
+    PressingEscape::Escape
+}
+
 /// Where Ctrl+Cmd+F goes (ADR 0014).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TogglingFullScreen {
@@ -167,6 +197,24 @@ pub fn clearing_focused_slot() -> [SlotSuccessor; 5] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn esc_belongs_to_an_instance_and_collapses_a_selection_before_it_leaves() {
+        assert_eq!(
+            pressing_escape(false, true, false),
+            PressingEscape::PassToApplication
+        );
+        assert_eq!(pressing_escape(true, true, false), PressingEscape::Escape);
+        assert_eq!(
+            pressing_escape(false, false, true),
+            PressingEscape::CollapseSelection
+        );
+        assert_eq!(
+            pressing_escape(true, false, true),
+            PressingEscape::CollapseSelection
+        );
+        assert_eq!(pressing_escape(false, false, false), PressingEscape::Escape);
+    }
 
     #[test]
     fn an_extended_selection_over_its_whole_project_outranks_the_focused_project() {

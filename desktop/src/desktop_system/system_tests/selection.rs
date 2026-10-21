@@ -398,17 +398,17 @@ async fn cmd_a_selects_all_slots_around_a_launcher_but_not_from_an_instance() ->
     .await
 }
 
-/// Esc and Cmd+Esc collapse an extended selection and keep the focus. Without an extended
-/// selection, the desktop passes them on, so an application below keeps them (ADR 0030).
+/// Esc and Cmd+Esc collapse an extended selection before they leave anything, so the focus and
+/// the camera stay (ADR 0030, ADR 0031).
 #[tokio::test]
-async fn esc_collapses_only_an_extended_selection() -> Result<()> {
+async fn esc_collapses_an_extended_selection_first() -> Result<()> {
     for modifiers in [ModifiersState::empty(), ModifiersState::SUPER] {
-        esc_collapses_only_an_extended_selection_with(modifiers).await?;
+        esc_collapses_an_extended_selection_first_with(modifiers).await?;
     }
     Ok(())
 }
 
-async fn esc_collapses_only_an_extended_selection_with(modifiers: ModifiersState) -> Result<()> {
+async fn esc_collapses_an_extended_selection_first_with(modifiers: ModifiersState) -> Result<()> {
     task_context::with_context(task_context(), async {
         let TwoLaunchers {
             mut system,
@@ -427,26 +427,9 @@ async fn esc_collapses_only_an_extended_selection_with(modifiers: ModifiersState
             false,
             modifiers,
         );
-        let desktop_takes_esc = |system: &DesktopSystem| {
-            let context = KeyContext {
-                is_focused: false,
-                fully_zoomed_in: false,
-                focused_slot_project: Some(ProjectId::ROOT),
-                focus_in_instance: false,
-                selection_is_extended: system.selection.is_extended(),
-                hierarchy: &system.aggregates.hierarchy,
-                configuration: &system.aggregates.configuration,
-            };
-            matches!(
-                system.desktop_presenter.handle_key(&esc, &context),
-                KeyOutcome::Consumed(_)
-            )
-        };
-
-        assert!(!desktop_takes_esc(&system));
-
         extend(&mut system, &mut instance_manager, Direction::Right)?;
-        assert!(desktop_takes_esc(&system));
+        let zoom_level = system.zoom_level;
+
         let changes = system.deliver_key_along_focus_path(&esc)?;
         system.transact(
             changes,
@@ -459,6 +442,7 @@ async fn esc_collapses_only_an_extended_selection_with(modifiers: ModifiersState
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Launcher(a))
         );
+        assert_eq!(system.zoom_level, zoom_level);
 
         Ok(())
     })

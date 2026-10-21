@@ -36,7 +36,8 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
 | Cmd+Shift+←/→/↑/↓ | desktop | Extend the slot selection by one placement; repeats when held | select to line start/end, document top/bottom (mac text) |
 | Cmd+A | desktop (project) | Select all slots of the project whose matrix holds the focused launcher or project; inside an instance, the application receives it | select all (mac, everywhere) |
-| Esc, Cmd+Esc | desktop | Collapse an extended slot selection to the focused slot; otherwise the key reaches the application | deselect (Fg, Kn, Sketch) · collapse multiple cursors (VS, Zd) |
+| Esc | desktop (launcher, project) | Collapse an extended slot selection; otherwise leave the focused launcher or project by one level. In an instance, the application receives it | deselect (Fg, Kn, Sketch) · leave a group (Sketch, Kn, Illustrator) · collapse multiple cursors (VS, Zd) |
+| Cmd+Esc | desktop | Like Esc; in an instance, leave it to its launcher | — |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
 | Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |

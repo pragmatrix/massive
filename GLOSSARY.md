@@ -124,6 +124,10 @@ _Avoid_: current project, camera project
 Directional movement of keyboard focus one step from the current target, driven by an arrow key. It depends only on the keyboard-focused target, never on the zoom level. When the project's matrix has no neighbor in that direction, the search escapes to the slot hosting the project in its parent's matrix and retries from there, up to the root; with no neighbor at any level the key does nothing. Landing on a project slot enters the project through its focus slots down to a leaf, so moving back restores the focus; a project with no remembered focus slot is focused as a slot itself. Landing on a launcher slot focuses its instance anchor, else its directional edge instance.
 _Avoid_: move, arrow
 
+**Escape**:
+Moving the keyboard focus one level out with Esc or Cmd+Esc, as **Navigate** escapes to the slot hosting a project. A launcher or a nested project hands the focus to the project whose matrix holds it; in the root project, the camera frames the whole root. Plain Esc leaves a focused instance to its application, while Cmd+Esc escapes the instance to its launcher. An extended selection collapses first.
+_Avoid_: leave, climb, exit
+
 **Navigate to target**:
 An explicit keyboard-focus change to a named target (or to nothing, which only removes focus and has no camera effect). It is the deferred outcome of a pointer click or a window focus change, applied as a command rather than mutated inline.
 _Avoid_: set focus, click focus

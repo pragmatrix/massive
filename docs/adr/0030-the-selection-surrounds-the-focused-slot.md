@@ -41,7 +41,8 @@ changes nothing.
 **Esc and Cmd+Esc collapse an extended selection.** The desktop takes them only while the selection
 reaches beyond the focused slot, and keeps the focus where it is. An instance never has the focus
 while a selection is extended, because extending hands it to the launcher and Cmd+A starts only
-from a launcher or a project, so both keys always reach an application that has the focus.
+from a launcher or a project, so both keys always reach an application that has the focus. Without an extended selection, both keys escape the
+focused target by one level ([ADR 0031](./0031-esc-escapes-the-focused-target-by-one-level.md)).
 
 ## Consequences
 

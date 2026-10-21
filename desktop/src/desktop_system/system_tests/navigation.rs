@@ -105,3 +105,74 @@ async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
     })
     .await
 }
+
+/// Esc and Cmd+Esc climb one level at a time (ADR 0031). Plain Esc stays with an instance's
+/// application, and Cmd+Esc escapes the instance to its launcher at the same zoom level. Esc then
+/// escapes the nested project, which takes the focus, and in the root project it frames the whole
+/// root, where it stops.
+#[tokio::test]
+async fn esc_climbs_from_an_instance_to_the_root_frame() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let frame = massive_applications::begin_frame();
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let Some(SlotContent::Launcher(launcher_a)) = system
+            .aggregates
+            .hierarchy
+            .slot_content_of_target(&DesktopTarget::Instance(instance_a, InstancePart::Instance))
+        else {
+            panic!("the instance belongs to a launcher");
+        };
+        let labs_a = system
+            .aggregates
+            .hierarchy
+            .project_of_target(&DesktopTarget::Launcher(launcher_a));
+        let press = |system: &mut DesktopSystem,
+                     instance_manager: &mut InstanceManager,
+                     modifiers: ModifiersState| {
+            let esc = KeyInput::new(
+                Key::Named(NamedKey::Escape),
+                ElementState::Pressed,
+                false,
+                modifiers,
+            );
+            let changes = system.deliver_key_along_focus_path(&esc)?;
+            system.transact(changes, instance_manager, TransactionEffectsMode::Setup)
+        };
+        let focused = |system: &DesktopSystem| system.keyboard_focus.focused();
+        let zoom_level = system.zoom_level;
+
+        press(&mut system, &mut instance_manager, ModifiersState::empty())?;
+        assert_eq!(
+            focused(&system),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+
+        press(&mut system, &mut instance_manager, ModifiersState::SUPER)?;
+        assert_eq!(
+            focused(&system),
+            Some(FocusableTarget::Launcher(launcher_a))
+        );
+        assert_eq!(system.zoom_level, zoom_level);
+
+        press(&mut system, &mut instance_manager, ModifiersState::empty())?;
+        assert_eq!(focused(&system), Some(FocusableTarget::Project(labs_a)));
+        assert_eq!(system.zoom_level, ZoomLevel::Focus);
+
+        press(&mut system, &mut instance_manager, ModifiersState::empty())?;
+        assert_eq!(focused(&system), Some(FocusableTarget::Project(labs_a)));
+        assert_eq!(system.zoom_level, ZoomLevel::Project);
+
+        press(&mut system, &mut instance_manager, ModifiersState::empty())?;
+        assert_eq!(focused(&system), Some(FocusableTarget::Project(labs_a)));
+        assert_eq!(system.zoom_level, ZoomLevel::Project);
+
+        drop(frame);
+        Ok(())
+    })
+    .await
+}

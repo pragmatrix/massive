@@ -315,6 +315,7 @@ impl DesktopSystem {
             DesktopCommand::CollapseSelection => {
                 Ok(DesktopChange::SetSelection(Selection::default()).into())
             }
+            DesktopCommand::Escape => Ok(self.zoom_navigation().plan_escape()),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 let fully_in_on_instance = self.focused_path().instance().is_some()

@@ -164,7 +164,8 @@ pub enum KeyboardFocusReason {
     PresentInstance,
     Navigate,
     PromotePrimaryView,
-    /// Zooming moved focus across a project boundary (ADR 0018).
+    /// Zooming moved focus across a project boundary (ADR 0018), or Esc escaped an instance or a
+    /// project by one level (ADR 0031).
     Zoom,
     /// Newly added slot content takes the focus, so the user continues where it appeared.
     AddSlotContent,

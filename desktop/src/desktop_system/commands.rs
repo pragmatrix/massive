@@ -46,6 +46,8 @@ pub enum DesktopCommand {
     SelectAll(ProjectId),
     /// Collapses the selection to the focused slot (Esc, ADR 0030).
     CollapseSelection,
+    /// Escapes the focused instance, launcher, or project by one level (Esc, Cmd+Esc, ADR 0031).
+    Escape,
 
     Zoom(Zoom),
     /// Routes a fullscreen request to the focused instance or the native window.
