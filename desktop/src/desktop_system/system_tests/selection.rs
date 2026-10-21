@@ -32,7 +32,7 @@ fn two_launchers() -> Result<TwoLaunchers> {
     let Some(SlotContent::Launcher(b)) = system
         .aggregates
         .configuration
-        .content_at(ProjectId::ROOT, MatrixPlacement { column: 1, row: 0 })
+        .content_at(ProjectId::ROOT, SlotPosition { column: 1, row: 0 })
     else {
         panic!("the second launcher sits right of the first");
     };
@@ -159,7 +159,7 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
             a,
             b,
         } = two_launchers()?;
-        let at = |column| MatrixPlacement { column, row: 0 };
+        let at = |column| SlotPosition { column, row: 0 };
         focus(
             &mut system,
             &mut instance_manager,

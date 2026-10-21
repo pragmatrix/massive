@@ -23,7 +23,7 @@ use crate::desktop_environment::DesktopEnvironment;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
 use crate::projects::persistence::parse_configuration;
-use crate::projects::{MatrixPlacement, SlotAssignment, SlotContent};
+use crate::projects::{SlotAssignment, SlotContent, SlotPosition};
 use crate::window_state::WindowState;
 
 mod camera;

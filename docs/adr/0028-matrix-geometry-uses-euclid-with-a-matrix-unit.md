@@ -20,13 +20,13 @@ coordinates apart, for example `SizePx`, `RectPx`, and `BoxPx` in `massive-geome
 ## Decision
 
 Matrix geometry gets its own euclid unit, `MatrixUnit`. Matrices are a concept of the desktop, so
-the unit lives in the desktop crate next to `MatrixPlacement`, not in `massive-geometry`.
+the unit lives in the desktop crate next to `SlotPosition`, not in `massive-geometry`.
 
 - The selection's delta becomes a `Vector2D<i32, MatrixUnit>`. The zero vector selects only the
   focused slot, and a step is a vector addition.
 - `MatrixRect` becomes a `Box2D<u32, MatrixUnit>`. Containment and intersection come from euclid
   instead of being written by hand.
-- `MatrixPlacement` stays as it is, because it is the persisted type and the configuration code uses
+- `SlotPosition` stays as it is, because it is the persisted type and the configuration code uses
   it throughout. It converts to and from `Point2D<u32, MatrixUnit>` with `From` implementations.
 
 `Box2D` treats its maximum as exclusive, while the selection includes both corners. The box
@@ -43,6 +43,6 @@ selected column or row, such as the matrix layout's area of a selection, subtrac
 
 - **Keep the hand-written types.** They need no conversions, but every geometric operation would be
   written and tested again by hand.
-- **Convert `MatrixPlacement` to `Point2D` everywhere.** This would remove the conversions, but it
+- **Convert `SlotPosition` to `Point2D` everywhere.** This would remove the conversions, but it
   touches the persisted configuration and much code unrelated to geometry, for a gain that only the
   selection needs today.

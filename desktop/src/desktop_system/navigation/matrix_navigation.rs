@@ -7,7 +7,7 @@ use super::{HorizontalDirection, VerticalDirection};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{Direction, FocusableTarget};
 use crate::projects::{
-    LaunchProfileId, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
+    LaunchProfileId, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -22,13 +22,13 @@ pub struct NavigationStep {
     pub target: FocusableTarget,
     /// The placement of the slot the search escaped to in an ancestor matrix, if the target was
     /// not found in the origin's own matrix.
-    pub escaped_from: Option<MatrixPlacement>,
+    pub escaped_from: Option<SlotPosition>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct MatrixEntry<K> {
     key: K,
-    placement: MatrixPlacement,
+    placement: SlotPosition,
 }
 
 impl<'a> MatrixNavigation<'a> {
@@ -50,7 +50,7 @@ impl<'a> MatrixNavigation<'a> {
     pub fn navigate_from_matrix_slot(
         &self,
         project_id: ProjectId,
-        origin_placement: MatrixPlacement,
+        origin_placement: SlotPosition,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<NavigationStep> {
@@ -78,7 +78,7 @@ impl<'a> MatrixNavigation<'a> {
     pub fn navigate_within_matrix(
         &self,
         project_id: ProjectId,
-        origin_placement: MatrixPlacement,
+        origin_placement: SlotPosition,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<SlotContent> {
@@ -146,7 +146,7 @@ fn horizontal_child_neighbor(
 
 fn select_matrix_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
-    origin: MatrixPlacement,
+    origin: SlotPosition,
     direction: Direction,
     preferred_column: Option<u32>,
 ) -> Option<K> {
@@ -168,7 +168,7 @@ fn select_matrix_neighbor<K: Copy>(
 
 fn select_row_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
-    origin: MatrixPlacement,
+    origin: SlotPosition,
     direction: HorizontalDirection,
 ) -> Option<K> {
     match direction {

@@ -16,8 +16,8 @@ use super::{
     DesktopTarget, Direction, FocusableTarget, KeyboardFocusReason, LayoutContext, ProjectPart,
 };
 use crate::projects::{
-    MatrixPlacement, MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration,
-    SlotContent, intervals_origin, matrix_area, matrix_rect_covering,
+    MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration, SlotContent,
+    SlotPosition, intervals_origin, matrix_area, matrix_rect_covering,
 };
 
 /// How many columns and rows the selection reaches from the focused slot's placement, negative
@@ -93,7 +93,7 @@ impl Selection {
         focused: FocusableTarget,
         hierarchy: &DesktopTopology,
         configuration: &RuntimeConfiguration,
-    ) -> Option<(ProjectId, Vec<MatrixPlacement>)> {
+    ) -> Option<(ProjectId, Vec<SlotPosition>)> {
         let (_, project, placement) = focused_slot(focused, hierarchy, configuration)?;
         let rect = selection_rect(placement, self.delta);
         let placements = configuration
@@ -156,7 +156,7 @@ fn focused_slot(
     focused: FocusableTarget,
     hierarchy: &DesktopTopology,
     configuration: &RuntimeConfiguration,
-) -> Option<(SlotContent, ProjectId, MatrixPlacement)> {
+) -> Option<(SlotContent, ProjectId, SlotPosition)> {
     let content = hierarchy.slot_content_of_target(&focused.into())?;
     let (project, placement) = configuration
         .slot_of_content(content)
@@ -165,7 +165,7 @@ fn focused_slot(
 }
 
 /// The rectangle that `delta` spans from the `focused` slot's placement.
-fn selection_rect(focused: MatrixPlacement, delta: SelectionDelta) -> MatrixRect {
+fn selection_rect(focused: SlotPosition, delta: SelectionDelta) -> MatrixRect {
     let focused = MatrixPoint::from(focused);
     let reached = MatrixPoint::new(
         focused.x.saturating_add_signed(delta.x),
@@ -177,7 +177,7 @@ fn selection_rect(focused: MatrixPlacement, delta: SelectionDelta) -> MatrixRect
 /// The selection's delta after one step in `direction`, or `None` when the placement it reaches
 /// from `focused` would leave `bounds`, the rectangle of the matrix.
 fn extended_delta(
-    focused: MatrixPlacement,
+    focused: SlotPosition,
     delta: SelectionDelta,
     direction: Direction,
     bounds: MatrixRect,
@@ -220,7 +220,7 @@ mod tests {
     /// bottom-right corner.
     #[test]
     fn the_selection_extends_placement_by_placement_inside_the_matrix() {
-        let focused = MatrixPlacement { column: 1, row: 0 };
+        let focused = SlotPosition { column: 1, row: 0 };
         let bounds = MatrixRect::new(MatrixPoint::origin(), MatrixPoint::new(4, 2));
         let extend = |from, direction| extended_delta(focused, from, direction, bounds);
 

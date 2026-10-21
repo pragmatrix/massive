@@ -9,7 +9,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
         let changes = system.plan(DesktopCommand::Configuration(
             ConfigurationCommand::AssignSlot {
                 parent: None,
-                placement: MatrixPlacement { column: 0, row: 0 },
+                placement: SlotPosition { column: 0, row: 0 },
                 content: SlotAssignment::Project {
                     id: ProjectId::ROOT,
                     name: crate::projects::ROOT_PROJECT_NAME.into(),
@@ -29,7 +29,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
                     .plan(DesktopCommand::Configuration(
                         ConfigurationCommand::AssignSlot {
                             parent: None,
-                            placement: MatrixPlacement { column: 0, row: 0 },
+                            placement: SlotPosition { column: 0, row: 0 },
                             content: SlotAssignment::Project {
                                 id,
                                 name: "again".into(),
@@ -69,7 +69,7 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
                 DesktopCommand::Configuration(command),
             )?;
         }
-        let at = |column| MatrixPlacement { column, row: 0 };
+        let at = |column| SlotPosition { column, row: 0 };
         let a = system.aggregates.configuration.boot_launcher().unwrap();
         let b = system
             .aggregates
@@ -134,7 +134,7 @@ async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
                 _ => None,
             })
             .unwrap();
-        let dest = MatrixPlacement { column: 1, row: 0 };
+        let dest = SlotPosition { column: 1, row: 0 };
 
         run(
             &mut system,
@@ -192,7 +192,7 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
             .configuration
             .slot_of_content(project_b)
             .unwrap();
-        let dest = MatrixPlacement { column: 1, row: 0 };
+        let dest = SlotPosition { column: 1, row: 0 };
 
         run(
             &mut system,
@@ -257,7 +257,7 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_placement() -> Res
         };
         assert_eq!(
             configuration.slot_of_content(launcher_a),
-            Some((group, MatrixPlacement { column: 0, row: 0 }))
+            Some((group, SlotPosition { column: 0, row: 0 }))
         );
         assert_eq!(configuration.slots_ordered(project_a).count(), 1);
         assert_eq!(

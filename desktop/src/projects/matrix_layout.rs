@@ -12,7 +12,7 @@ use massive_layout::{MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size
 
 use crate::desktop_system::{LayoutContext, fullscreen_scale};
 use crate::instance_presenter::instance_extent;
-use crate::projects::{MatrixPlacement, MatrixRect, ProjectId, SlotContent};
+use crate::projects::{MatrixRect, ProjectId, SlotContent, SlotPosition};
 
 /// Column and row spacing, indexed by axis like `Extents`.
 const INTERVAL_SPACING: [u32; 2] = [10, 10];
@@ -84,8 +84,8 @@ pub fn matrix_area(
     rect: MatrixRect,
 ) -> Option<LayoutRect<2>> {
     let grid = MatrixGrid::new(&matrix_slots(project, context, children), context);
-    let top_left = MatrixPlacement::from(rect.min).indices();
-    let bottom_right = MatrixPlacement::from(rect.max - vec2(1, 1)).indices();
+    let top_left = SlotPosition::from(rect.min).indices();
+    let bottom_right = SlotPosition::from(rect.max - vec2(1, 1)).indices();
     let mut start = [0; 2];
     let mut extent = [0; 2];
     for axis in 0..2 {
@@ -144,7 +144,7 @@ struct MatrixSlot {
     layout_size: Size<2>,
     size: Size<2>,
     scale: f64,
-    placement: MatrixPlacement,
+    placement: SlotPosition,
 }
 
 impl MatrixSlot {
@@ -162,7 +162,7 @@ fn matrix_slots(
 ) -> Vec<MatrixSlot> {
     let contents = context.hierarchy.matrix_slots(project);
     // One lookup table keeps placing a matrix linear in its slot count.
-    let placements: HashMap<SlotContent, MatrixPlacement> = context
+    let placements: HashMap<SlotContent, SlotPosition> = context
         .configuration
         .project(project)
         .expect("a laid out project is configured")
@@ -299,7 +299,7 @@ mod tests {
             layout_size: size,
             size,
             scale: 1.0,
-            placement: MatrixPlacement { column, row },
+            placement: SlotPosition { column, row },
         };
         let slots = [slot(Size([50, 40]), 0, 0), slot(Size([400, 70]), 2, 0)];
 
@@ -315,7 +315,7 @@ mod tests {
             layout_size,
             size: layout_size,
             scale: 1.0,
-            placement: MatrixPlacement { column: 1, row: 1 },
+            placement: SlotPosition { column: 1, row: 1 },
         };
         let extents: Extents = [vec![500, 200], vec![400, 300]];
 
@@ -337,7 +337,7 @@ mod tests {
             layout_size,
             size: Size([50, 25]),
             scale: 0.5,
-            placement: MatrixPlacement { column: 0, row: 0 },
+            placement: SlotPosition { column: 0, row: 0 },
         };
         let extents: Extents = [vec![201], vec![301]];
 

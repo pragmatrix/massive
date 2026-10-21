@@ -175,7 +175,7 @@ to it.
 
 - A matrix's children are **slot entries**, each classifying its content as
   `Launcher(LaunchProfileId)` or `Project(ProjectId)`, addressed by *(parent
-  `ProjectId`, `MatrixPlacement`)* — the key the shift planner already uses.
+  `ProjectId`, `SlotPosition`)* — the key the shift planner already uses.
   `DesktopTarget` is unchanged: the hover and click target of a project slot
   is the nested `Project` target, a launcher slot keeps targeting the
   launcher.

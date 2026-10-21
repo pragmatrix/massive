@@ -12,7 +12,7 @@ use super::reparenting::Reparenting;
 use super::selection::SelectionDelta;
 use super::{DesktopTarget, FocusableTarget, KeyboardFocusReason, ProjectPart};
 use crate::projects::{
-    DEFAULT_NEW_PROJECT_NAME, MatrixPlacement, ProjectId, RuntimeConfiguration, group_landings,
+    DEFAULT_NEW_PROJECT_NAME, ProjectId, RuntimeConfiguration, SlotPosition, group_landings,
     matrix_rect_covering,
 };
 
@@ -24,7 +24,7 @@ use crate::projects::{
 /// the new project's matrix, which keeps its running instances and lets it slide into place.
 pub fn plan(
     parent: ProjectId,
-    selected_slots: Vec<MatrixPlacement>,
+    selected_slots: Vec<SlotPosition>,
     configuration: &RuntimeConfiguration,
 ) -> Changes {
     let project = ProjectId::new();
@@ -112,7 +112,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
 /// of their bounding box, which takes the focus, and the delta to the opposite corner. The corners
 /// are tried from the top-left, then the top-right, the bottom-left, and the bottom-right. `None`
 /// when no corner holds a slot, because a selection has to start at the focused slot.
-fn ungrouped_selection(landings: &[MatrixPlacement]) -> Option<(MatrixPlacement, SelectionDelta)> {
+fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, SelectionDelta)> {
     let bounds = matrix_rect_covering(landings.iter().map(|&landing| landing.into()));
     let (first, last) = (bounds.min, bounds.max - vec2(1, 1));
     let top_right = point2(last.x, first.y);
@@ -132,8 +132,8 @@ fn ungrouped_selection(landings: &[MatrixPlacement]) -> Option<(MatrixPlacement,
 mod tests {
     use super::*;
 
-    fn at(column: u32, row: u32) -> MatrixPlacement {
-        MatrixPlacement { column, row }
+    fn at(column: u32, row: u32) -> SlotPosition {
+        SlotPosition { column, row }
     }
 
     /// The focus takes the first occupied corner in reading order, and the selection reaches the

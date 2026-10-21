@@ -7,7 +7,7 @@ use super::{
     DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap, ProjectMap,
 };
 use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
+    LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
 mod focus_targets;
@@ -64,7 +64,7 @@ impl NavigationControl {
     fn plan_column_affinity(
         &self,
         direction: Direction,
-        origin: Option<MatrixPlacement>,
+        origin: Option<SlotPosition>,
     ) -> Option<u32> {
         if direction.horizontal().is_some() {
             return None;
@@ -92,7 +92,7 @@ pub struct NavigationPlan {
 enum NavigationOrigin {
     MatrixSlot {
         project: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
     },
     Child {
         launcher: LaunchProfileId,
@@ -280,7 +280,7 @@ fn resolve_navigation_origin(
 fn navigation_origin_placement(
     configuration: &RuntimeConfiguration,
     origin: NavigationOrigin,
-) -> Option<MatrixPlacement> {
+) -> Option<SlotPosition> {
     match origin {
         NavigationOrigin::MatrixSlot { placement, .. } => Some(placement),
         NavigationOrigin::Child { launcher, .. } => configuration

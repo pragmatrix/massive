@@ -5,7 +5,7 @@ use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 use super::Direction;
 use super::change::Zoom;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment, SlotContent};
+use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotContent, SlotPosition};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -58,18 +58,18 @@ pub enum ConfigurationCommand {
     /// [`ProjectId::ROOT`] may be assigned there, exactly once.
     AssignSlot {
         parent: Option<ProjectId>,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         content: SlotAssignment,
         shift: SlotShift,
     },
     ClearSlot {
         parent: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         shift: SlotShift,
     },
     MoveSlot {
-        source: (ProjectId, MatrixPlacement),
-        dest: (ProjectId, MatrixPlacement),
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
     },
     SetStartupPath(Option<String>),
 }

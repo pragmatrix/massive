@@ -22,7 +22,7 @@ use super::change::{Changes, DesktopChange, TopologyChange};
 use super::change_surface::ChangeSurface;
 use super::layout_state::DesktopLayoutState;
 use super::{Aggregates, DesktopTarget, ProjectPart};
-use crate::projects::{MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent};
+use crate::projects::{ProjectId, RuntimeConfiguration, SlotContent, SlotPosition};
 
 /// The re-parented targets that still wait for step 3. For each target, it keeps the absolute
 /// transform of the previous parent, captured before the move. The previous parent may be gone by
@@ -42,8 +42,8 @@ impl Reparenting {
     /// slots, so content that moves to another project needs a new topology parent. A move within
     /// one matrix needs no change.
     pub fn plan(
-        (source_parent, source_placement): (ProjectId, MatrixPlacement),
-        (dest_parent, _): (ProjectId, MatrixPlacement),
+        (source_parent, source_placement): (ProjectId, SlotPosition),
+        (dest_parent, _): (ProjectId, SlotPosition),
         configuration: &RuntimeConfiguration,
     ) -> Changes {
         if source_parent == dest_parent {

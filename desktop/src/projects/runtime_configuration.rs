@@ -119,7 +119,7 @@ impl RuntimeConfiguration {
     pub fn child_project_at(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
     ) -> Option<ProjectId> {
         match self.project(project)?.content_at(placement)? {
             SlotContent::Project(child) => Some(child),
@@ -181,7 +181,7 @@ impl RuntimeConfiguration {
     pub fn assign_slot(
         &mut self,
         parent: Option<ProjectId>,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         content: SlotAssignment,
     ) -> Option<ProjectId> {
         match content {
@@ -235,7 +235,7 @@ impl RuntimeConfiguration {
 
     /// Empties `project`'s slot at `placement`. A slot that hosts no content is
     /// simply absent, so clearing an already empty slot does nothing.
-    pub fn clear_slot(&mut self, project: ProjectId, placement: MatrixPlacement) {
+    pub fn clear_slot(&mut self, project: ProjectId, placement: SlotPosition) {
         self.project_mut(project)
             .expect("the project hosting the slot exists")
             .remove_slot(placement);
@@ -249,8 +249,8 @@ impl RuntimeConfiguration {
     /// destination project is not in the tree.
     pub fn move_slot(
         &mut self,
-        source: (ProjectId, MatrixPlacement),
-        dest: (ProjectId, MatrixPlacement),
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
     ) -> bool {
         let (source_project, source_placement) = source;
         let (dest_project, dest_placement) = dest;
@@ -296,7 +296,7 @@ impl RuntimeConfiguration {
     pub fn group_slots(
         &mut self,
         parent: ProjectId,
-        placements: &[MatrixPlacement],
+        placements: &[SlotPosition],
         project: ProjectId,
         name: &str,
     ) {
@@ -338,7 +338,7 @@ impl RuntimeConfiguration {
     /// time.
     ///
     /// Returns the id of the removed project, whose presenter the caller removes.
-    pub fn ungroup_slot(&mut self, parent: ProjectId, placement: MatrixPlacement) -> ProjectId {
+    pub fn ungroup_slot(&mut self, parent: ProjectId, placement: SlotPosition) -> ProjectId {
         let Some(SlotContent::Project(project)) = self.content_at(parent, placement) else {
             panic!("an ungrouped slot holds a project");
         };
@@ -372,9 +372,9 @@ impl RuntimeConfiguration {
     pub fn ungroup_landings(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
-    ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
-        let inner: Vec<MatrixPlacement> = self
+        placement: SlotPosition,
+    ) -> Vec<(SlotPosition, SlotPosition)> {
+        let inner: Vec<SlotPosition> = self
             .project(project)
             .expect("the ungrouped project exists")
             .slot_contents()
@@ -388,7 +388,7 @@ impl RuntimeConfiguration {
         inner
             .into_iter()
             .map(|inner| {
-                let landing = MatrixPlacement {
+                let landing = SlotPosition {
                     column: placement.column + inner.column - min_column,
                     row: placement.row + inner.row - min_row,
                 };
@@ -412,13 +412,13 @@ impl RuntimeConfiguration {
     pub fn ungroup_pushes(
         &self,
         parent: ProjectId,
-        grouped: MatrixPlacement,
-        landings: &[MatrixPlacement],
-    ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
+        grouped: SlotPosition,
+        landings: &[SlotPosition],
+    ) -> Vec<(SlotPosition, SlotPosition)> {
         let parent_project = self
             .project(parent)
             .expect("the parent of an ungrouped slot exists");
-        let is_taken = |placement: MatrixPlacement| {
+        let is_taken = |placement: SlotPosition| {
             placement != grouped && parent_project.content_at(placement).is_some()
         };
 
@@ -434,7 +434,7 @@ impl RuntimeConfiguration {
                 .map(|landing| landing.column);
             let Some(first_taken) = columns
                 .clone()
-                .filter(|&column| is_taken(MatrixPlacement { column, row }))
+                .filter(|&column| is_taken(SlotPosition { column, row }))
                 .min()
             else {
                 continue;
@@ -451,7 +451,7 @@ impl RuntimeConfiguration {
                 if column == from.column {
                     break;
                 }
-                row_pushes.push((from, MatrixPlacement { column, row }));
+                row_pushes.push((from, SlotPosition { column, row }));
                 next_free = column + 1;
             }
             // Rightmost first, so every push lands on a placement that is already free.
@@ -461,7 +461,7 @@ impl RuntimeConfiguration {
     }
 
     /// Exchanges the contents of `project`'s slots at `a` and `b`. Both slots hold content.
-    pub fn swap_slots(&mut self, project: ProjectId, a: MatrixPlacement, b: MatrixPlacement) {
+    pub fn swap_slots(&mut self, project: ProjectId, a: SlotPosition, b: SlotPosition) {
         let project = self
             .project_mut(project)
             .expect("the project of swapped slots exists");
@@ -480,8 +480,8 @@ impl RuntimeConfiguration {
     /// subtree — a project cannot be moved into itself.
     pub fn can_move_slot(
         &self,
-        source: (ProjectId, MatrixPlacement),
-        dest: (ProjectId, MatrixPlacement),
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
     ) -> bool {
         let (source_project, source_placement) = source;
         let (dest_project, _) = dest;
@@ -718,7 +718,7 @@ impl RuntimeConfiguration {
     pub fn launcher_at(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
     ) -> Option<LaunchProfileId> {
         self.project(project)
             .and_then(|project| project.launcher_at(placement))
@@ -779,9 +779,9 @@ impl RuntimeConfiguration {
     pub fn shifted_slots(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         direction: MoveDirection,
-    ) -> Result<Vec<(MatrixPlacement, MatrixPlacement)>> {
+    ) -> Result<Vec<(SlotPosition, SlotPosition)>> {
         let mut run = vec![placement];
         loop {
             let leading = *run.last().expect("run is never empty");
@@ -811,8 +811,8 @@ impl RuntimeConfiguration {
     pub fn shifted_left_slots(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
-    ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
+        placement: SlotPosition,
+    ) -> Vec<(SlotPosition, SlotPosition)> {
         self.slots_ordered(project)
             .filter(|(candidate, _)| {
                 candidate.row == placement.row && candidate.column > placement.column
@@ -820,7 +820,7 @@ impl RuntimeConfiguration {
             .map(|(candidate, _)| {
                 (
                     candidate,
-                    MatrixPlacement {
+                    SlotPosition {
                         column: candidate.column - 1,
                         row: candidate.row,
                     },
@@ -841,7 +841,7 @@ impl RuntimeConfiguration {
     pub fn slot_of_content(
         &self,
         content: impl Into<SlotContent>,
-    ) -> Option<(ProjectId, MatrixPlacement)> {
+    ) -> Option<(ProjectId, SlotPosition)> {
         let content = content.into();
         self.projects.values().find_map(|project| {
             project
@@ -853,11 +853,7 @@ impl RuntimeConfiguration {
     /// The content of `project`'s slot at `placement`, `None` when the slot is
     /// empty. This is the assignment query the shift planner and `AssignSlot`
     /// validation need; placements are unique per project, so it is a lookup.
-    pub fn content_at(
-        &self,
-        project: ProjectId,
-        placement: MatrixPlacement,
-    ) -> Option<SlotContent> {
+    pub fn content_at(&self, project: ProjectId, placement: SlotPosition) -> Option<SlotContent> {
         self.project(project)
             .and_then(|project| project.content_at(placement))
     }
@@ -891,20 +887,20 @@ impl RuntimeConfiguration {
             .and_then(|(project, _)| self.project(project))
     }
 
-    /// Every assigned slot of `project`, in placement order. `MatrixPlacement`
+    /// Every assigned slot of `project`, in placement order. `SlotPosition`
     /// and `SlotContent` are both `Copy`, so the items are values without a
     /// collection to build first.
     pub fn slots_ordered(
         &self,
         project: ProjectId,
-    ) -> impl Iterator<Item = (MatrixPlacement, SlotContent)> + '_ {
+    ) -> impl Iterator<Item = (SlotPosition, SlotContent)> + '_ {
         self.project(project)
             .into_iter()
             .flat_map(|project| project.slot_contents())
     }
 
     /// The first assigned slot of `project` in matrix-placement order.
-    pub fn first_slot(&self, project: ProjectId) -> Option<(MatrixPlacement, SlotContent)> {
+    pub fn first_slot(&self, project: ProjectId) -> Option<(SlotPosition, SlotContent)> {
         self.slots_ordered(project).next()
     }
 
@@ -936,7 +932,7 @@ pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<Config
         .unwrap_or_else(|| ROOT_PROJECT_NAME.to_string());
     commands.push(ConfigurationCommand::AssignSlot {
         parent: None,
-        placement: MatrixPlacement { column: 0, row: 0 },
+        placement: SlotPosition { column: 0, row: 0 },
         content: SlotAssignment::Project {
             id: ProjectId::ROOT,
             name: root_name,
@@ -1041,7 +1037,7 @@ impl Project {
 
     /// The launcher assigned to `placement`, if the slot holds one.
     #[cfg(test)]
-    pub fn launcher_at(&self, placement: MatrixPlacement) -> Option<LaunchProfileId> {
+    pub fn launcher_at(&self, placement: SlotPosition) -> Option<LaunchProfileId> {
         match self.content_at(placement)? {
             SlotContent::Launcher(launcher) => Some(launcher),
             SlotContent::Project(_) => None,
@@ -1049,14 +1045,14 @@ impl Project {
     }
 
     /// The content of the slot at `placement`, `None` when it is empty.
-    pub fn content_at(&self, placement: MatrixPlacement) -> Option<SlotContent> {
+    pub fn content_at(&self, placement: SlotPosition) -> Option<SlotContent> {
         self.slot_index(placement)
             .map(|index| self.slots[index].content())
     }
 
     /// The placement and content id of every slot, in placement order. This is the view for code
     /// that only needs to know what sits where.
-    pub fn slot_contents(&self) -> impl Iterator<Item = (MatrixPlacement, SlotContent)> + '_ {
+    pub fn slot_contents(&self) -> impl Iterator<Item = (SlotPosition, SlotContent)> + '_ {
         self.slots
             .iter()
             .map(|slot| (slot.placement, slot.content()))
@@ -1123,7 +1119,7 @@ impl Project {
     }
 
     /// The placement of the slot whose ids match `content`.
-    pub fn placement_of_content(&self, content: impl Into<SlotContent>) -> Option<MatrixPlacement> {
+    pub fn placement_of_content(&self, content: impl Into<SlotContent>) -> Option<SlotPosition> {
         let content = content.into();
         self.slots
             .iter()
@@ -1141,12 +1137,12 @@ impl Project {
     }
 
     /// Empties the slot at `placement`, if it is assigned.
-    pub(crate) fn remove_slot(&mut self, placement: MatrixPlacement) {
+    pub(crate) fn remove_slot(&mut self, placement: SlotPosition) {
         self.slots.retain(|slot| slot.placement != placement);
     }
 
     /// The index of the slot at `placement`.
-    pub fn slot_index(&self, placement: MatrixPlacement) -> Option<usize> {
+    pub fn slot_index(&self, placement: SlotPosition) -> Option<usize> {
         self.slots
             .iter()
             .position(|slot| slot.placement == placement)
@@ -1167,14 +1163,14 @@ fn sort_slots(slots: &mut [Slot]) {
 /// moved slot cannot diverge from its content.
 #[derive(Debug, Clone)]
 pub struct Slot {
-    pub placement: MatrixPlacement,
+    pub placement: SlotPosition,
     pub content: SlotPayload,
 }
 
 impl Slot {
     /// Builds a launcher-assigned slot, which is how slots are created at parse
     /// and on assign.
-    pub(crate) fn launcher(placement: MatrixPlacement, launcher: Launcher) -> Self {
+    pub(crate) fn launcher(placement: SlotPosition, launcher: Launcher) -> Self {
         Self {
             placement,
             content: SlotPayload::Launcher(launcher),
@@ -1182,7 +1178,7 @@ impl Slot {
     }
 
     /// Builds a project-assigned slot.
-    pub(crate) fn project(placement: MatrixPlacement, project: ProjectId) -> Self {
+    pub(crate) fn project(placement: SlotPosition, project: ProjectId) -> Self {
         Self {
             placement,
             content: SlotPayload::Project(project),
@@ -1336,8 +1332,9 @@ impl SlotAssignment {
     }
 }
 
+/// A slot's column and row in its project's matrix. The slot there may be assigned or unassigned.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct MatrixPlacement {
+pub struct SlotPosition {
     pub column: u32,
     pub row: u32,
 }
@@ -1364,8 +1361,8 @@ pub fn matrix_rect_covering(points: impl IntoIterator<Item = MatrixPoint>) -> Ma
 /// inside the project. Returns the project's placement and, for each slot, its placement and its
 /// placement inside the project. There is at least one placement.
 pub fn group_landings(
-    placements: &[MatrixPlacement],
-) -> (MatrixPlacement, Vec<(MatrixPlacement, MatrixPlacement)>) {
+    placements: &[SlotPosition],
+) -> (SlotPosition, Vec<(SlotPosition, SlotPosition)>) {
     let top_left = matrix_rect_covering(placements.iter().map(|&placement| placement.into())).min;
     let landings = placements
         .iter()
@@ -1377,13 +1374,13 @@ pub fn group_landings(
     (top_left.into(), landings)
 }
 
-impl From<MatrixPlacement> for MatrixPoint {
-    fn from(placement: MatrixPlacement) -> Self {
+impl From<SlotPosition> for MatrixPoint {
+    fn from(placement: SlotPosition) -> Self {
         Self::new(placement.column, placement.row)
     }
 }
 
-impl From<MatrixPoint> for MatrixPlacement {
+impl From<MatrixPoint> for SlotPosition {
     fn from(point: MatrixPoint) -> Self {
         Self {
             column: point.x,
@@ -1392,7 +1389,7 @@ impl From<MatrixPoint> for MatrixPlacement {
     }
 }
 
-impl MatrixPlacement {
+impl SlotPosition {
     /// The column and the row, indexed by axis: the column along the horizontal axis 0, the row
     /// along the vertical axis 1.
     pub fn indices(self) -> [usize; 2] {
@@ -1400,21 +1397,21 @@ impl MatrixPlacement {
     }
 
     /// The placement one `direction` step away, `None` past the matrix edge.
-    pub fn moved_placement(self, direction: MoveDirection) -> Option<MatrixPlacement> {
+    pub fn moved_placement(self, direction: MoveDirection) -> Option<SlotPosition> {
         match direction {
-            MoveDirection::Left => self.column.checked_sub(1).map(|column| MatrixPlacement {
+            MoveDirection::Left => self.column.checked_sub(1).map(|column| SlotPosition {
                 column,
                 row: self.row,
             }),
-            MoveDirection::Right => self.column.checked_add(1).map(|column| MatrixPlacement {
+            MoveDirection::Right => self.column.checked_add(1).map(|column| SlotPosition {
                 column,
                 row: self.row,
             }),
-            MoveDirection::Up => self.row.checked_sub(1).map(|row| MatrixPlacement {
+            MoveDirection::Up => self.row.checked_sub(1).map(|row| SlotPosition {
                 row,
                 column: self.column,
             }),
-            MoveDirection::Down => self.row.checked_add(1).map(|row| MatrixPlacement {
+            MoveDirection::Down => self.row.checked_add(1).map(|row| SlotPosition {
                 row,
                 column: self.column,
             }),
@@ -1422,7 +1419,7 @@ impl MatrixPlacement {
     }
 }
 
-impl From<(u32, u32)> for MatrixPlacement {
+impl From<(u32, u32)> for SlotPosition {
     fn from((column, row): (u32, u32)) -> Self {
         Self { column, row }
     }
@@ -1460,7 +1457,7 @@ mod tests {
     /// placements behind it, `w` stays.
     #[test]
     fn ungroup_pushes_move_blocking_slots_just_far_enough() {
-        let at = |column| MatrixPlacement { column, row: 0 };
+        let at = |column| SlotPosition { column, row: 0 };
 
         let one_empty_placement = configuration([("p", at(0)), ("y", at(1)), ("w", at(3))]);
         assert_eq!(
@@ -1487,8 +1484,8 @@ mod tests {
     /// aggregate's readers rely on.
     #[test]
     fn swap_slots_exchanges_contents_and_keeps_placement_order() {
-        let first_at = MatrixPlacement { column: 0, row: 0 };
-        let second_at = MatrixPlacement { column: 1, row: 1 };
+        let first_at = SlotPosition { column: 0, row: 0 };
+        let second_at = SlotPosition { column: 1, row: 1 };
         let mut configuration = configuration([("first", first_at), ("second", second_at)]);
         let root = root_id_of(&configuration);
         let id_of = |configuration: &RuntimeConfiguration, name| {
@@ -1514,15 +1511,15 @@ mod tests {
     #[test]
     fn shifted_slots_moves_a_contiguous_run_in_reverse_order() {
         let configuration = configuration([
-            ("first", MatrixPlacement { column: 1, row: 0 }),
-            ("second", MatrixPlacement { column: 2, row: 0 }),
-            ("third", MatrixPlacement { column: 3, row: 0 }),
+            ("first", SlotPosition { column: 1, row: 0 }),
+            ("second", SlotPosition { column: 2, row: 0 }),
+            ("third", SlotPosition { column: 3, row: 0 }),
         ]);
 
         let shifted = configuration
             .shifted_slots(
                 root_id_of(&configuration),
-                MatrixPlacement { column: 1, row: 0 },
+                SlotPosition { column: 1, row: 0 },
                 MoveDirection::Right,
             )
             .unwrap();
@@ -1531,16 +1528,16 @@ mod tests {
             shifted,
             vec![
                 (
-                    MatrixPlacement { column: 3, row: 0 },
-                    MatrixPlacement { column: 4, row: 0 }
+                    SlotPosition { column: 3, row: 0 },
+                    SlotPosition { column: 4, row: 0 }
                 ),
                 (
-                    MatrixPlacement { column: 2, row: 0 },
-                    MatrixPlacement { column: 3, row: 0 }
+                    SlotPosition { column: 2, row: 0 },
+                    SlotPosition { column: 3, row: 0 }
                 ),
                 (
-                    MatrixPlacement { column: 1, row: 0 },
-                    MatrixPlacement { column: 2, row: 0 }
+                    SlotPosition { column: 1, row: 0 },
+                    SlotPosition { column: 2, row: 0 }
                 ),
             ]
         );
@@ -1549,14 +1546,14 @@ mod tests {
     #[test]
     fn shifted_slots_stops_at_the_first_empty_slot() {
         let configuration = configuration([
-            ("first", MatrixPlacement { column: 1, row: 0 }),
-            ("second", MatrixPlacement { column: 3, row: 0 }),
+            ("first", SlotPosition { column: 1, row: 0 }),
+            ("second", SlotPosition { column: 3, row: 0 }),
         ]);
 
         let shifted = configuration
             .shifted_slots(
                 root_id_of(&configuration),
-                MatrixPlacement { column: 1, row: 0 },
+                SlotPosition { column: 1, row: 0 },
                 MoveDirection::Right,
             )
             .unwrap();
@@ -1564,21 +1561,21 @@ mod tests {
         assert_eq!(
             shifted,
             vec![(
-                MatrixPlacement { column: 1, row: 0 },
-                MatrixPlacement { column: 2, row: 0 }
+                SlotPosition { column: 1, row: 0 },
+                SlotPosition { column: 2, row: 0 }
             )]
         );
     }
 
     #[test]
     fn shifted_slots_rejects_left_and_up_boundaries() {
-        let configuration = configuration([("only", MatrixPlacement { column: 0, row: 0 })]);
+        let configuration = configuration([("only", SlotPosition { column: 0, row: 0 })]);
 
         assert!(
             configuration
                 .shifted_slots(
                     root_id_of(&configuration),
-                    MatrixPlacement { column: 0, row: 0 },
+                    SlotPosition { column: 0, row: 0 },
                     MoveDirection::Left
                 )
                 .is_err()
@@ -1587,7 +1584,7 @@ mod tests {
             configuration
                 .shifted_slots(
                     root_id_of(&configuration),
-                    MatrixPlacement { column: 0, row: 0 },
+                    SlotPosition { column: 0, row: 0 },
                     MoveDirection::Up
                 )
                 .is_err()
@@ -1597,25 +1594,25 @@ mod tests {
     #[test]
     fn shifted_left_slots_pulls_the_same_row_left() {
         let configuration = configuration([
-            ("a", MatrixPlacement { column: 0, row: 0 }),
-            ("b", MatrixPlacement { column: 1, row: 0 }),
-            ("c", MatrixPlacement { column: 2, row: 0 }),
-            ("other-row", MatrixPlacement { column: 0, row: 1 }),
+            ("a", SlotPosition { column: 0, row: 0 }),
+            ("b", SlotPosition { column: 1, row: 0 }),
+            ("c", SlotPosition { column: 2, row: 0 }),
+            ("other-row", SlotPosition { column: 0, row: 1 }),
         ]);
 
         assert_eq!(
             configuration.shifted_left_slots(
                 root_id_of(&configuration),
-                MatrixPlacement { column: 0, row: 0 }
+                SlotPosition { column: 0, row: 0 }
             ),
             vec![
                 (
-                    MatrixPlacement { column: 1, row: 0 },
-                    MatrixPlacement { column: 0, row: 0 }
+                    SlotPosition { column: 1, row: 0 },
+                    SlotPosition { column: 0, row: 0 }
                 ),
                 (
-                    MatrixPlacement { column: 2, row: 0 },
-                    MatrixPlacement { column: 1, row: 0 }
+                    SlotPosition { column: 2, row: 0 },
+                    SlotPosition { column: 1, row: 0 }
                 ),
             ]
         );
@@ -1624,7 +1621,7 @@ mod tests {
     #[test]
     fn content_at_classifies_both_kinds_of_slot_content() {
         let nested = ProjectId::new();
-        let placement = MatrixPlacement { column: 0, row: 0 };
+        let placement = SlotPosition { column: 0, row: 0 };
         let mut configuration = configuration([("only", placement)]);
         let root = root_id_of(&configuration);
 
@@ -1643,22 +1640,22 @@ mod tests {
 
     #[test]
     fn a_move_into_the_moved_subtree_is_rejected() {
-        let placement = MatrixPlacement { column: 0, row: 0 };
+        let placement = SlotPosition { column: 0, row: 0 };
         let nested = ProjectId::new();
         let mut configuration = configuration([("only", placement)]);
         let root = root_id_of(&configuration);
         configuration.assign_slot(Some(root), placement, named_project(nested, "nested"));
 
-        let inner = MatrixPlacement { column: 0, row: 0 };
+        let inner = SlotPosition { column: 0, row: 0 };
         assert!(!configuration.can_move_slot((root, placement), (nested, inner)));
         assert!(!configuration.move_slot((root, placement), (nested, inner)));
     }
 
     #[test]
     fn assigning_a_project_creates_it_in_the_parent_slot() {
-        let placement = MatrixPlacement { column: 1, row: 0 };
+        let placement = SlotPosition { column: 1, row: 0 };
         let nested = ProjectId::new();
-        let mut configuration = configuration([("only", MatrixPlacement { column: 0, row: 0 })]);
+        let mut configuration = configuration([("only", SlotPosition { column: 0, row: 0 })]);
         let root = root_id_of(&configuration);
 
         configuration.assign_slot(Some(root), placement, named_project(nested, "labs"));
@@ -1683,7 +1680,7 @@ mod tests {
 
     #[test]
     fn clearing_a_slot_leaves_the_nested_project_empty_rather_than_removed() {
-        let placement = MatrixPlacement { column: 0, row: 0 };
+        let placement = SlotPosition { column: 0, row: 0 };
         let mut configuration = configuration([("only", placement)]);
         let root = root_id_of(&configuration);
         configuration.assign_slot(
@@ -1704,15 +1701,15 @@ mod tests {
 
     #[test]
     fn removing_a_project_takes_its_subtree_and_frees_the_parent_slot() {
-        let root_placement = MatrixPlacement { column: 0, row: 0 };
-        let mut configuration = configuration([("only", MatrixPlacement { column: 1, row: 0 })]);
+        let root_placement = SlotPosition { column: 0, row: 0 };
+        let mut configuration = configuration([("only", SlotPosition { column: 1, row: 0 })]);
         let root = root_id_of(&configuration);
         let labs = ProjectId::new();
         configuration.assign_slot(Some(root), root_placement, named_project(labs, "labs"));
         let inner = ProjectId::new();
         configuration.assign_slot(
             Some(labs),
-            MatrixPlacement { column: 0, row: 0 },
+            SlotPosition { column: 0, row: 0 },
             named_project(inner, "inner"),
         );
 
@@ -1725,8 +1722,8 @@ mod tests {
 
     #[test]
     fn launcher_count_and_first_launcher_walk_nested_projects() {
-        let placement = MatrixPlacement { column: 0, row: 0 };
-        let mut configuration = configuration([("top", MatrixPlacement { column: 0, row: 1 })]);
+        let placement = SlotPosition { column: 0, row: 0 };
+        let mut configuration = configuration([("top", SlotPosition { column: 0, row: 1 })]);
         let root = root_id_of(&configuration);
         let nested = ProjectId::new();
         configuration.assign_slot(Some(root), placement, named_project(nested, "labs"));
@@ -1739,16 +1736,16 @@ mod tests {
         assert_eq!(configuration.launcher_count(), 2);
         assert_eq!(
             configuration.first_launcher_depth_first(),
-            configuration.launcher_at(root, MatrixPlacement { column: 0, row: 1 })
+            configuration.launcher_at(root, SlotPosition { column: 0, row: 1 })
         );
     }
 
     #[test]
     fn first_launcher_descends_when_the_root_has_none_of_its_own() {
-        let placement = MatrixPlacement { column: 0, row: 0 };
-        let mut configuration = configuration([("top", MatrixPlacement { column: 0, row: 1 })]);
+        let placement = SlotPosition { column: 0, row: 0 };
+        let mut configuration = configuration([("top", SlotPosition { column: 0, row: 1 })]);
         let root = root_id_of(&configuration);
-        configuration.clear_slot(root, MatrixPlacement { column: 0, row: 1 });
+        configuration.clear_slot(root, SlotPosition { column: 0, row: 1 });
         let nested = ProjectId::new();
         configuration.assign_slot(Some(root), placement, named_project(nested, "labs"));
         let inner = LaunchProfileId::new();
@@ -1760,18 +1757,18 @@ mod tests {
     #[test]
     fn a_startup_address_path_resolves_relative_to_its_base() {
         let mut configuration =
-            configuration([("root-launcher", MatrixPlacement { column: 0, row: 0 })]);
+            configuration([("root-launcher", SlotPosition { column: 0, row: 0 })]);
         let root = root_id_of(&configuration);
         let labs = ProjectId::new();
         configuration.assign_slot(
             Some(root),
-            MatrixPlacement { column: 0, row: 1 },
+            SlotPosition { column: 0, row: 1 },
             named_project(labs, "labs"),
         );
         let shell = LaunchProfileId::new();
         configuration.assign_slot(
             Some(labs),
-            MatrixPlacement { column: 0, row: 0 },
+            SlotPosition { column: 0, row: 0 },
             launcher_assignment_for(shell),
         );
         configuration
@@ -1810,7 +1807,7 @@ mod tests {
     /// so its slots' parents exist before the slots are assigned under them.
     #[test]
     fn to_commands_starts_with_the_root_parentless_assign_slot() {
-        let configuration = configuration([("shell", MatrixPlacement { column: 0, row: 0 })]);
+        let configuration = configuration([("shell", SlotPosition { column: 0, row: 0 })]);
 
         let commands = to_commands(&configuration);
 
@@ -1842,7 +1839,7 @@ mod tests {
     /// A root project holding the given launchers, with the parent links derived
     /// the way parsing derives them.
     fn configuration(
-        entries: impl IntoIterator<Item = (&'static str, MatrixPlacement)>,
+        entries: impl IntoIterator<Item = (&'static str, SlotPosition)>,
     ) -> RuntimeConfiguration {
         let slots = entries
             .into_iter()
@@ -1892,7 +1889,7 @@ mod tests {
     /// that corner is empty, and the slots keep their arrangement inside it.
     #[test]
     fn grouped_slots_keep_their_arrangement_from_their_top_left_corner() {
-        let at = |column, row| MatrixPlacement { column, row };
+        let at = |column, row| SlotPosition { column, row };
 
         let (placement, landings) = group_landings(&[at(2, 1), at(1, 2)]);
 

@@ -18,8 +18,8 @@ use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
-    LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment,
-    SlotContent,
+    LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
+    SlotPosition,
 };
 
 use massive_applications::prelude::*;
@@ -402,7 +402,7 @@ impl DesktopSystem {
     /// slot, so `placement` is carried through but never slotted.
     fn plan_root_creation(
         &self,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         content: SlotAssignment,
     ) -> Result<Changes> {
         let (id, name) = match content {
@@ -436,7 +436,7 @@ impl DesktopSystem {
     fn slot_shift_sequence(
         &self,
         project: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         direction: MoveDirection,
     ) -> Result<Changes> {
         let mut changes = Changes::Empty;
@@ -456,7 +456,7 @@ impl DesktopSystem {
     fn plan_clear_slot(
         &self,
         parent: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         shift: SlotShift,
     ) -> Result<Changes> {
         let Some(content) = self.aggregates.configuration.content_at(parent, placement) else {
@@ -1031,7 +1031,7 @@ impl DesktopSystem {
                 Ok(ChangeOutput::changes(self.plan_configuration(
                     ConfigurationCommand::AssignSlot {
                         parent: Some(parent),
-                        placement: MatrixPlacement {
+                        placement: SlotPosition {
                             column: *column,
                             row: *row,
                         },
@@ -1210,7 +1210,7 @@ impl DesktopSystem {
         let focus = content.content().focusable_target();
         let mut changes = self.plan_configuration(ConfigurationCommand::AssignSlot {
             parent: Some(parent),
-            placement: MatrixPlacement {
+            placement: SlotPosition {
                 column: placement.column + 1,
                 row: placement.row,
             },

@@ -7,7 +7,7 @@ use super::{FocusableTarget, InputFocus, KeyboardFocusReason};
 use crate::DesktopTarget;
 use crate::desktop_system::ZoomLevel;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotPosition};
 use crate::targeted_event::EventTransitions;
 use crate::window_state::WindowState;
 
@@ -110,19 +110,19 @@ pub enum ConfigurationChange {
     /// [`DesktopConfiguration::assign_slot`]).
     AssignSlot {
         parent: Option<ProjectId>,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
         assignment: SlotAssignment,
     },
     /// Empties the slot `(parent, placement)`.
     ClearSlot {
         parent: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
     },
     /// Moves the content of the source slot to the destination slot. The content
     /// may move to another project's matrix, but not into its own subtree.
     MoveSlot {
-        source: (ProjectId, MatrixPlacement),
-        dest: (ProjectId, MatrixPlacement),
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
     },
     /// Wraps the slots at `placements` in `parent` into a new project, which takes their place
     /// (ADR 0026). Grouping needs its own change, because the project's placement usually holds
@@ -130,7 +130,7 @@ pub enum ConfigurationChange {
     /// to wait in a temporary slot.
     Group {
         parent: ProjectId,
-        placements: Vec<MatrixPlacement>,
+        placements: Vec<SlotPosition>,
         project: ProjectId,
         name: String,
     },
@@ -140,15 +140,15 @@ pub enum ConfigurationChange {
     /// `MoveSlot`s planned before it.
     Ungroup {
         parent: ProjectId,
-        placement: MatrixPlacement,
+        placement: SlotPosition,
     },
     /// Exchanges the contents of two slots in `parent`'s matrix. A swap needs its own change,
     /// because each content needs the other's placement at the same time. Expressed as moves, one
     /// of them would first have to wait in a temporary slot.
     SwapSlots {
         parent: ProjectId,
-        a: MatrixPlacement,
-        b: MatrixPlacement,
+        a: SlotPosition,
+        b: SlotPosition,
     },
     SetStartupPath(Option<String>),
 }

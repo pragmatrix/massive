@@ -36,8 +36,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, Launcher,
-    LauncherMode, MatrixPlacement, Params, Project, ProjectId, ROOT_PROJECT_NAME,
-    RuntimeConfiguration, Slot, SlotAssignment, SlotPayload,
+    LauncherMode, Params, Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot,
+    SlotAssignment, SlotPayload, SlotPosition,
 };
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
@@ -170,7 +170,7 @@ const DEFAULT_CONFIG: &str = r#"{
 fn persisted_slots(slots: &[PersistedSlot], projects: &mut Vec<Project>) -> Vec<Slot> {
     let mut parsed: Vec<Slot> = Vec::new();
     for slot in slots {
-        let placement = MatrixPlacement::from(slot.at);
+        let placement = SlotPosition::from(slot.at);
         match &slot.content {
             PersistedSlotContent::Launcher(launcher) => parsed.push(Slot::launcher(
                 placement,
@@ -203,7 +203,7 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
     }
     warn!("Configuration defines no launcher; adding one to the root project");
 
-    let placement = MatrixPlacement {
+    let placement = SlotPosition {
         column: 0,
         row: configuration
             .slots_ordered(ProjectId::ROOT)
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(reloaded.launcher_count(), configuration.launcher_count());
         let root = ProjectId::ROOT;
         let labs = reloaded
-            .child_project_at(root, MatrixPlacement { column: 1, row: 0 })
+            .child_project_at(root, SlotPosition { column: 1, row: 0 })
             .expect("labs is a root slot");
         assert_eq!(
             reloaded.project(labs).map(|project| project.name.as_str()),

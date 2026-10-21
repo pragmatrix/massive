@@ -14,7 +14,7 @@ use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{DesktopTarget, FocusableTarget, InstancePart, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
+    LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
 /// Resolves where the camera points for a zoom level, from the placed layout.
@@ -63,7 +63,7 @@ impl<'a> ZoomGeometry<'a> {
         &self,
         project: ProjectId,
         target: FocusableTarget,
-    ) -> Option<(SlotContent, MatrixPlacement)> {
+    ) -> Option<(SlotContent, SlotPosition)> {
         let target_path = self.hierarchy.resolve_path(Some(&target.into()));
         self.configuration
             .slots_ordered(project)

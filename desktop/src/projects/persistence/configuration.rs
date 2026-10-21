@@ -80,7 +80,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::projects::{MatrixPlacement, ProjectId, SlotAssignment};
+    use crate::projects::{ProjectId, SlotAssignment, SlotPosition};
 
     /// Persisting writes the aggregate as it is: the assigned project reaches the file.
     #[test]
@@ -96,7 +96,7 @@ mod tests {
 
         configuration.assign_slot(
             Some(root),
-            MatrixPlacement { column: 1, row: 0 },
+            SlotPosition { column: 1, row: 0 },
             SlotAssignment::Project {
                 id: ProjectId::new(),
                 name: "extra".into(),

@@ -14,7 +14,7 @@ use crate::desktop_system::{
     ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
     expand_main_axis_child_size, measure_container, place_container_children,
 };
-use crate::projects::{MatrixPlacement, ProjectId, SlotContent};
+use crate::projects::{ProjectId, SlotContent, SlotPosition};
 
 use super::matrix_layout::{measure_matrix, place_matrix_children};
 use super::slot_layout::SlotLayout;
@@ -35,7 +35,7 @@ pub struct ProjectPresenter {
     location: Handle<Location>,
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
-    pub last_focused_placement: Option<MatrixPlacement>,
+    pub last_focused_placement: Option<SlotPosition>,
 }
 
 impl ProjectPresenter {
