@@ -7,6 +7,11 @@ A UI framework with a 3D desktop: shell, desktop, views, key delivery and the IM
 `GLOSSARY.md` defines the desktop's terms. Check it, including its `_Avoid_` lists, before naming a
 type, function or concept in code or an ADR, and add the term there when you introduce one.
 
+## Exceptional behaviors
+
+A guard, redirect, or fallback that users could expect to work differently is decided in
+`desktop/src/when.rs`. Read ADR 0029 before adding or changing one.
+
 ## Key bindings
 
 `docs/keyboard-shortcuts.md` lists every key binding of the desktop, the shell and the terminal
