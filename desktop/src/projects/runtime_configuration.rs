@@ -105,7 +105,7 @@ impl RuntimeConfiguration {
         configuration.startup = startup.and_then(|path| {
             let resolved = configuration.resolve_launcher_path(ProjectId::ROOT, path);
             if resolved.is_none() {
-                warn!("Startup '{path}' does not resolve; falling back to the first launcher");
+                warn!("Startup '{path}' does not resolve");
             }
             resolved
         });

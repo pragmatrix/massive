@@ -251,13 +251,17 @@ impl DesktopSystem {
                     Some(FocusableTarget::Project(project)) => Some(project),
                     _ => None,
                 };
-                let selected_project = focused.and_then(|focused| {
-                    self.selection.fully_selected_project(
-                        focused,
-                        &self.aggregates.hierarchy,
-                        &self.aggregates.configuration,
-                    )
-                });
+                // The root project has no parent matrix to take its slots, so selecting all of
+                // them does not count.
+                let selected_project = focused
+                    .and_then(|focused| {
+                        self.selection.fully_selected_project(
+                            focused,
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.configuration,
+                        )
+                    })
+                    .filter(|&project| project != ProjectId::ROOT);
                 let project = match when::ungrouping(
                     focused_project.is_some(),
                     selected_project.is_some(),

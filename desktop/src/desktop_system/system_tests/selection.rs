@@ -296,3 +296,50 @@ async fn selecting_all_slots_of_a_project_ungroups_it() -> Result<()> {
     })
     .await
 }
+
+/// The root project cannot be ungrouped, so an extended selection over all of its slots leaves
+/// Cmd+Shift+G to the focused project (ADR 0029).
+#[tokio::test]
+async fn selecting_all_root_slots_ungroups_the_focused_project() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let TwoLaunchers {
+            mut system,
+            mut instance_manager,
+            a,
+            ..
+        } = two_launchers()?;
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(a),
+        )?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
+        let Some((group, _)) = system.aggregates.configuration.slot_of_content(a) else {
+            panic!("grouping keeps the launcher in a slot");
+        };
+
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Project(group),
+        )?;
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::UngroupSlot,
+        )?;
+
+        assert_eq!(
+            system.aggregates.configuration.slot_of_content(a),
+            Some((ProjectId::ROOT, SlotPosition { column: 0, row: 0 }))
+        );
+
+        Ok(())
+    })
+    .await
+}
