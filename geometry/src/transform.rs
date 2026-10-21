@@ -2,6 +2,9 @@ use std::ops::{Mul, MulAssign};
 
 use crate::{Matrix4, Point, Quaternion, ToVector3, Vector3};
 
+/// A uniform scale and a rotation around a local point, the pivot, followed by a translation that
+/// moves the pivot to `translate`. The transform itself does not record which point is its pivot.
+/// The same mapping can be written with different pivots, which changes only `translate`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     pub translate: Vector3,
@@ -109,24 +112,20 @@ impl Transform {
         )
     }
 
-    /// Converts an anchor-based transform into an origin-based transform.
-    ///
-    /// The input transform translation is interpreted as the world-space position of `anchor`
-    /// in local coordinates.
-    pub fn to_origin_space(self, anchor: Point) -> Self {
-        let anchor = anchor.with_z(0.0);
-        let origin_translation = self.translate + self.rotate * (-anchor * self.scale);
+    /// The same mapping as this transform, which is pivoted at `pivot`, but pivoted at the local
+    /// origin. The returned `translate` is the image of the origin.
+    pub fn pivoted_at_origin(self, pivot: Point) -> Self {
+        let pivot = pivot.with_z(0.0);
+        let origin_translation = self.translate + self.rotate * (-pivot * self.scale);
         Self::new(origin_translation, self.rotate, self.scale)
     }
 
-    /// Converts an origin-based transform into an anchor-based transform.
-    ///
-    /// The returned transform translation is the world-space position of `anchor`
-    /// in local coordinates.
-    pub fn to_anchor_space(self, anchor: Point) -> Self {
-        let anchor = anchor.with_z(0.0);
-        let anchor_translation = self.translate + self.rotate * (anchor * self.scale);
-        Self::new(anchor_translation, self.rotate, self.scale)
+    /// The same mapping as this transform, which is pivoted at the local origin, but pivoted at
+    /// `pivot`. The returned `translate` is the image of `pivot`.
+    pub fn pivoted_at(self, pivot: Point) -> Self {
+        let pivot = pivot.with_z(0.0);
+        let pivot_translation = self.translate + self.rotate * (pivot * self.scale);
+        Self::new(pivot_translation, self.rotate, self.scale)
     }
 }
 

@@ -296,7 +296,7 @@ impl<'a> ZoomGeometry<'a> {
         let size = Rect::from(rect_px).size();
         let local_rect = size.to_rect();
         let local_center = local_rect.center();
-        let origin_transform = placement.transform.to_origin_space(local_center);
+        let origin_transform = placement.transform.pivoted_at_origin(local_center);
         let bounds = Self::transform_rect(local_rect, origin_transform);
         bounds.rect
     }
@@ -305,11 +305,11 @@ impl<'a> ZoomGeometry<'a> {
         let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
-        // `placement.transform` is anchor-space for this target. Convert to origin-space
-        // before transforming local rectangle corners.
+        // `placement.transform` is pivoted at the target's center. Pivot it at the origin before
+        // transforming local rectangle corners.
         let local_rect = size.to_rect();
         let local_center = local_rect.center();
-        let origin_transform = placement.transform.to_origin_space(local_center);
+        let origin_transform = placement.transform.pivoted_at_origin(local_center);
         Self::transform_rect(local_rect, origin_transform)
     }
 

@@ -160,8 +160,8 @@ to the nearest depth-first launcher from the root when it does not resolve.
 - `project_of_target` answering the root for every target keeps the derived
   focused project and the depth sequence dependent on a project being found
   at the root.
-- Rect math reads the placement rect (origin space), not the placement
-  transform's scale: `to_origin_space`/`to_anchor_space` only round-trip at
+- Rect math reads the placement rect, whose offset is its origin, not the placement
+  transform's scale: `pivoted_at_origin`/`pivoted_at` only round-trip at
   scale 1. This includes the overview bounds and the row/project rect widening.
 
 ## Implementation notes

@@ -406,7 +406,7 @@ impl LauncherMovement {
         let Some(layout) = self.layout.proceed_with(progress) else {
             return;
         };
-        scene_transform_handle.update_if_changed(layout.to_origin_space());
+        scene_transform_handle.update_if_changed(layout.pivoted_at_origin());
 
         // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
         // is perhaps not reliable.

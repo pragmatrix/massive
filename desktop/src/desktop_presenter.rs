@@ -156,7 +156,7 @@ impl HoverMovement {
         let layout = *self.layout.proceed_with(progress);
         let local_rect = layout.rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
-        hover_scene_transform.update_if_changed(layout.to_origin_space());
+        hover_scene_transform.update_if_changed(layout.pivoted_at_origin());
 
         let visual = create_hover_shapes(rect_alpha)
             .into_visual()

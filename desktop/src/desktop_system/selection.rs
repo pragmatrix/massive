@@ -122,7 +122,7 @@ impl Selection {
         let area_origin = DesktopLayoutState::origin_transform(&matrix_placement)
             * Transform::from_xy(offset[0] as f64, offset[1] as f64);
         Some(Placement::new(
-            area_origin.to_anchor_space(DesktopLayoutState::layout_local_center(area.size)),
+            area_origin.pivoted_at(DesktopLayoutState::layout_local_center(area.size)),
             LayoutRect::new(matrix_placement.rect.offset + offset, area.size),
         ))
     }

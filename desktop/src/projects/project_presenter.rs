@@ -54,7 +54,7 @@ impl ProjectPresenter {
         let matrix = ProjectMatrixPresenter::new(location.clone());
         let movement = movement(SlotLayout::default(), move |layout, progress| {
             if let Some(layout) = layout.proceed_with(progress) {
-                scene_transform.update_if_changed(layout.to_origin_space());
+                scene_transform.update_if_changed(layout.pivoted_at_origin());
             }
         })
         .mount();
@@ -236,7 +236,7 @@ impl ProjectMatrixPresenter {
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform) {
-        let scene_transform = layout.to_origin_space();
+        let scene_transform = layout.pivoted_at_origin();
         self.scene_transform.update_if_changed(scene_transform);
     }
 }

@@ -1,6 +1,6 @@
 # Transforms name their pivot, not an anchor space
 
-## Status: accepted, not implemented yet
+## Status: accepted
 
 ## Problem
 

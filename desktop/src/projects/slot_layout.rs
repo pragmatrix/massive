@@ -41,8 +41,8 @@ impl SlotLayout {
             return;
         };
         let drawn = *layout.latest();
-        let origin = previous_to_current * drawn.to_origin_space();
-        let transform = origin.to_anchor_space(drawn.rect().center());
+        let origin = previous_to_current * drawn.pivoted_at_origin();
+        let transform = origin.pivoted_at(drawn.rect().center());
         layout.snap(SizedTransform::new(drawn.size, transform));
     }
 
@@ -77,8 +77,8 @@ mod tests {
         layout.rebase(parent.inverse() * previous_parent);
 
         assert_eq!(
-            parent * layout.layout.unwrap().latest().to_origin_space(),
-            previous_parent * drawn.to_origin_space()
+            parent * layout.layout.unwrap().latest().pivoted_at_origin(),
+            previous_parent * drawn.pivoted_at_origin()
         );
     }
 }
