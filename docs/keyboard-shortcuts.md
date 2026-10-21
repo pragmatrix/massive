@@ -31,8 +31,8 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+W | desktop (instance) | Close the instance | close tab or window (mac, everywhere) |
 | Cmd+Shift+W | desktop (launcher, project) | Remove the focused launcher or nested project, but only if no instance runs anywhere below it | close window (Br, VS, terminals) |
 | Cmd+N | desktop | Add a launcher right of the focused slot and focus it | new window (mac, all terminals, Br, Fi) · new note (Ob) |
-| Cmd+G | desktop | Wrap the focused slot in a new project at its placement and focus the project | find next (mac, Term, Br, VS, Gh) · group (Fg, Sketch, Illustrator) · graph view (Ob) |
-| Cmd+Shift+G | desktop (project) | Unpack the focused project into its parent's matrix and remove it | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
+| Cmd+G | desktop | Wrap the selected slots, or else the focused slot, in a new project at their place and focus the project | find next (mac, Term, Br, VS, Gh) · group (Fg, Sketch, Illustrator) · graph view (Ob) |
+| Cmd+Shift+G | desktop (project) | Move the focused project's slots into its parent's matrix, remove it, and select the ungrouped slots | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
 | Cmd+Shift+←/→/↑/↓ | desktop | Extend the slot selection by one placement; repeats when held | select to line start/end, document top/bottom (mac text) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |

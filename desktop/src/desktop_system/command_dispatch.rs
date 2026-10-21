@@ -226,17 +226,26 @@ impl DesktopSystem {
                 })
             }
             DesktopCommand::GroupSlot => {
-                let Some(content) = self
-                    .focused_target()
-                    .and_then(|focused| self.aggregates.hierarchy.slot_content_of_target(&focused))
+                let Some((parent, selected_slots)) =
+                    self.keyboard_focus.focused().and_then(|focused| {
+                        self.selection.selected_slots(
+                            focused,
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.configuration,
+                        )
+                    })
                 else {
                     warn!("The focus sits in no slot to group");
                     return Ok(Changes::Empty);
                 };
-                Ok(grouping::plan(content, &self.aggregates.configuration))
+                Ok(grouping::plan(
+                    parent,
+                    selected_slots,
+                    &self.aggregates.configuration,
+                ))
             }
             DesktopCommand::UngroupSlot => {
-                // Only a focused nested project is ungrouped, so the user sees what is unpacked.
+                // Only a focused nested project is ungrouped, so the user sees which slots move.
                 let Some(FocusableTarget::Project(project)) = self.keyboard_focus.focused() else {
                     return Ok(Changes::Empty);
                 };
@@ -245,7 +254,7 @@ impl DesktopSystem {
                 }
                 let configuration = &self.aggregates.configuration;
                 if configuration.first_slot(project).is_none() {
-                    // An empty project has nothing to unpack, so ungrouping just removes it.
+                    // An empty project has no slots to move, so ungrouping just removes it.
                     let (parent, placement) = configuration
                         .slot_of_content(project)
                         .expect("a nested project sits in a slot");
@@ -794,13 +803,13 @@ impl DesktopSystem {
             }
             ConfigurationChange::Group {
                 parent,
-                placement,
+                placements,
                 project,
                 name,
             } => {
                 self.aggregates
                     .configuration
-                    .group_slot(parent, placement, project, &name);
+                    .group_slots(parent, &placements, project, &name);
                 self.insert_slot_presenter(SlotContent::Project(project), Some(parent))?;
             }
             ConfigurationChange::Ungroup { parent, placement } => {

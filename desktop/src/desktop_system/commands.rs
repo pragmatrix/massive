@@ -31,11 +31,11 @@ pub enum DesktopCommand {
     /// (Cmd+Shift+W). Otherwise the content is kept, so that a key press never quits running
     /// processes.
     RemoveSlot(SlotContent),
-    /// Wraps the content of the focused slot into a new project (Cmd+G). The new project takes the
-    /// slot's placement and receives the focus.
+    /// Wraps the selected slots, or else the focused slot, into a new project (Cmd+G, ADR 0026).
+    /// The new project takes the slots' place and receives the focus.
     GroupSlot,
-    /// Unpacks the focused nested project into its parent's matrix and removes the project
-    /// (Cmd+Shift+G).
+    /// Moves the slots of the focused nested project into its parent's matrix, removes the
+    /// project, and selects the ungrouped slots (Cmd+Shift+G, ADR 0026).
     UngroupSlot,
 
     Navigate(Direction),

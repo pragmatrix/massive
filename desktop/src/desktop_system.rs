@@ -168,7 +168,7 @@ pub enum KeyboardFocusReason {
     Zoom,
     /// Newly added slot content takes the focus, so the user continues where it appeared.
     AddSlotContent,
-    /// Ungrouping removes the focused project, so one of its unpacked slots takes the focus.
+    /// Ungrouping removes the focused project, so one of its ungrouped slots takes the focus.
     Ungroup,
     /// Extending the selection from an instance moves the focus to its launcher, where the
     /// selection starts (ADR 0025).

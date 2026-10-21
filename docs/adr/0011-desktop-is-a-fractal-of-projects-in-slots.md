@@ -110,7 +110,9 @@ Replacing slot content is a clear plus an assign, never an in-place operation.
 project that takes the slot's placement (Cmd+G). Grouping cannot be expressed with assign, clear,
 and move alone: the content and the new project need the same placement, so one of them would
 first have to wait in a temporary slot. `Group` does it in one step, and the content's re-parent
-follows as a topology change.
+follows as a topology change. Since [ADR 0026](./0026-grouping-wraps-the-selected-slots-into-a-project-in-place.md),
+`Group` wraps several slots at once, and the project takes the top-left placement of their
+bounding box.
 
 *Update:* a fifth change, `SwapSlots`, exchanges the contents of two slots in one matrix, for the
 directional launcher move onto a taken placement. It exists for the same reason as `Group`: each

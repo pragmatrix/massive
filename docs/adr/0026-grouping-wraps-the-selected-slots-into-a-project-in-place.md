@@ -1,11 +1,10 @@
 # Grouping wraps the selected slots into a project in place
 
-## Status: accepted, selection not implemented yet
+## Status: accepted
 
 Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md), whose `Group` and
 `Ungroup` changes carry it out, and on [ADR 0025](./0025-slots-can-be-selected-beside-the-keyboard-focus.md),
-whose selection says which slots are meant. Grouping a single slot is implemented. Grouping a
-selection, and the selection that ungrouping leaves, wait for ADR 0025's selection.
+whose selection says which slots are meant.
 
 ## Problem
 
@@ -40,12 +39,12 @@ the root.
 - **Slots in the way are pushed right.** Only rows in which a landing placement is taken are
   touched. The slots in such a row move right just far enough to clear the landings, and empty
   placements between slots absorb the push.
-- **The unpacked slots are selected.** The focus goes to the slot at a corner of their bounding
+- **The ungrouped slots are selected.** The focus goes to the slot at a corner of their bounding
   box, the top-left corner first, and the selection's delta reaches the opposite corner. The
   user can then group them again, or narrow the selection first. When no corner of the bounding
   box is occupied, only the focus moves and nothing is selected, because a selection has to start
   at the focused slot.
-- **An empty project is removed.** It has nothing to unpack.
+- **An empty project is removed.** It has no slots to move.
 
 Grouping and ungrouping are each one change in the configuration (ADR 0011). The content and the
 project need the same placement at the same time, which separate moves could only reach through a
@@ -55,10 +54,9 @@ temporary slot.
 
 - A configuration change collapses the selection (ADR 0025) unless the operation sets a new one,
   as ungrouping does.
-- Grouping a selection needs a `Group` change that takes several slots, and the re-parent of each.
-  Today `Group` takes one placement.
+- The `Group` change takes several slots, and each of them is re-parented on its own.
 - Grouping never moves anything outside the selection, but ungrouping can push slots of the
-  parent. The asymmetry is deliberate. A project needs one placement, while its unpacked slots can
+  parent. The asymmetry is deliberate. A project needs one placement, while its ungrouped slots can
   need many.
 
 ## Considered options
@@ -70,4 +68,4 @@ temporary slot.
   the gaps it leaves. Rejected, because slots the user did not select would move, and ungrouping
   could no longer restore the arrangement.
 - **Ungroup every selected project.** Rejected for now. It is unclear where the slots of several
-  projects should land when their bounding boxes overlap after unpacking.
+  projects should land when their bounding boxes overlap after ungrouping.

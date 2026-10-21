@@ -84,6 +84,28 @@ impl Selection {
         changes
     }
 
+    /// The slots the selection that starts at the `focused` target covers: the project whose matrix
+    /// holds them, and the placements of its occupied slots inside the selection, in the matrix's
+    /// slot order. Without a selection beyond the focused slot, this is the focused slot alone.
+    /// `None` when the focus sits in no slot.
+    pub fn selected_slots(
+        &self,
+        focused: FocusableTarget,
+        hierarchy: &DesktopTopology,
+        configuration: &RuntimeConfiguration,
+    ) -> Option<(ProjectId, Vec<MatrixPlacement>)> {
+        let (_, project, placement) = focused_slot(focused, hierarchy, configuration)?;
+        let rect = selection_rect(placement, self.delta);
+        let placements = configuration
+            .project(project)
+            .expect("a selection's project is configured")
+            .slot_contents()
+            .map(|(placement, _)| placement)
+            .filter(|&placement| rect.contains(placement.into()))
+            .collect();
+        Some((project, placements))
+    }
+
     /// Where the outline of the selection that starts at the `focused` target goes, in the
     /// coordinates of the layout root. `None` when only the focused slot is selected, so the
     /// outline marks the focused target as usual.

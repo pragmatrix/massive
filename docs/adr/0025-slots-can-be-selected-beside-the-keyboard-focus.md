@@ -1,6 +1,6 @@
 # Slots can be selected beside the keyboard focus
 
-## Status: accepted, not implemented yet
+## Status: accepted
 
 Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md), whose slots and
 placements it selects, and on [ADR 0021](./0021-keyboard-focus-state-lives-beside-the-router-not-in-it.md),

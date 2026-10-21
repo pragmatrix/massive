@@ -31,10 +31,6 @@ pub const ROOT_PROJECT_NAME: &str = "Projects";
 /// names none; a taken name is indexed (see [`DesktopConfiguration::new_project_name`]).
 pub const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 
-/// The placement that grouped content takes inside its new project. Grouping wraps a single slot,
-/// so the content becomes the project's first and only slot.
-pub const GROUPED_PLACEMENT: MatrixPlacement = MatrixPlacement { column: 0, row: 0 };
-
 /// The default name a launcher created by an assignment takes. The parse also
 /// gives a launcher-less configuration a launcher under this name (ADR 0012).
 pub const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
@@ -290,35 +286,46 @@ impl RuntimeConfiguration {
         true
     }
 
-    /// Wraps the content of `parent`'s slot at `placement` into a new project with the id
-    /// `project`. The content moves into the new project at [`GROUPED_PLACEMENT`], and the new
-    /// project takes over `placement` in `parent`.
+    /// Wraps the slots at `placements` in `parent` into a new project with the id `project`. The
+    /// slots move into the new project and the project takes their place in `parent`, both where
+    /// [`group_landings`] says.
     ///
-    /// This is one step, because the content and the new project need the same placement. With
-    /// separate moves and assignments, one of them would first have to wait in a temporary slot.
-    pub fn group_slot(
+    /// This is one step, because the project's placement usually holds one of the grouped slots.
+    /// With separate moves and assignments, one of them would first have to wait in a temporary
+    /// slot.
+    pub fn group_slots(
         &mut self,
         parent: ProjectId,
-        placement: MatrixPlacement,
+        placements: &[MatrixPlacement],
         project: ProjectId,
         name: &str,
     ) {
+        let (placement, landings) = group_landings(placements);
         let parent_project = self
             .project_mut(parent)
-            .expect("the parent of a grouped slot exists");
-        let index = parent_project
-            .slot_index(placement)
-            .expect("a grouped slot has content");
-        let mut slot = parent_project.slots.remove(index);
+            .expect("the parent of grouped slots exists");
+        let slots: Vec<Slot> = landings
+            .into_iter()
+            .map(|(outer, inner)| {
+                let index = parent_project
+                    .slot_index(outer)
+                    .expect("a grouped slot has content");
+                let mut slot = parent_project.slots.remove(index);
+                slot.placement = inner;
+                slot
+            })
+            .collect();
 
         let name = self.new_project_name(project, DEFAULT_NEW_PROJECT_NAME, name);
         self.add_project(project, name);
-        slot.placement = GROUPED_PLACEMENT;
-        self.project_mut(project)
-            .expect("the new project was just added")
-            .assign_slot(slot);
+        let grouped = self
+            .project_mut(project)
+            .expect("the new project was just added");
+        for slot in slots {
+            grouped.assign_slot(slot);
+        }
         self.project_mut(parent)
-            .expect("the parent of a grouped slot exists")
+            .expect("the parent of grouped slots exists")
             .assign_slot(Slot::project(placement, project));
     }
 
@@ -326,7 +333,7 @@ impl RuntimeConfiguration {
     /// project. Each slot lands where [`Self::ungroup_landings`] says. The landing placements must
     /// be free, which the planned collision pushes ([`Self::ungroup_pushes`]) make sure of.
     ///
-    /// This is one step for the same reason as [`Self::group_slot`]. The project's first slot
+    /// This is one step for the same reason as [`Self::group_slots`]. The project's first slot
     /// usually lands on the project's own placement, so the project has to leave it at the same
     /// time.
     ///
@@ -390,8 +397,8 @@ impl RuntimeConfiguration {
             .collect()
     }
 
-    /// The moves in `parent` that clear the `landings` of an ungrouping before the project at
-    /// `grouped` is unpacked there. The project's own placement counts as free, because the
+    /// The moves in `parent` that clear the `landings` of an ungrouping, before the slots of the
+    /// project at `grouped` land there. The project's own placement counts as free, because the
     /// project leaves it.
     ///
     /// Only rows in which a landing placement is taken are touched. In such a row, the slots from
@@ -1352,6 +1359,24 @@ pub fn matrix_rect_covering(points: impl IntoIterator<Item = MatrixPoint>) -> Ma
     MatrixRect::new(rect.min, rect.max + vec2(1, 1))
 }
 
+/// Where grouping the slots at `placements` puts them (ADR 0026). The new project takes the
+/// top-left placement of the slots' bounding box, and each slot keeps its offset from that corner
+/// inside the project. Returns the project's placement and, for each slot, its placement and its
+/// placement inside the project. There is at least one placement.
+pub fn group_landings(
+    placements: &[MatrixPlacement],
+) -> (MatrixPlacement, Vec<(MatrixPlacement, MatrixPlacement)>) {
+    let top_left = matrix_rect_covering(placements.iter().map(|&placement| placement.into())).min;
+    let landings = placements
+        .iter()
+        .map(|&placement| {
+            let inner = MatrixPoint::from(placement) - top_left.to_vector();
+            (placement, inner.into())
+        })
+        .collect();
+    (top_left.into(), landings)
+}
+
 impl From<MatrixPlacement> for MatrixPoint {
     fn from(placement: MatrixPlacement) -> Self {
         Self::new(placement.column, placement.row)
@@ -1861,6 +1886,18 @@ mod tests {
 
     fn root_id_of(_configuration: &RuntimeConfiguration) -> ProjectId {
         ProjectId::ROOT
+    }
+
+    /// The new project sits at the top-left corner of the grouped slots' bounding box, even when
+    /// that corner is empty, and the slots keep their arrangement inside it.
+    #[test]
+    fn grouped_slots_keep_their_arrangement_from_their_top_left_corner() {
+        let at = |column, row| MatrixPlacement { column, row };
+
+        let (placement, landings) = group_landings(&[at(2, 1), at(1, 2)]);
+
+        assert_eq!(placement, at(1, 1));
+        assert_eq!(landings, [(at(2, 1), at(1, 0)), (at(1, 2), at(0, 1))]);
     }
 
     /// A `MatrixRect` excludes its maximum, so the covering rectangle reaches one past the last

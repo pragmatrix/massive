@@ -124,13 +124,13 @@ pub enum ConfigurationChange {
         source: (ProjectId, MatrixPlacement),
         dest: (ProjectId, MatrixPlacement),
     },
-    /// Wraps the content of the slot `(parent, placement)` into a new project, which takes the
-    /// placement. Grouping needs its own change, because the content and the new project need the
-    /// same placement. Expressed as assignments and moves, one of them would first have to wait in
-    /// a temporary slot.
+    /// Wraps the slots at `placements` in `parent` into a new project, which takes their place
+    /// (ADR 0026). Grouping needs its own change, because the project's placement usually holds
+    /// one of the grouped slots. Expressed as assignments and moves, one of them would first have
+    /// to wait in a temporary slot.
     Group {
         parent: ProjectId,
-        placement: MatrixPlacement,
+        placements: Vec<MatrixPlacement>,
         project: ProjectId,
         name: String,
     },
