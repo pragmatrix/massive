@@ -8,11 +8,12 @@ use anyhow::Result;
 use massive_applications::{InstanceId, ViewEvent, ViewId};
 
 use super::change::{Changes, DesktopChange};
+use super::selection::focused_slot;
 use super::{
     Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, FocusableTarget, InputFocus, KeyInput,
 };
 use crate::desktop_system::topology::DesktopTopology;
-use crate::projects::RuntimeConfiguration;
+use crate::projects::{ProjectId, RuntimeConfiguration};
 use crate::targeted_event::EventTransition;
 
 /// A level of the keyboard focus path that may consume a key.
@@ -53,9 +54,18 @@ impl DesktopSystem {
     /// Delivers a key down the keyboard focus path and plans what the receiving level asks for.
     pub(super) fn deliver_key_along_focus_path(&self, input: &KeyInput) -> Result<Changes> {
         let delivery = {
+            let focused_slot_project = self.keyboard_focus.focused().and_then(|focused| {
+                focused_slot(
+                    focused,
+                    &self.aggregates.hierarchy,
+                    &self.aggregates.configuration,
+                )
+                .map(|(_, project, _)| project)
+            });
             let context = KeyContext {
                 is_focused: false,
                 fully_zoomed_in: self.zoom_navigation().is_fully_zoomed_in(),
+                focused_slot_project,
                 hierarchy: &self.aggregates.hierarchy,
                 configuration: &self.aggregates.configuration,
             };
@@ -169,6 +179,10 @@ pub struct KeyContext<'a> {
     /// Whether the camera frames the keyboard-focused target itself (zoom level `Focus`). Cmd+Enter
     /// zooms there first and acts only when already there; presenters cannot read the zoom state.
     pub fully_zoomed_in: bool,
+    /// The project whose matrix holds the keyboard-focused slot. It takes Cmd+A even when a
+    /// target below it has the focus (ADR 0030). `None` when nothing, the desktop, or the root
+    /// project has the focus, because no slot hosts them.
+    pub focused_slot_project: Option<ProjectId>,
     /// Cmd+T on an instance starts the new instance under that instance's launcher.
     pub hierarchy: &'a DesktopTopology,
     /// A launcher starts its instances with the parameters configured for it.

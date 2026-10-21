@@ -344,3 +344,46 @@ async fn selecting_all_root_slots_ungroups_the_focused_project() -> Result<()> {
     })
     .await
 }
+
+/// Cmd+A from an instance reaches the project whose matrix holds the instance's launcher before
+/// the instance does. The launcher takes the focus, and the selection covers all of the project's
+/// slots around it, without moving the focus to a corner (ADR 0030).
+#[tokio::test]
+async fn cmd_a_from_an_instance_selects_all_slots_around_its_launcher() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let TwoLaunchers {
+            mut system,
+            mut instance_manager,
+            b,
+            ..
+        } = two_launchers()?;
+        let instance = start_instance(&mut system, &mut instance_manager, b, 0)?;
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Instance(instance),
+        )?;
+        let cmd_a = KeyInput::new(
+            Key::Character("a".into()),
+            ElementState::Pressed,
+            false,
+            ModifiersState::SUPER,
+        );
+
+        let changes = system.deliver_key_along_focus_path(&cmd_a)?;
+        system.transact(
+            changes,
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Launcher(b))
+        );
+        assert_eq!(system.selection, Selection::from_diagonal(vec2(-1, 0)));
+
+        Ok(())
+    })
+    .await
+}

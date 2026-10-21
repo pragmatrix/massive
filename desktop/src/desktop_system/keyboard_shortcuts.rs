@@ -25,6 +25,8 @@ pub enum Shortcut {
     Group,
     /// Cmd+Shift+G with no other modifier.
     Ungroup,
+    /// Cmd+A with no other modifier.
+    SelectAll,
     /// Cmd+Arrow, and Cmd+Ctrl+Left / Right.
     Navigate(Direction),
     /// Cmd+Shift+Arrow with no other modifier.
@@ -76,6 +78,7 @@ fn command_character(input: &KeyInput) -> Option<Shortcut> {
             "g" | "G" if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
                 Some(Shortcut::Ungroup)
             }
+            "a" if input.modifiers == ModifiersState::SUPER => Some(Shortcut::SelectAll),
             _ => None,
         },
         _ => None,

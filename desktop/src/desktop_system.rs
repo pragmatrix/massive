@@ -170,8 +170,8 @@ pub enum KeyboardFocusReason {
     AddSlotContent,
     /// Ungrouping removes the focused project, so one of its ungrouped slots takes the focus.
     Ungroup,
-    /// Extending the selection from an instance moves the focus to its launcher, where the
-    /// selection starts (ADR 0025).
+    /// Extending the selection from an instance, or selecting all slots (Cmd+A), moves the focus
+    /// to its launcher, where the selection starts (ADR 0025, ADR 0030).
     ExtendSelection,
 }
 

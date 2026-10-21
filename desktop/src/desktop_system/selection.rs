@@ -83,16 +83,34 @@ impl Selection {
         else {
             return Changes::Empty;
         };
+        plan_selection(extended, focused, content)
+    }
 
-        let mut changes = Changes::Empty;
-        if focused != content.focusable_target() {
-            changes += set_focus(
-                Some(content.focusable_target()),
-                KeyboardFocusReason::ExtendSelection,
-            );
+    /// Plans selecting the bounding box of all assigned slots of `project` around the `focused`
+    /// target (Cmd+A, ADR 0030). The focus stays, except that an instance hands it to its
+    /// launcher, as when extending. When the focus sits in no slot of `project`, nothing changes.
+    pub fn plan_select_all(
+        project: ProjectId,
+        focused: Option<FocusableTarget>,
+        hierarchy: &DesktopTopology,
+        configuration: &RuntimeConfiguration,
+    ) -> Changes {
+        let Some(focused) = focused else {
+            return Changes::Empty;
+        };
+        let Some((content, focused_project, slot)) =
+            focused_slot(focused, hierarchy, configuration)
+        else {
+            return Changes::Empty;
+        };
+        if focused_project != project {
+            return Changes::Empty;
         }
-        changes <<= DesktopChange::SetSelection(extended);
-        changes
+        let slots = configuration
+            .slots_ordered(project)
+            .map(|(slot, _)| slot.into());
+        let all = Self::from_rect(slot, matrix_bounding_box(slots));
+        plan_selection(all, focused, content)
     }
 
     /// The project whose assigned slots all lie in the selection around the `focused` target.
@@ -198,17 +216,18 @@ impl Selection {
             bottom_right: self.bottom_right - shrunk_bottom_right + (forward - shrunk_top_left),
         };
 
-        Self::filling(focused, bounds)
+        Self::from_rect(focused, bounds)
             .contains(extended)
             .then_some(extended)
     }
 
-    /// The selection around the `focused` slot that fills `bounds`, which contain the slot.
-    fn filling(focused: SlotPosition, bounds: MatrixRect) -> Self {
+    /// The selection around the `focused` slot whose rectangle is `rect`, which contains the slot.
+    /// It is the inverse of [`Self::rect`].
+    fn from_rect(focused: SlotPosition, rect: MatrixRect) -> Self {
         let focused = MatrixPoint::from(focused);
         Self {
-            top_left: focused - bounds.min,
-            bottom_right: bounds.max - vec2(1, 1) - focused,
+            top_left: focused - rect.min,
+            bottom_right: rect.max - vec2(1, 1) - focused,
         }
     }
 
@@ -219,10 +238,26 @@ impl Selection {
     }
 }
 
+/// Plans setting `selection` around the slot of `content`, which the `focused` target belongs to.
+/// When an instance has the focus, its launcher takes it, so that the focus and the selection
+/// outline mark the same slot (ADR 0025). The selection comes last, so that it survives that
+/// focus change.
+fn plan_selection(selection: Selection, focused: FocusableTarget, content: SlotContent) -> Changes {
+    let mut changes = Changes::Empty;
+    if focused != content.focusable_target() {
+        changes += set_focus(
+            Some(content.focusable_target()),
+            KeyboardFocusReason::ExtendSelection,
+        );
+    }
+    changes <<= DesktopChange::SetSelection(selection);
+    changes
+}
+
 /// The slot the `focused` target belongs to: its content, the project whose matrix holds it, and
 /// the slot itself. An instance belongs to its launcher's slot. `None` when the focus sits in
 /// no slot, which is the case for the root project.
-fn focused_slot(
+pub fn focused_slot(
     focused: FocusableTarget,
     hierarchy: &DesktopTopology,
     configuration: &RuntimeConfiguration,

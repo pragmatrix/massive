@@ -11,6 +11,7 @@ use super::change::{
 };
 use super::grouping;
 use super::reparenting::Reparenting;
+use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
     FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, ZoomLevel, view_size,
@@ -301,6 +302,12 @@ impl DesktopSystem {
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
             DesktopCommand::ExtendSelection(direction) => Ok(self.selection.plan_extend(
                 direction,
+                self.keyboard_focus.focused(),
+                &self.aggregates.hierarchy,
+                &self.aggregates.configuration,
+            )),
+            DesktopCommand::SelectAll(project) => Ok(Selection::plan_select_all(
+                project,
                 self.keyboard_focus.focused(),
                 &self.aggregates.hierarchy,
                 &self.aggregates.configuration,

@@ -35,6 +35,7 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+Shift+G | desktop (project) | Move the slots of the focused project, or of the project whose slots are all selected, into its parent's matrix, remove it, and select the ungrouped slots | find previous (mac, Br, VS, Gh) · ungroup (Fg, Sketch, Illustrator) |
 | Cmd+←/→/↑/↓ | desktop | Navigate between targets; repeats when held | line start/end, document top/bottom (mac text) · previous/next tab (iT) · back/forward (Safari) · previous/next prompt (Gh ↑/↓, Term marks) · enclosing folder/open (Fi ↑/↓) |
 | Cmd+Shift+←/→/↑/↓ | desktop | Extend the slot selection by one placement; repeats when held | select to line start/end, document top/bottom (mac text) |
+| Cmd+A | desktop (project) | Select all slots of the project whose matrix holds the focused slot; from an instance, its launcher takes the focus. The application never receives it | select all (mac, everywhere) |
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
 | Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |
@@ -66,7 +67,6 @@ From the terminal client's find proposal, not implemented:
 
 | Key | Usually |
 |---|---|
-| Cmd+A | select all (mac) |
 | Cmd+B | bold (mac text, Ob) · toggle sidebar (VS) · bookmarks (Br) |
 | Cmd+D | split pane (Term, iT, Gh) · bookmark (Br) · add next occurrence (VS) · duplicate (Fi) |
 | Cmd+I | get info (Fi) · italic (Ob) · inspector (Term) · inline chat (VS) |
@@ -119,8 +119,8 @@ From the terminal client's find proposal, not implemented:
 ## Selection
 
 How comparable applications extend a selection and select several things at once. The desktop
-selects only a rectangle of slots with Cmd+Shift+arrows (ADR 0025); this is the vocabulary users
-bring. Checked
+selects only a rectangle of slots, with Cmd+Shift+arrows (ADR 0025) or all of a project's slots
+with Cmd+A (ADR 0030); this is the vocabulary users bring. Checked
 2026-10-19: WezTerm against `wezterm-gui/src/inputmap.rs`, Kitty against
 `kitty/options/definition.py`, Ghostty against `src/surface_mouse.zig`, Zed against
 `assets/keymaps/default-macos.json`; the rest from documented defaults.

@@ -33,8 +33,9 @@ exactly as under ADR 0025.
 
 **Cmd+A selects the bounding box of all assigned slots of the focused slot's project.** The project
 whose matrix holds the focused slot consumes the key on its way down the keyboard focus path
-(ADR 0020), so it reaches neither a launcher nor an instance. The focus stays where it is. When all
-slots are already selected, Cmd+A changes nothing.
+(ADR 0020), so it reaches neither a launcher nor an instance. The focus stays on its slot. As
+with Shift+Cmd+arrow, an instance hands the focus to its launcher (ADR 0025). When all slots are
+already selected, Cmd+A changes nothing.
 
 ## Consequences
 
