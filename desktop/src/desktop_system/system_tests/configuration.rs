@@ -244,7 +244,11 @@ async fn group_wraps_the_focused_slot_in_a_new_project_at_its_placement() -> Res
             .slot_of_content(launcher_a)
             .unwrap();
 
-        run(&mut system, &mut instance_manager, DesktopCommand::GroupSlot)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
 
         let configuration = &system.aggregates.configuration;
         let Some(SlotContent::Project(group)) = configuration.content_at(project_a, placement_a)
@@ -294,12 +298,20 @@ async fn ungroup_reverses_group() -> Result<()> {
             .configuration
             .slot_of_content(launcher_a)
             .unwrap();
-        run(&mut system, &mut instance_manager, DesktopCommand::GroupSlot)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
         let Some(FocusableTarget::Project(group)) = system.keyboard_focus.focused() else {
             panic!("grouping focuses the new project");
         };
 
-        run(&mut system, &mut instance_manager, DesktopCommand::UngroupSlot)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::UngroupSlot,
+        )?;
 
         let configuration = &system.aggregates.configuration;
         assert_eq!(configuration.slot_of_content(launcher_a), Some(slot_a));
@@ -358,11 +370,19 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
-        run(&mut system, &mut instance_manager, DesktopCommand::AddLauncher)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::AddLauncher,
+        )?;
         let Some(FocusableTarget::Launcher(idle)) = system.keyboard_focus.focused() else {
             panic!("the added launcher takes the focus");
         };
-        run(&mut system, &mut instance_manager, DesktopCommand::GroupSlot)?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::GroupSlot,
+        )?;
         let Some(FocusableTarget::Project(idle_project)) = system.keyboard_focus.focused() else {
             panic!("grouping focuses the new project");
         };

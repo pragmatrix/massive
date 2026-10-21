@@ -81,7 +81,8 @@ impl Reparenting {
             .parent(&what)
             .cloned()
             .expect("a re-parented target has a parent");
-        let previous_origin = layout_state.absolute_origin_transform(&previous, &aggregates.hierarchy);
+        let previous_origin =
+            layout_state.absolute_origin_transform(&previous, &aggregates.hierarchy);
 
         aggregates.hierarchy.reparent(&what, under.clone())?;
 

@@ -1049,7 +1049,9 @@ impl Project {
     /// The placement and content id of every slot, in placement order. This is the view for code
     /// that only needs to know what sits where.
     pub fn slot_contents(&self) -> impl Iterator<Item = (MatrixPlacement, SlotContent)> + '_ {
-        self.slots.iter().map(|slot| (slot.placement, slot.content()))
+        self.slots
+            .iter()
+            .map(|slot| (slot.placement, slot.content()))
     }
 
     /// The slots with their full payload, including each launcher's record. Only code that needs
@@ -1428,7 +1430,10 @@ mod tests {
         let id_of = |configuration: &RuntimeConfiguration, name| {
             SlotContent::Launcher(configuration[root].launcher_by_name(name).unwrap())
         };
-        let (first, second) = (id_of(&configuration, "first"), id_of(&configuration, "second"));
+        let (first, second) = (
+            id_of(&configuration, "first"),
+            id_of(&configuration, "second"),
+        );
 
         configuration.swap_slots(root, first_at, second_at);
 
