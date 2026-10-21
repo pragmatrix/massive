@@ -9,7 +9,7 @@ types it replaces.
 
 The slot selection describes geometry in a project's matrix, counted in columns and rows. It uses
 two hand-written types for that. `SelectionDelta` holds how far the selection reaches from the
-focused slot, and `MatrixRect` holds the top-left and bottom-right placements of a rectangle in a
+focused slot, and `MatrixRect` holds the top-left and bottom-right positions of a rectangle in a
 matrix, which the selection and the matrix layout share. Every operation on them is written by
 hand: stepping the delta, spanning the rectangle, and soon testing which slots lie inside it, which
 grouping a selection needs (ADR 0026).
@@ -30,7 +30,7 @@ the unit lives in the desktop crate next to `SlotPosition`, not in `massive-geom
   it throughout. It converts to and from `Point2D<u32, MatrixUnit>` with `From` implementations.
 
 `Box2D` treats its maximum as exclusive, while the selection includes both corners. The box
-therefore stores the bottom-right placement plus one column and one row. Code that needs the last
+therefore stores the bottom-right position plus one column and one row. Code that needs the last
 selected column or row, such as the matrix layout's area of a selection, subtracts one.
 
 ## Consequences

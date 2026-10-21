@@ -76,8 +76,8 @@ impl<'a> FocusTargets<'a> {
     }
 
     fn last_focused_content(&self, project: ProjectId) -> Option<SlotContent> {
-        let placement = self.projects.get(&project)?.last_focused_placement?;
-        self.configuration.content_at(project, placement)
+        let position = self.projects.get(&project)?.last_focused_position?;
+        self.configuration.content_at(project, position)
     }
 
     fn focus_target_for_slot(&self, content: SlotContent) -> FocusableTarget {

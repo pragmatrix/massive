@@ -129,8 +129,8 @@ impl OrderedHierarchy<DesktopTarget> {
     /// zips against its child measurements, so callers that place slots may rely
     /// on it. Slots the matrix has no child for are simply absent.
     ///
-    /// The *placement* of each slot is configuration data, not topology state; see
-    /// `DesktopConfiguration::placement_of_content`.
+    /// The *position* of each slot is configuration data, not topology state; see
+    /// `DesktopConfiguration::position_of_content`.
     pub fn matrix_slots(
         &self,
         project: ProjectId,

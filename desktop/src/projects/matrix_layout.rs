@@ -75,7 +75,7 @@ pub fn place_matrix_children(
 
 /// The rectangle that the columns and rows of `rect` cover, the spacing between them included,
 /// relative to the start of the first interval. [`intervals_origin`] carries it into the matrix's
-/// coordinates. Empty placements count like occupied ones, so this is the area a selection
+/// coordinates. Unassigned slots count like assigned ones, so this is the area a selection
 /// outlines (ADR 0025). `None` when `rect` reaches beyond the matrix's intervals.
 pub fn matrix_area(
     project: ProjectId,
@@ -144,13 +144,13 @@ struct MatrixSlot {
     layout_size: Size<2>,
     size: Size<2>,
     scale: f64,
-    placement: SlotPosition,
+    position: SlotPosition,
 }
 
 impl MatrixSlot {
     /// The slot's column and row, indexed by axis like the extents.
     fn indices(&self) -> [usize; 2] {
-        self.placement.indices()
+        self.position.indices()
     }
 }
 
@@ -162,12 +162,12 @@ fn matrix_slots(
 ) -> Vec<MatrixSlot> {
     let contents = context.hierarchy.matrix_slots(project);
     // One lookup table keeps placing a matrix linear in its slot count.
-    let placements: HashMap<SlotContent, SlotPosition> = context
+    let positions: HashMap<SlotContent, SlotPosition> = context
         .configuration
         .project(project)
         .expect("a laid out project is configured")
         .slot_contents()
-        .map(|(placement, content)| (content, placement))
+        .map(|(position, content)| (content, position))
         .collect();
     // ADR 0023: a parent-wide scale preserves the relative sizes of sibling projects.
     // Architecture: the shared scale is under discussion, see ADR 0023, "Under discussion".
@@ -200,9 +200,9 @@ fn matrix_slots(
                     presented_extent(measured[axis], scale)
                 })),
                 scale,
-                placement: *placements
+                position: *positions
                     .get(&content)
-                    .expect("slot content has a matrix placement"),
+                    .expect("slot content has a matrix position"),
             }
         })
         .collect()
@@ -299,7 +299,7 @@ mod tests {
             layout_size: size,
             size,
             scale: 1.0,
-            placement: SlotPosition { column, row },
+            position: SlotPosition { column, row },
         };
         let slots = [slot(Size([50, 40]), 0, 0), slot(Size([400, 70]), 2, 0)];
 
@@ -315,7 +315,7 @@ mod tests {
             layout_size,
             size: layout_size,
             scale: 1.0,
-            placement: SlotPosition { column: 1, row: 1 },
+            position: SlotPosition { column: 1, row: 1 },
         };
         let extents: Extents = [vec![500, 200], vec![400, 300]];
 
@@ -337,7 +337,7 @@ mod tests {
             layout_size,
             size: Size([50, 25]),
             scale: 0.5,
-            placement: SlotPosition { column: 0, row: 0 },
+            position: SlotPosition { column: 0, row: 0 },
         };
         let extents: Extents = [vec![201], vec![301]];
 

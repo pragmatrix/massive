@@ -101,7 +101,7 @@ pub enum ToggleFullScreenModeTarget {
 
 #[derive(Debug, Clone)]
 pub enum ConfigurationChange {
-    /// Assigns `assignment` to the slot `(parent, placement)`. Replacing content is a
+    /// Assigns `assignment` to the slot `(parent, position)`. Replacing content is a
     /// clear plus an assign; displacement is expanded into `MoveSlot`s by the
     /// plan, never applied here.
     ///
@@ -110,13 +110,13 @@ pub enum ConfigurationChange {
     /// [`DesktopConfiguration::assign_slot`]).
     AssignSlot {
         parent: Option<ProjectId>,
-        placement: SlotPosition,
+        position: SlotPosition,
         assignment: SlotAssignment,
     },
-    /// Empties the slot `(parent, placement)`.
+    /// Empties the slot `(parent, position)`.
     ClearSlot {
         parent: ProjectId,
-        placement: SlotPosition,
+        position: SlotPosition,
     },
     /// Moves the content of the source slot to the destination slot. The content
     /// may move to another project's matrix, but not into its own subtree.
@@ -124,26 +124,26 @@ pub enum ConfigurationChange {
         source: (ProjectId, SlotPosition),
         dest: (ProjectId, SlotPosition),
     },
-    /// Wraps the slots at `placements` in `parent` into a new project, which takes their place
-    /// (ADR 0026). Grouping needs its own change, because the project's placement usually holds
+    /// Wraps the slots at `positions` in `parent` into a new project, which takes their place
+    /// (ADR 0026). Grouping needs its own change, because the project's position usually holds
     /// one of the grouped slots. Expressed as assignments and moves, one of them would first have
     /// to wait in a temporary slot.
     Group {
         parent: ProjectId,
-        placements: Vec<SlotPosition>,
+        positions: Vec<SlotPosition>,
         project: ProjectId,
         name: String,
     },
-    /// Moves the slots of the project at `(parent, placement)` into `parent` and removes the
+    /// Moves the slots of the project at `(parent, position)` into `parent` and removes the
     /// project, the inverse of `Group`. It needs its own change for the same reason: the project's
-    /// first slot usually lands on the project's own placement. Slots in the way are pushed aside by
+    /// first slot usually lands on the project's own position. Slots in the way are pushed aside by
     /// `MoveSlot`s planned before it.
     Ungroup {
         parent: ProjectId,
-        placement: SlotPosition,
+        position: SlotPosition,
     },
     /// Exchanges the contents of two slots in `parent`'s matrix. A swap needs its own change,
-    /// because each content needs the other's placement at the same time. Expressed as moves, one
+    /// because each content needs the other's position at the same time. Expressed as moves, one
     /// of them would first have to wait in a temporary slot.
     SwapSlots {
         parent: ProjectId,

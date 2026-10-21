@@ -113,16 +113,16 @@ impl DesktopSystem {
             return;
         };
         let project = *project;
-        let placement = self
+        let position = self
             .aggregates
             .configuration
             .project(project)
-            .and_then(|record| record.placement_of_content(content))
+            .and_then(|record| record.position_of_content(content))
             .expect("unfocused slot is present in project configuration");
         self.aggregates
             .projects
             .get_mut(&project)
             .expect("project has a presenter")
-            .last_focused_placement = Some(placement);
+            .last_focused_position = Some(position);
     }
 }

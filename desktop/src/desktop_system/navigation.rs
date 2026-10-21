@@ -92,7 +92,7 @@ pub struct NavigationPlan {
 enum NavigationOrigin {
     MatrixSlot {
         project: ProjectId,
-        placement: SlotPosition,
+        position: SlotPosition,
     },
     Child {
         launcher: LaunchProfileId,
@@ -135,7 +135,7 @@ impl DesktopSystem {
     /// The focus replacement when slot `content` is removed: the first available
     /// right, left, down, or up neighbor in its matrix, else its hosting project.
     pub fn slot_removal_focus(&self, content: SlotContent) -> FocusableTarget {
-        let (parent, placement) = self
+        let (parent, position) = self
             .aggregates
             .configuration
             .slot_of_content(content)
@@ -150,7 +150,7 @@ impl DesktopSystem {
         ]
         .into_iter()
         .find_map(|direction| {
-            matrix_navigation.navigate_within_matrix(parent, placement, direction, None)
+            matrix_navigation.navigate_within_matrix(parent, position, direction, None)
         })
         .map(|replacement| self.focus_targets().slot_focus_target(replacement))
         .unwrap_or(FocusableTarget::Project(parent))
@@ -198,14 +198,14 @@ fn plan_navigation_candidate(
     direction: Direction,
 ) -> Option<NavigationPlan> {
     let origin = resolve_navigation_origin(hierarchy, configuration, from)?;
-    let origin_placement = navigation_origin_placement(configuration, origin);
-    let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
+    let origin_position = navigation_origin_position(configuration, origin);
+    let column_affinity = navigation_control.plan_column_affinity(direction, origin_position);
     let matrix_navigation = MatrixNavigation::new(hierarchy, configuration);
     let step = navigate_from_origin(matrix_navigation, origin, direction, column_affinity)?;
     // An escape into an ancestor matrix re-latches the vertical affinity from the column of the
     // slot hosting the origin there; the nested matrix's column means nothing in it.
     let column_affinity = match step.escaped_from {
-        Some(placement) if direction.vertical().is_some() => Some(placement.column),
+        Some(position) if direction.vertical().is_some() => Some(position.column),
         _ => column_affinity,
     };
     let target = match step.target {
@@ -232,8 +232,8 @@ fn remembered_project_target(
 ) -> FocusableTarget {
     let remembered = projects
         .get(&project)
-        .and_then(|presenter| presenter.last_focused_placement)
-        .and_then(|placement| configuration.content_at(project, placement));
+        .and_then(|presenter| presenter.last_focused_position)
+        .and_then(|position| configuration.content_at(project, position));
 
     match remembered {
         Some(SlotContent::Project(nested)) => {
@@ -251,14 +251,14 @@ fn resolve_navigation_origin(
 ) -> Option<NavigationOrigin> {
     match from {
         FocusableTarget::Launcher(launcher_id) => {
-            let (project, placement) = configuration.slot_of_content(launcher_id)?;
-            Some(NavigationOrigin::MatrixSlot { project, placement })
+            let (project, position) = configuration.slot_of_content(launcher_id)?;
+            Some(NavigationOrigin::MatrixSlot { project, position })
         }
         FocusableTarget::Project(project) => {
-            let (parent, placement) = configuration.slot_of_content(project)?;
+            let (parent, position) = configuration.slot_of_content(project)?;
             Some(NavigationOrigin::MatrixSlot {
                 project: parent,
-                placement,
+                position,
             })
         }
         FocusableTarget::Instance(instance_id) => {
@@ -277,15 +277,15 @@ fn resolve_navigation_origin(
     }
 }
 
-fn navigation_origin_placement(
+fn navigation_origin_position(
     configuration: &RuntimeConfiguration,
     origin: NavigationOrigin,
 ) -> Option<SlotPosition> {
     match origin {
-        NavigationOrigin::MatrixSlot { placement, .. } => Some(placement),
+        NavigationOrigin::MatrixSlot { position, .. } => Some(position),
         NavigationOrigin::Child { launcher, .. } => configuration
             .slot_of_content(launcher)
-            .map(|(_, placement)| placement),
+            .map(|(_, position)| position),
     }
 }
 
@@ -296,8 +296,8 @@ fn navigate_from_origin(
     preferred_column: Option<u32>,
 ) -> Option<NavigationStep> {
     match origin {
-        NavigationOrigin::MatrixSlot { project, placement } => matrix_navigation
-            .navigate_from_matrix_slot(project, placement, direction, preferred_column),
+        NavigationOrigin::MatrixSlot { project, position } => matrix_navigation
+            .navigate_from_matrix_slot(project, position, direction, preferred_column),
         NavigationOrigin::Child { launcher, index } => {
             matrix_navigation.navigate_from_child(launcher, index, direction, preferred_column)
         }

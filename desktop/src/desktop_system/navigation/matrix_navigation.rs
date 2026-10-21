@@ -20,7 +20,7 @@ pub struct MatrixNavigation<'a> {
 #[derive(Debug, Clone)]
 pub struct NavigationStep {
     pub target: FocusableTarget,
-    /// The placement of the slot the search escaped to in an ancestor matrix, if the target was
+    /// The position of the slot the search escaped to in an ancestor matrix, if the target was
     /// not found in the origin's own matrix.
     pub escaped_from: Option<SlotPosition>,
 }
@@ -28,7 +28,7 @@ pub struct NavigationStep {
 #[derive(Debug, Clone, Copy)]
 struct MatrixEntry<K> {
     key: K,
-    placement: SlotPosition,
+    position: SlotPosition,
 }
 
 impl<'a> MatrixNavigation<'a> {
@@ -50,18 +50,18 @@ impl<'a> MatrixNavigation<'a> {
     pub fn navigate_from_matrix_slot(
         &self,
         project_id: ProjectId,
-        origin_placement: SlotPosition,
+        origin_position: SlotPosition,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<NavigationStep> {
         let mut project = project_id;
-        let mut placement = origin_placement;
+        let mut position = origin_position;
         let mut preferred_column = preferred_column;
         let mut escaped_from = None;
 
         loop {
             if let Some(content) =
-                self.navigate_within_matrix(project, placement, direction, preferred_column)
+                self.navigate_within_matrix(project, position, direction, preferred_column)
             {
                 return Some(NavigationStep {
                     target: content.focusable_target(),
@@ -69,21 +69,21 @@ impl<'a> MatrixNavigation<'a> {
                 });
             }
 
-            (project, placement) = self.configuration.slot_of_content(project)?;
+            (project, position) = self.configuration.slot_of_content(project)?;
             preferred_column = None;
-            escaped_from = Some(placement);
+            escaped_from = Some(position);
         }
     }
 
     pub fn navigate_within_matrix(
         &self,
         project_id: ProjectId,
-        origin_placement: SlotPosition,
+        origin_position: SlotPosition,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<SlotContent> {
         let entries = self.create_project_matrix_entries(project_id);
-        select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
+        select_matrix_neighbor(&entries, origin_position, direction, preferred_column)
     }
 
     pub fn navigate_from_child(
@@ -115,8 +115,8 @@ impl<'a> MatrixNavigation<'a> {
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<NavigationStep> {
-        let (project_id, origin_placement) = self.configuration.slot_of_content(content)?;
-        self.navigate_from_matrix_slot(project_id, origin_placement, direction, preferred_column)
+        let (project_id, origin_position) = self.configuration.slot_of_content(content)?;
+        self.navigate_from_matrix_slot(project_id, origin_position, direction, preferred_column)
     }
 
     fn create_project_matrix_entries(
@@ -125,9 +125,9 @@ impl<'a> MatrixNavigation<'a> {
     ) -> Vec<MatrixEntry<SlotContent>> {
         self.configuration
             .slots_ordered(project_id)
-            .map(|(placement, content)| MatrixEntry {
+            .map(|(position, content)| MatrixEntry {
                 key: content,
-                placement,
+                position,
             })
             .collect()
     }
@@ -175,16 +175,16 @@ fn select_row_neighbor<K: Copy>(
         HorizontalDirection::Left => entries
             .iter()
             .filter(|entry| {
-                entry.placement.row == origin.row && entry.placement.column < origin.column
+                entry.position.row == origin.row && entry.position.column < origin.column
             })
-            .max_by_key(|entry| entry.placement.column)
+            .max_by_key(|entry| entry.position.column)
             .map(|entry| entry.key),
         HorizontalDirection::Right => entries
             .iter()
             .filter(|entry| {
-                entry.placement.row == origin.row && entry.placement.column > origin.column
+                entry.position.row == origin.row && entry.position.column > origin.column
             })
-            .min_by_key(|entry| entry.placement.column)
+            .min_by_key(|entry| entry.position.column)
             .map(|entry| entry.key),
     }
 }
@@ -198,22 +198,22 @@ fn select_column_neighbor<K: Copy>(
     let target_row = match direction {
         VerticalDirection::Up => entries
             .iter()
-            .filter(|entry| entry.placement.row < origin_row)
-            .map(|entry| entry.placement.row)
+            .filter(|entry| entry.position.row < origin_row)
+            .map(|entry| entry.position.row)
             .max()?,
         VerticalDirection::Down => entries
             .iter()
-            .filter(|entry| entry.placement.row > origin_row)
-            .map(|entry| entry.placement.row)
+            .filter(|entry| entry.position.row > origin_row)
+            .map(|entry| entry.position.row)
             .min()?,
     };
 
     entries
         .iter()
-        .filter(|entry| entry.placement.row == target_row)
+        .filter(|entry| entry.position.row == target_row)
         .min_by_key(|entry| {
-            let distance = u32::abs_diff(entry.placement.column, column);
-            (distance, entry.placement.column)
+            let distance = u32::abs_diff(entry.position.column, column);
+            (distance, entry.position.column)
         })
         .map(|entry| entry.key)
 }
@@ -263,11 +263,11 @@ mod tests {
         let entries = vec![
             MatrixEntry {
                 key: 1,
-                placement: (2, 1).into(),
+                position: (2, 1).into(),
             },
             MatrixEntry {
                 key: 2,
-                placement: (4, 1).into(),
+                position: (4, 1).into(),
             },
         ];
 
@@ -281,19 +281,19 @@ mod tests {
         let entries = vec![
             MatrixEntry {
                 key: 1,
-                placement: (0, 0).into(),
+                position: (0, 0).into(),
             },
             MatrixEntry {
                 key: 2,
-                placement: (2, 0).into(),
+                position: (2, 0).into(),
             },
             MatrixEntry {
                 key: 3,
-                placement: (0, 2).into(),
+                position: (0, 2).into(),
             },
             MatrixEntry {
                 key: 4,
-                placement: (2, 2).into(),
+                position: (2, 2).into(),
             },
         ];
 
@@ -307,15 +307,15 @@ mod tests {
         let entries = vec![
             MatrixEntry {
                 key: 1,
-                placement: (0, 0).into(),
+                position: (0, 0).into(),
             },
             MatrixEntry {
                 key: 2,
-                placement: (3, 1).into(),
+                position: (3, 1).into(),
             },
             MatrixEntry {
                 key: 3,
-                placement: (1, 2).into(),
+                position: (1, 2).into(),
             },
         ];
 
@@ -361,21 +361,21 @@ mod tests {
         fn navigate(
             &self,
             project: ProjectId,
-            placement: (u32, u32),
+            position: (u32, u32),
             direction: Direction,
             preferred_column: Option<u32>,
         ) -> Option<NavigationStep> {
             MatrixNavigation::new(&self.hierarchy, &self.configuration).navigate_from_matrix_slot(
                 project,
-                placement.into(),
+                position.into(),
                 direction,
                 preferred_column,
             )
         }
 
-        fn target_at(&self, project: ProjectId, placement: (u32, u32)) -> FocusableTarget {
+        fn target_at(&self, project: ProjectId, position: (u32, u32)) -> FocusableTarget {
             self.configuration
-                .content_at(project, placement.into())
+                .content_at(project, position.into())
                 .unwrap()
                 .focusable_target()
         }
@@ -447,23 +447,23 @@ mod tests {
         vec![
             MatrixEntry {
                 key: 1,
-                placement: (0, 0).into(),
+                position: (0, 0).into(),
             },
             MatrixEntry {
                 key: 2,
-                placement: (2, 0).into(),
+                position: (2, 0).into(),
             },
             MatrixEntry {
                 key: 3,
-                placement: (0, 2).into(),
+                position: (0, 2).into(),
             },
             MatrixEntry {
                 key: 4,
-                placement: (2, 2).into(),
+                position: (2, 2).into(),
             },
             MatrixEntry {
                 key: 5,
-                placement: (1, 3).into(),
+                position: (1, 3).into(),
             },
         ]
     }

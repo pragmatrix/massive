@@ -26,6 +26,11 @@ while a launcher or a nested project is assigned to it, and addressed by its
 topology. A cleared placement is simply empty, so a project may have no
 slots at all — its contents are what exist.
 
+*Update:* the glossary now calls every position of a matrix a slot. A slot is
+assigned while it hosts content and unassigned otherwise, and its position is a
+`SlotPosition`. The storage rule above is unchanged: only assigned slots are
+stored.
+
 ## Presentation and interaction are one depth cut (deferred)
 
 This rule is not implemented yet: the first pass renders every project's content

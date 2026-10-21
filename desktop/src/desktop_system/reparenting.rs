@@ -42,7 +42,7 @@ impl Reparenting {
     /// slots, so content that moves to another project needs a new topology parent. A move within
     /// one matrix needs no change.
     pub fn plan(
-        (source_parent, source_placement): (ProjectId, SlotPosition),
+        (source_parent, source_position): (ProjectId, SlotPosition),
         (dest_parent, _): (ProjectId, SlotPosition),
         configuration: &RuntimeConfiguration,
     ) -> Changes {
@@ -50,7 +50,7 @@ impl Reparenting {
             return Changes::Empty;
         }
         let content = configuration
-            .content_at(source_parent, source_placement)
+            .content_at(source_parent, source_position)
             .expect("a movable slot has content");
         DesktopChange::Topology(TopologyChange::Reparent {
             what: content.target(),

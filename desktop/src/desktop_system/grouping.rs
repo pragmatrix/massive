@@ -2,7 +2,7 @@
 //! place, so they stay where they were on the desktop, one nesting level deeper.
 //!
 //! Ungrouping is the inverse (Cmd+Shift+G). It moves a project's slots into the project's parent
-//! at the project's placement, removes the project, and selects the ungrouped slots.
+//! at the project's position, removes the project, and selects the ungrouped slots.
 
 use euclid::{point2, vec2};
 
@@ -16,7 +16,7 @@ use crate::projects::{
     matrix_rect_covering,
 };
 
-/// Plans grouping the slots at `placements` in `parent` and focusing the new project.
+/// Plans grouping the slots at `positions` in `parent` and focusing the new project.
 ///
 /// The changes run in this order, because each one needs what the one before it creates. The
 /// `Group` change creates the project and its presenter. The topology change adds the project's
@@ -33,7 +33,7 @@ pub fn plan(
     let mut changes = Changes::Empty;
     changes <<= ConfigurationChange::Group {
         parent,
-        placements: selected_slots,
+        positions: selected_slots,
         project,
         name: DEFAULT_NEW_PROJECT_NAME.into(),
     };
@@ -63,20 +63,20 @@ pub fn plan(
 /// 6. The selection reaches from the focused slot to the opposite corner. It comes last, so that
 ///    it survives the focus and configuration changes before it.
 pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) -> Changes {
-    let (parent, placement) = configuration
+    let (parent, position) = configuration
         .slot_of_content(project)
         .expect("an ungrouped project sits in a slot");
-    let landings = configuration.ungroup_landings(project, placement);
-    let landing_placements: Vec<_> = landings.iter().map(|(_, landing)| *landing).collect();
-    let selection = ungrouped_selection(&landing_placements);
-    // Without an occupied corner, the slot on the project's placement takes the focus, or else the
+    let landings = configuration.ungroup_landings(project, position);
+    let landing_positions: Vec<_> = landings.iter().map(|(_, landing)| *landing).collect();
+    let selection = ungrouped_selection(&landing_positions);
+    // Without an assigned corner, the slot on the project's position takes the focus, or else the
     // first slot.
     let focused_landing = selection.map(|(corner, _)| corner).unwrap_or_else(|| {
-        landing_placements
+        landing_positions
             .iter()
             .copied()
-            .find(|landing| *landing == placement)
-            .or(landing_placements.first().copied())
+            .find(|landing| *landing == position)
+            .or(landing_positions.first().copied())
             .expect("only a project with slots is ungrouped")
     });
     let (focused_inner, _) = landings
@@ -91,7 +91,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
         Some(focused.focusable_target()),
         KeyboardFocusReason::Ungroup,
     );
-    for (from, to) in configuration.ungroup_pushes(parent, placement, &landing_placements) {
+    for (from, to) in configuration.ungroup_pushes(parent, position, &landing_positions) {
         changes <<= ConfigurationChange::MoveSlot {
             source: (parent, from),
             dest: (parent, to),
@@ -101,7 +101,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
         changes += Reparenting::plan((project, inner), (parent, landing), configuration);
     }
     changes <<= TopologyChange::Remove(DesktopTarget::Project(project, ProjectPart::Project));
-    changes <<= ConfigurationChange::Ungroup { parent, placement };
+    changes <<= ConfigurationChange::Ungroup { parent, position };
     if let Some((_, delta)) = selection {
         changes <<= DesktopChange::SetSelection(delta);
     }
@@ -111,7 +111,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
 /// The selection that covers all ungrouped slots at `landings` (ADR 0026): the landing at a corner
 /// of their bounding box, which takes the focus, and the delta to the opposite corner. The corners
 /// are tried from the top-left, then the top-right, the bottom-left, and the bottom-right. `None`
-/// when no corner holds a slot, because a selection has to start at the focused slot.
+/// when every corner is unassigned, because a selection has to start at the focused slot.
 fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, SelectionDelta)> {
     let bounds = matrix_rect_covering(landings.iter().map(|&landing| landing.into()));
     let (first, last) = (bounds.min, bounds.max - vec2(1, 1));
@@ -136,10 +136,10 @@ mod tests {
         SlotPosition { column, row }
     }
 
-    /// The focus takes the first occupied corner in reading order, and the selection reaches the
-    /// opposite corner. Without an occupied corner, nothing is selected.
+    /// The focus takes the first assigned corner in reading order, and the selection reaches the
+    /// opposite corner. Without an assigned corner, nothing is selected.
     #[test]
-    fn the_ungrouped_selection_starts_at_the_first_occupied_corner() {
+    fn the_ungrouped_selection_starts_at_the_first_assigned_corner() {
         assert_eq!(
             ungrouped_selection(&[at(1, 1), at(2, 2)]),
             Some((at(1, 1), vec2(1, 1)))
