@@ -48,9 +48,10 @@ do, and how, is decided per operation. Grouping and ungrouping are decided in
 
 ## Consequences
 
-- The matrix layout must keep its track geometry, the start and extent of every column and row.
-  Today it only knows the rectangles of occupied placements, and an outline that spans empty
-  placements needs the others too.
+- The matrix layout must expose its intervals, the start and extent of every column and row.
+  The rectangles of occupied placements are not enough, because an outline that spans empty
+  placements needs the others too. The outline derives the geometry with the same rule that places
+  the slots, so the two cannot disagree.
 - A selection never crosses projects. Selecting slots of different matrices would need a rectangle
   that has no meaning in either.
 - Shift+Cmd+arrow is taken at the desktop level, before an instance sees it, like the other
@@ -58,12 +59,14 @@ do, and how, is decided per operation. Grouping and ungrouping are decided in
 
 ## Considered options
 
-- **Grow slot by slot.** The rectangle would jump to the next occupied slot in the direction, and the outline could be built from known slot rectangles alone. Rejected, because the
-  rectangle would grow in uneven steps over gaps, and the user could not tell from the keys alone
-  how far the next press reaches.
+- **Grow slot by slot.** The rectangle would jump to the next occupied slot in the direction, and
+  the outline could be built from known slot rectangles alone. Rejected, because the rectangle
+  would grow in uneven steps over gaps, and the user could not tell from the keys alone how far the
+  next press reaches.
 - **Keep the focus in the instance while selecting.** The selection would still start at the
-  launcher, but the instance would keep the keys. Rejected, because the focus outline and the selection outline
-  would then sit on different targets, and the user could not tell which one the next key acts on.
+  launcher, but the instance would keep the keys. Rejected, because the focus outline and the
+  selection outline would then sit on different targets, and the user could not tell which one the
+  next key acts on.
 - **Store the far corner as a placement.** The selection would be the placement opposite the
   focused slot, or none. Rejected, because "none" and a corner on the focused slot would mean the
   same, and the stored placement would have to agree with the matrix of the focused slot, which

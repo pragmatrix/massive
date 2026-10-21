@@ -270,14 +270,26 @@ impl DesktopLayoutState {
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
     ) -> Transform {
-        let placement = self.absolute_placement(target, topology);
+        Self::origin_transform(&self.absolute_placement(target, topology))
+    }
+
+    /// The transform of `placement` for coordinates relative to the origin of its rectangle,
+    /// instead of its center.
+    pub fn origin_transform(placement: &Placement<Transform, 2>) -> Transform {
         placement
             .transform
             .to_origin_space(Self::layout_local_center(placement.rect.size))
     }
 
-    fn layout_local_center(size: LayoutSize<2>) -> Point {
+    pub fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
+    }
+
+    pub fn measured(&self, target: &DesktopTarget) -> MeasuredLayout<2> {
+        self.entries
+            .get(target)
+            .unwrap_or_else(|| panic!("Internal error: missing layout entry for target {target:?}"))
+            .measured
     }
 
     pub fn local_placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {

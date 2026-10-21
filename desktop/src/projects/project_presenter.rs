@@ -170,7 +170,7 @@ impl TargetLayout for ProjectPresenter {
                     "a project holds a header and a matrix"
                 );
                 // The matrix takes the height a stretched project gains, so it can center its
-                // tracks in it.
+                // intervals in it.
                 expand_main_axis_child_size(
                     LayoutAxis::VERTICAL,
                     children.parent_size,

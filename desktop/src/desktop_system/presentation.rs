@@ -162,8 +162,24 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    /// The hover outline follows pointer focus, or keyboard focus during keyboard navigation.
+    /// The hover outline follows pointer focus, or keyboard focus during keyboard navigation. A
+    /// selection beyond the focused slot widens the keyboard focus's outline to the selection
+    /// (ADR 0025).
     pub fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
+        if self.event_router.pointer_focus().is_none()
+            && let Some(focused) = self.keyboard_focus.hover_outline_focus()
+            && let Some(placement) = self.selection.outline_placement(
+                focused,
+                &self.layout_state,
+                &self.aggregates.layout_context(
+                    self.default_panel_size,
+                    self.window_state.inner_size,
+                    self.focused_path().instance(),
+                ),
+            )
+        {
+            return Some(placement);
+        }
         let target = self.hover_target()?;
         match &target {
             DesktopTarget::Project(..)

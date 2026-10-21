@@ -28,6 +28,10 @@ _Avoid_: cell, launcher cell, tile, container, occupied
 A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
 _Avoid_: coordinates
 
+**Matrix interval**:
+The stretch a column or a row of a project's matrix covers along its axis. Every column interval is one slot extent wide, and a row interval is as tall as the tallest slot in it. Intervals are separated by a fixed spacing.
+_Avoid_: track, lane, band
+
 **Selection**:
 A rectangle of placements in one project's matrix that starts at the keyboard-focused slot. It is a delta of columns and rows from that slot's placement, and the zero delta selects only the focused slot. The selected slots are the occupied placements inside the rectangle. Any focus, zoom, or configuration change collapses it to the zero delta.
 _Avoid_: anchor, far corner, multi-selection

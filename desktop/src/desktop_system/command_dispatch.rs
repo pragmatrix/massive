@@ -258,7 +258,12 @@ impl DesktopSystem {
                 Ok(grouping::plan_ungroup(project, configuration))
             }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
-            DesktopCommand::ExtendSelection(direction) => Ok(self.plan_extend_selection(direction)),
+            DesktopCommand::ExtendSelection(direction) => Ok(self.selection.plan_extend(
+                direction,
+                self.keyboard_focus.focused(),
+                &self.aggregates.hierarchy,
+                &self.aggregates.configuration,
+            )),
             DesktopCommand::Zoom(zoom) => Ok(self.zoom_navigation().plan_zoom(zoom)),
             DesktopCommand::ToggleFullScreen => {
                 if self.window_state.is_fullscreen

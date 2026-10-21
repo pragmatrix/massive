@@ -1334,7 +1334,20 @@ pub struct MatrixPlacement {
     pub row: u32,
 }
 
+/// A rectangle of placements in a matrix, both corners included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatrixRect {
+    pub top_left: MatrixPlacement,
+    pub bottom_right: MatrixPlacement,
+}
+
 impl MatrixPlacement {
+    /// The column and the row, indexed by axis: the column along the horizontal axis 0, the row
+    /// along the vertical axis 1.
+    pub fn indices(self) -> [usize; 2] {
+        [self.column as usize, self.row as usize]
+    }
+
     /// The placement one `direction` step away, `None` past the matrix edge.
     pub fn moved_placement(self, direction: MoveDirection) -> Option<MatrixPlacement> {
         match direction {
