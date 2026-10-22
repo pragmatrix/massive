@@ -81,7 +81,7 @@ Lifecycle defaults return their own values.
 
 - **A configuration without a launcher is given one at load.** The load step detects the
   situation and builds the default launcher (ADR 0012).
-- **The startup launcher falls back to the first launcher depth-first** when its address path no
+- **The startup launcher falls back to the first launcher depth-first** when its target path no
   longer resolves.
 - **A stopping instance that holds the focus hands it to its neighbor toward the launcher's
   beginning,** or to the launcher when it has no neighbor. The hierarchy still finds the neighbor.

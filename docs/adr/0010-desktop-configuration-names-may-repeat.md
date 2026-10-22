@@ -4,7 +4,7 @@
 
 > The tag mechanism is superseded by
 > [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md):
-> the document is derived from the aggregate, so changes address ids directly
+> the document is derived from the aggregate, so changes name ids directly
 > and no per-node identity lives in the file. The duplicate-name and
 > nearest-match decisions below still hold.
 
@@ -43,7 +43,7 @@ node**, and duplicates are allowed.
   kdl offers that is neither serialized nor compared. A comment at the map marks it.
 - `NodeTags` (in `persistence/document.rs`) holds `ProjectId`/`LaunchProfileId` →
   tag plus a counter, and is filled during the parse so each node is tagged with
-  the id it was parsed into — duplicates included. `apply_change` addresses nodes
+  the id it was parsed into — duplicates included. `apply_change` finds nodes
   through the tags only, so `ConfigurationDocument::apply(change)` no longer takes
   the aggregate and the document is a self-contained view again.
 - Names are no longer deduplicated. A user-chosen name is stored as it is; only the
@@ -65,7 +65,7 @@ node**, and duplicates are allowed.
 
 ## Considered options
 
-- **Keep name addressing and reject duplicates at parse.** Rejected: it turns a
+- **Keep name lookup and reject duplicates at parse.** Rejected: it turns a
   hand-editable file into one where a copy-pasted block fails the whole session,
   and it keeps the two representations coupled.
 - **Store an index into the node vectors.** Rejected: every structural edit must
@@ -77,5 +77,5 @@ node**, and duplicates are allowed.
 - **A raw pointer to the node.** Rejected: `nodes_mut()` hands out `&mut Vec`, so
   any insertion reallocates and dangles the pointer.
 - **Abstain from name-based lookup entirely (ids only).** Rejected: the launcher
-  presenter's menu addresses projects and launchers by name over the IPC boundary
+  presenter's menu names projects and launchers over the IPC boundary
   (`ConfigurationRequest`), so the names must still resolve to something.

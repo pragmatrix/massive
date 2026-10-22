@@ -6,7 +6,7 @@
 //! implied (the terminal synthesizes the root project `Projects`), and nesting is
 //! structural — a slot hosts either a launcher or a nested project node. Ids are
 //! not serialized: projects and launchers get fresh ids at load, and the document
-//! addresses content by nesting and position alone.
+//! identifies content by nesting and position alone.
 //!
 //! ```json
 //! {
@@ -28,7 +28,7 @@
 //!
 //! `at` is `[column, row]`. `mode` is `visor` or `band`, always written; `params`
 //! carries the launcher's spawn parameters and is omitted when empty. `startup`
-//! is the address path of the launcher the session boots into, omitted when none
+//! is the target path of the launcher the session boots into, omitted when none
 //! is set.
 
 use log::warn;
@@ -42,7 +42,7 @@ use crate::projects::{
 };
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
-/// address path and the root project's slots, with every nested project hanging
+/// target path and the root project's slots, with every nested project hanging
 /// off the slot that hosts it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedConfiguration {

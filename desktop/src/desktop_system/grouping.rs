@@ -7,16 +7,16 @@
 use euclid::{point2, vec2};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
-use super::command_dispatch::project_topology;
+use super::configuration_planning::plan_add_project_topology;
 use super::reparenting::Reparenting;
 use super::selection::Selection;
 use super::{DesktopTarget, FocusableTarget, KeyboardFocusReason, ProjectPart};
 use crate::projects::{
-    DEFAULT_NEW_PROJECT_NAME, ProjectId, RuntimeConfiguration, SlotPosition, group_landings,
-    matrix_bounding_box,
+    ProjectId, RuntimeConfiguration, SlotPosition, group_landings, matrix_bounding_box,
 };
 
-/// Plans grouping the `selected_slots` of `parent` and focusing the new project.
+/// Plans grouping the `selected_slots` of `parent` into a new project named `name` and focusing
+/// it.
 ///
 /// The changes run in this order, because each one needs what the one before it creates. The
 /// `Group` change creates the project and its presenter. The topology change adds the project's
@@ -25,6 +25,7 @@ use crate::projects::{
 pub fn plan(
     parent: ProjectId,
     selected_slots: Vec<SlotPosition>,
+    name: String,
     configuration: &RuntimeConfiguration,
 ) -> Changes {
     let project = ProjectId::new();
@@ -35,9 +36,10 @@ pub fn plan(
         parent,
         slots: selected_slots,
         project,
-        name: DEFAULT_NEW_PROJECT_NAME.into(),
+        name,
     };
-    changes += project_topology(project, DesktopTarget::Project(parent, ProjectPart::Matrix));
+    changes +=
+        plan_add_project_topology(project, DesktopTarget::Project(parent, ProjectPart::Matrix));
     for (outer, inner) in landings {
         changes += Reparenting::plan((parent, outer), (project, inner), configuration);
     }

@@ -12,6 +12,10 @@ _Avoid_: settings, workspace, layout
 A change to the desktop configuration: adding the root project, assigning content to a slot or clearing it, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
 _Avoid_: project change
 
+**Configuration command**:
+An operation a user asks for on the desktop configuration, such as assigning, clearing, moving, swapping, or pushing slot content, adding content next to a slot, grouping, ungrouping, or setting the startup launcher. It names its slots by ids and slot positions. The keyboard, the CLI, and the boot replay each turn what they mean into one, and the desktop system plans it into configuration changes, together with where the focus goes afterwards (ADR 0024). A `ConfigurationRequest` is not one: it is the CLI's message, which names content by names and target paths and becomes a command.
+_Avoid_: configuration request
+
 **Desktop**:
 The hierarchy's virtual root target. It is never inserted explicitly and only parents the root project's target — the one node every hit-test miss maps to. The root project's framing is the outermost camera position.
 _Avoid_: desktop depth, root project (the root project hangs *below* it)
@@ -21,7 +25,7 @@ A named group that owns a matrix of slots. A project without assigned slots is e
 _Avoid_: workspace, section, top-level group
 
 **Slot**:
-A position in a project's matrix, addressed by its slot position. Every position is a slot. An assigned slot hosts either a launcher or a nested project, never both; an unassigned slot is empty. Clearing a slot makes it unassigned. Only assigned slots are stored, so a project whose slots are all unassigned stores none.
+A position in a project's matrix, identified by its slot position. Every position is a slot. An assigned slot hosts either a launcher or a nested project, never both; an unassigned slot is empty. Clearing a slot makes it unassigned. Only assigned slots are stored, so a project whose slots are all unassigned stores none.
 _Avoid_: cell, launcher cell, tile, container, occupied, empty placement
 
 **Assigned slot**:
@@ -29,7 +33,7 @@ A slot that hosts a launcher or a nested project. Assigning content to an assign
 _Avoid_: occupied slot, filled slot
 
 **Unassigned slot**:
-A slot that hosts nothing. It is not stored, but it can still be addressed, for example by a selection or as the destination of a move.
+A slot that hosts nothing. It is not stored, but it can still be named, for example by a selection or as the destination of a move.
 _Avoid_: empty placement, gap, free placement
 
 **Slot position**:
@@ -48,6 +52,10 @@ _Avoid_: anchor, far corner, multi-selection
 A selection whose offsets are not both zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection, and Cmd+A extends it over all assigned slots of its project.
 _Avoid_: widened selection, multi-selection
 
+**Selection operation**:
+A configuration operation a key applies to the selection: adding a launcher (Cmd+N), removing (Cmd+Shift+W), grouping (Cmd+G), or ungrouping (Cmd+Shift+G). Grouping and ungrouping act on the whole selection, while adding and removing act on its keyboard-focused slot only. The desktop system turns it into the configuration command it stands for, because a key cannot know which slots the selection covers (ADR 0024).
+_Avoid_: focused operation, key operation
+
 **Slot extent**:
 The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.
 _Avoid_: cell, slot size, default size
@@ -65,15 +73,15 @@ The uniform presentation scale a parent assigns to all its direct nested project
 _Avoid_: per-slot zoom, camera zoom, viewport resize
 
 **Startup launcher**:
-The launcher the session boots into. Persisted by address path in the desktop configuration; resolved to a launcher id on load, falling back to the nearest depth-first launcher from the root with a warning when the path no longer resolves.
+The launcher the session boots into. Persisted by target path in the desktop configuration; resolved to a launcher id on load, falling back to the nearest depth-first launcher from the root with a warning when the path no longer resolves.
 _Avoid_: startup profile, boot target
 
-**Address path**:
-The configuration-level address of a slot's content: slash-separated names resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator addresses from the root, which itself has no name.
-_Avoid_: target path, locator
+**Target path**:
+The configuration-level path to a slot's content: slash-separated names resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator starts from the root, which itself has no name.
+_Avoid_: address path, address, locator
 
 **Launcher id**:
-The stable per-session identity of a launcher. Ids are newly created every session and never persist; names are the persistence identity and may repeat, so a name that addresses one launcher resolves to the nearest match.
+The stable per-session identity of a launcher. Ids are newly created every session and never persist; names are the persistence identity and may repeat, so a name that several launchers share resolves to the nearest match.
 _Avoid_: profile id, launch profile
 
 **Runtime state**:

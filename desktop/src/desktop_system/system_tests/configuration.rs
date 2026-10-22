@@ -88,7 +88,7 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::AddLauncher,
+            DesktopCommand::ConfigureSelection(SelectionOperation::AddLauncher),
         )?;
 
         let configuration = &system.aggregates.configuration;
@@ -247,7 +247,7 @@ async fn group_wraps_the_focused_slot_in_a_new_project_in_its_slot() -> Result<(
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::GroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Group),
         )?;
 
         let configuration = &system.aggregates.configuration;
@@ -300,7 +300,7 @@ async fn ungroup_reverses_group() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::GroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Group),
         )?;
         let Some(FocusableTarget::Project(group)) = system.keyboard_focus.focused() else {
             panic!("grouping focuses the new project");
@@ -309,7 +309,7 @@ async fn ungroup_reverses_group() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::UngroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Ungroup),
         )?;
 
         let configuration = &system.aggregates.configuration;
@@ -353,10 +353,18 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
             .hierarchy
             .project_of_target(&DesktopTarget::Launcher(launcher_a));
 
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Project(project_a)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::RemoveSlot(SlotContent::Project(project_a)),
+            DesktopCommand::ConfigureSelection(SelectionOperation::Remove),
         )?;
         assert!(system.aggregates.configuration.project(project_a).is_some());
 
@@ -372,7 +380,7 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::AddLauncher,
+            DesktopCommand::ConfigureSelection(SelectionOperation::AddLauncher),
         )?;
         let Some(FocusableTarget::Launcher(idle)) = system.keyboard_focus.focused() else {
             panic!("the added launcher takes the focus");
@@ -380,7 +388,7 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::GroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Group),
         )?;
         let Some(FocusableTarget::Project(idle_project)) = system.keyboard_focus.focused() else {
             panic!("grouping focuses the new project");
@@ -389,7 +397,7 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::RemoveSlot(SlotContent::Project(idle_project)),
+            DesktopCommand::ConfigureSelection(SelectionOperation::Remove),
         )?;
 
         assert!(
@@ -417,6 +425,98 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
             system.aggregates.hierarchy.launcher_of_instance(instance_a),
             launcher_a
         );
+
+        Ok(())
+    })
+    .await
+}
+
+/// Cmd+Shift+W keeps a project while an instance runs below it, but the CLI's `remove` stops the
+/// instance and removes the project.
+#[tokio::test]
+async fn a_removal_request_stops_the_instances_below() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            instance_b,
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let project_a = system
+            .aggregates
+            .hierarchy
+            .project_of_target(&DesktopTarget::Launcher(launcher_a));
+
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_b,
+            massive_applications::ConfigurationRequest::Remove {
+                target: massive_applications::ConfigurationTarget::Project,
+                name: Some("labs-a".into()),
+            },
+        )?;
+
+        assert!(system.aggregates.configuration.project(project_a).is_none());
+        assert!(!system.aggregates.hierarchy.exists(&instance_a.into()));
+
+        Ok(())
+    })
+    .await
+}
+
+/// The CLI's `move` onto an assigned neighbor swaps the two, so the launcher still moves by one
+/// slot.
+#[tokio::test]
+async fn a_move_request_onto_an_assigned_neighbor_swaps() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let (project_a, slot_a) = system
+            .aggregates
+            .configuration
+            .slot_of_content(launcher_a)
+            .unwrap();
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_a,
+            massive_applications::ConfigurationRequest::Add {
+                target: massive_applications::ConfigurationTarget::Launcher,
+                name: None,
+            },
+        )?;
+        let neighbor_slot = SlotPosition {
+            column: slot_a.column + 1,
+            row: slot_a.row,
+        };
+        let neighbor = system
+            .aggregates
+            .configuration
+            .content_at(project_a, neighbor_slot)
+            .expect("the added launcher sits right of the instance's launcher");
+
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_a,
+            massive_applications::ConfigurationRequest::MoveLauncher {
+                direction: massive_applications::MoveDirection::Right,
+            },
+        )?;
+
+        let configuration = &system.aggregates.configuration;
+        assert_eq!(
+            configuration.slot_of_content(launcher_a),
+            Some((project_a, neighbor_slot))
+        );
+        assert_eq!(configuration.content_at(project_a, slot_a), Some(neighbor));
 
         Ok(())
     })

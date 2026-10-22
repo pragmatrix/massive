@@ -12,7 +12,7 @@ use massive_shapes::{IntoShape, Shape, StrokeRect};
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
-    Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
+    SelectionOperation, Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
     place_container_children,
 };
 use crate::policy::colors;
@@ -81,9 +81,13 @@ impl KeyHandler for DesktopPresenter {
             }
             Some(Shortcut::ZoomIn) => DesktopCommand::Zoom(Zoom::In),
             Some(Shortcut::ZoomOut) => DesktopCommand::Zoom(Zoom::Out),
-            Some(Shortcut::NewLauncher) => DesktopCommand::AddLauncher,
-            Some(Shortcut::Group) => DesktopCommand::GroupSlot,
-            Some(Shortcut::Ungroup) => DesktopCommand::UngroupSlot,
+            Some(Shortcut::NewLauncher) => {
+                DesktopCommand::ConfigureSelection(SelectionOperation::AddLauncher)
+            }
+            Some(Shortcut::Group) => DesktopCommand::ConfigureSelection(SelectionOperation::Group),
+            Some(Shortcut::Ungroup) => {
+                DesktopCommand::ConfigureSelection(SelectionOperation::Ungroup)
+            }
             _ => return KeyOutcome::Pass,
         };
 

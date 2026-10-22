@@ -21,7 +21,7 @@ the boot flow's first command (`AddProject { under: None }`) through plan and
 transact, like every other project.
 
 Slots are **implicit**: a slot is a matrix slot of a project, present only
-while a launcher or a nested project is assigned to it, and addressed by its
+while a launcher or a nested project is assigned to it, and identified by its
 *(project, placement)* key. There is no `SlotId` and no slot node in the
 topology. A cleared placement is simply empty, so a project may have no
 slots at all — its contents are what exist.
@@ -88,12 +88,12 @@ and `absolute_placement` propagates it to everything below — hover rects and
 hit-test transforms scale with the content, and the nested project's own
 presenter applies no second scale.
 
-## Vocabulary and addressing
+## Vocabulary and target paths
 
-Configuration addressing uses **address paths**: slash-separated names resolved
+Configuration content is named by **target paths**: slash-separated names resolved
 nearest-match per segment (ADR 0010's duplicate-name rule, applied per level).
 The invoking instance's project is the implicit base for relative paths from the
-CLI; a leading separator addresses from the root. `startup` persists an address
+CLI; a leading separator starts from the root. `startup` persists a target
 path.
 
 The configuration change vocabulary is slot-centric and **assign/clear**
@@ -107,7 +107,7 @@ shaped, because a slot may be empty:
 - `ClearSlot` — the parent project and a placement.
 - `MoveSlot` — a source *(parent, placement)* and a destination; the content may
   move to another project's matrix, but not into its own subtree.
-- `SetStartup` — the startup launcher's address path.
+- `SetStartup` — the startup launcher's target path.
 
 Replacing slot content is a clear plus an assign, never an in-place operation.
 
@@ -152,7 +152,7 @@ every boot re-derives the same tree.
 
 Empty projects and empty slots are legal, but the session still boots into a
 launcher-backed primary instance, so a configuration with no launcher anywhere
-in the tree is rejected at load. The startup launcher's address path falls back
+in the tree is rejected at load. The startup launcher's target path falls back
 to the nearest depth-first launcher from the root when it does not resolve.
 
 ## Consequences
@@ -179,7 +179,7 @@ to it.
 ### Slots in the runtime tree
 
 - A matrix's children are **slot entries**, each classifying its content as
-  `Launcher(LaunchProfileId)` or `Project(ProjectId)`, addressed by *(parent
+  `Launcher(LaunchProfileId)` or `Project(ProjectId)`, identified by *(parent
   `ProjectId`, `SlotPosition`)* — the key the shift planner already uses.
   `DesktopTarget` is unchanged: the hover and click target of a project slot
   is the nested `Project` target, a launcher slot keeps targeting the

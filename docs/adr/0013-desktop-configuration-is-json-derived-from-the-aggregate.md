@@ -33,8 +33,8 @@ it.
   node is `name` plus `slots`, recursing. The document root is the one node
   without a name — the terminal synthesizes the root project `Projects`.
 - Ids are not serialized. Projects and launchers get fresh ids at load; the
-  document addresses content by nesting and placement alone, and the `startup`
-  address path resolves by name as before.
+  document identifies content by nesting and placement alone, and the `startup`
+  target path resolves by name as before.
 - A change is applied to the aggregate and marks the document dirty; the flush
   at the end of a transaction serializes the aggregate into the file. There is
   no separate edit path, no tags, and no KDL node bookkeeping — the document
@@ -57,8 +57,8 @@ it.
   `startup_path` is the persistence source; the resolved launcher id stays
   fresh per session.
 - Duplicate names stay legal (ADR 0010's decision), but the tag mechanism that
-  made them addressable is gone: with the document derived from the aggregate,
-  a change addresses the aggregate's ids directly and the serialization walks
+  told them apart is gone: with the document derived from the aggregate,
+  a change names the aggregate's ids directly and the serialization walks
   the same ids, so duplicates need no per-node identity in the file.
 - Hand-editing the file is a plain JSON edit; a syntax error fails the load
   with the file path in the message, and the default configuration is written
