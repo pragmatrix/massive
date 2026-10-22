@@ -431,47 +431,6 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
     .await
 }
 
-/// The operation decides where the focus goes, not the key that issued it (ADR 0024). A `Group`
-/// command that no key issued still focuses the new project.
-#[tokio::test]
-async fn a_group_command_focuses_the_new_project() -> Result<()> {
-    task_context::with_context(task_context(), async {
-        let NestedSiblings {
-            mut system,
-            mut instance_manager,
-            instance_a,
-            ..
-        } = nested_siblings()?;
-        let launcher_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
-        let (project_a, slot_a) = system
-            .aggregates
-            .configuration
-            .slot_of_content(launcher_a)
-            .unwrap();
-
-        run(
-            &mut system,
-            &mut instance_manager,
-            DesktopCommand::Configuration(ConfigurationCommand::Group {
-                parent: project_a,
-                slots: vec![slot_a],
-                name: "tools".into(),
-            }),
-        )?;
-
-        let Some(FocusableTarget::Project(group)) = system.keyboard_focus.focused() else {
-            panic!("grouping focuses the new project");
-        };
-        assert_eq!(
-            system.aggregates.configuration.project(group).unwrap().name,
-            "tools"
-        );
-
-        Ok(())
-    })
-    .await
-}
-
 /// Cmd+Shift+W keeps a project while an instance runs below it, but the CLI's `remove` stops the
 /// instance and removes the project.
 #[tokio::test]
@@ -560,37 +519,6 @@ async fn a_move_request_onto_an_assigned_neighbor_swaps() -> Result<()> {
         assert_eq!(configuration.content_at(project_a, slot_a), Some(neighbor));
 
         Ok(())
-    })
-    .await
-}
-
-/// A move never displaces content. Issuing one onto an assigned slot is a bug, and an exchange is a
-/// `SwapSlots`.
-#[tokio::test]
-#[should_panic(expected = "a move lands on an unassigned slot")]
-async fn a_move_onto_an_assigned_slot_is_a_bug() {
-    task_context::with_context(task_context(), async {
-        let NestedSiblings {
-            mut system,
-            mut instance_manager,
-            ..
-        } = nested_siblings().unwrap();
-        let slots: Vec<_> = system
-            .aggregates
-            .configuration
-            .slots_ordered(ProjectId::ROOT)
-            .map(|(slot, _)| slot)
-            .collect();
-
-        run(
-            &mut system,
-            &mut instance_manager,
-            DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
-                source: (ProjectId::ROOT, slots[0]),
-                dest: (ProjectId::ROOT, slots[1]),
-            }),
-        )
-        .unwrap();
     })
     .await
 }

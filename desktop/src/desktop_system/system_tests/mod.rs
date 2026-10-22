@@ -259,26 +259,20 @@ fn deliver_view(
     instance_manager: &mut InstanceManager,
     instance: InstanceId,
 ) -> Result<()> {
-    let mut submission = massive_util::ChangeSet::default();
-    submission.push(InstanceChange::CreateView(
-        massive_applications::ViewCreationInfo {
-            id: uuid::Uuid::new_v4().into(),
-            role: ViewRole::Primary,
-            extents: massive_geometry::BoxPx::new(
-                massive_geometry::PointPx::new(0, 0),
-                massive_geometry::PointPx::new(800, 600),
-            ),
-        },
-    ));
-    system.transact(
-        DesktopChange::IntegrateInstanceSubmission(
-            instance,
-            InstanceSubmission::new(submission, massive_renderer::RenderPacing::default()),
+    let creation = massive_applications::ViewCreationInfo {
+        id: uuid::Uuid::new_v4().into(),
+        role: ViewRole::Primary,
+        extents: massive_geometry::BoxPx::new(
+            massive_geometry::PointPx::new(0, 0),
+            massive_geometry::PointPx::new(800, 600),
         ),
+    };
+    submit(
+        system,
         instance_manager,
-        TransactionEffectsMode::Setup,
-    )?;
-    Ok(())
+        instance,
+        InstanceChange::CreateView(creation),
+    )
 }
 
 /// Sends `request` from `instance`, the way the CLI running in it does.
@@ -288,8 +282,23 @@ fn request(
     instance: InstanceId,
     request: massive_applications::ConfigurationRequest,
 ) -> Result<()> {
+    submit(
+        system,
+        instance_manager,
+        instance,
+        InstanceChange::Configuration(request),
+    )
+}
+
+/// Integrates `change` as a submission of `instance`.
+fn submit(
+    system: &mut DesktopSystem,
+    instance_manager: &mut InstanceManager,
+    instance: InstanceId,
+    change: InstanceChange,
+) -> Result<()> {
     let mut submission = massive_util::ChangeSet::default();
-    submission.push(InstanceChange::Configuration(request));
+    submission.push(change);
     system.transact(
         DesktopChange::IntegrateInstanceSubmission(
             instance,

@@ -52,6 +52,10 @@ _Avoid_: anchor, far corner, multi-selection
 A selection whose offsets are not both zero, so it reaches beyond the focused slot, even when only unassigned slots lie beyond. Shift+Cmd+arrow extends a selection, and Cmd+A extends it over all assigned slots of its project.
 _Avoid_: widened selection, multi-selection
 
+**Selection operation**:
+A configuration operation a key applies to the selection: adding a launcher (Cmd+N), removing (Cmd+Shift+W), grouping (Cmd+G), or ungrouping (Cmd+Shift+G). Grouping and ungrouping act on the whole selection, while adding and removing act on its keyboard-focused slot only. The desktop system turns it into the configuration command it stands for, because a key cannot know which slots the selection covers (ADR 0024).
+_Avoid_: focused operation, key operation
+
 **Slot extent**:
 The fixed size every slot's content fits into: one instance extent, the default panel with its title bar. Every column of a matrix is as wide as it, no row is taller, and content smaller than its slot sits centered in it.
 _Avoid_: cell, slot size, default size

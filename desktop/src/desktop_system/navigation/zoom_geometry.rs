@@ -65,11 +65,11 @@ impl<'a> ZoomGeometry<'a> {
         project: ProjectId,
         target: FocusableTarget,
     ) -> Option<(SlotContent, SlotPosition)> {
-        let target_path = self.hierarchy.resolve_path(Some(&target.into()));
+        let focus_path = self.hierarchy.resolve_path(Some(&target.into()));
         self.configuration
             .slots_ordered(project)
             .find_map(|(slot, content)| {
-                target_path
+                focus_path
                     .contains(&content.target())
                     .then_some((content, slot))
             })

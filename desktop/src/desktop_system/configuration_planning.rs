@@ -35,8 +35,9 @@ impl DesktopSystem {
     }
 }
 
-/// Borrows the only state configuration planning reads: the configuration, the topology, and the
-/// keyboard focus. The window, the layout, the camera, and the instances stay out of its reach.
+/// Borrows the only state configuration planning reads: the configuration, the topology, the
+/// keyboard focus, and the focus slots and instance anchors the project and launcher presenters
+/// remember. The window, the layout, and the camera stay out of its reach.
 #[derive(Debug)]
 pub struct ConfigurationPlanning<'a> {
     configuration: &'a RuntimeConfiguration,
@@ -135,8 +136,8 @@ impl ConfigurationPlanning<'_> {
         Ok(changes)
     }
 
-    /// A move that would land on an assigned slot is a bug of its issuer, which chooses
-    /// `SwapSlots` for that.
+    /// Every issuer picks a valid move, so an invalid one is a bug of the issuer. A move onto an
+    /// assigned slot is a `SwapSlots` instead.
     fn plan_move_slot(
         &self,
         source: (ProjectId, SlotPosition),
@@ -147,11 +148,12 @@ impl ConfigurationPlanning<'_> {
             configuration.content_at(dest.0, dest.1).is_none(),
             "a move lands on an unassigned slot, a swap exchanges assigned ones"
         );
-        let mut changes = Changes::Empty;
-        if configuration.can_move_slot(source, dest) {
-            changes += Reparenting::plan(source, dest, configuration);
-            changes <<= ConfigurationChange::MoveSlot { source, dest };
-        }
+        assert!(
+            configuration.can_move_slot(source, dest),
+            "a move starts at an assigned slot and lands in a live project outside its own subtree"
+        );
+        let mut changes = Reparenting::plan(source, dest, configuration);
+        changes <<= ConfigurationChange::MoveSlot { source, dest };
         changes
     }
 
@@ -222,7 +224,7 @@ impl ConfigurationPlanning<'_> {
     ) -> Result<Changes> {
         let mut changes = Changes::Empty;
         // The parsed aggregate already has boot slots, while the topology
-        // starts empty; only displace occupants that are live in the scene.
+        // starts empty; only displace assigned content that is live in the scene.
         let assigned = self
             .configuration
             .content_at(parent, slot)

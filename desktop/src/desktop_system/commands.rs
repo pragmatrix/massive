@@ -82,8 +82,9 @@ pub enum ConfigurationCommand {
         content: SlotAssignment,
         shift: SlotShift,
     },
-    /// Unassigns a slot. The instances that run below its content are stopped. The focus moves to a
-    /// neighbor when it was inside the content.
+    /// Unassigns a slot. The instances that run below its content are stopped. When the focus was
+    /// inside the content, it moves to the nearest assigned slot, or else to the hosting project
+    /// (ADR 0029).
     ClearSlot {
         parent: ProjectId,
         slot: SlotPosition,
@@ -122,7 +123,7 @@ pub enum ConfigurationCommand {
         name: String,
     },
     /// Moves the slots of a nested project into its parent's matrix, removes the project, and
-    /// selects the ungrouped slots (ADR 0026). An empty project is just removed.
+    /// selects the ungrouped slots (ADR 0026). An empty project is removed instead (ADR 0029).
     Ungroup {
         project: ProjectId,
     },

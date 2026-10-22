@@ -30,14 +30,14 @@ The keyboard, the CLI, and the boot replay each do two separate jobs, and they a
 
 `ConfigurationCommand` becomes the one complete vocabulary of operations. It contains every
 operation a user can perform on the configuration: assign, clear, move, swap, push, add next to,
-group, ungroup, and set the startup path. A command names its slots by ids and placements only,
+group, ungroup, and set the startup path. A command names its slots by ids and slot positions only,
 never by focus or by names. A move only lands on an unassigned slot, so it never displaces
 content. Exchanging two assigned slots is a swap.
 
 Each command is planned in exactly one place, which expands it into the primitive
 `ConfigurationChange`s of ADR 0011 together with the topology and focus changes it needs.
 
-The keyboard, the CLI, and the boot replay only name their slots by ids and placements and
+The keyboard, the CLI, and the boot replay only name their slots by ids and slot positions and
 issue a `ConfigurationCommand`. A desktop policy guard that applies to one of them decides whether
 the command is issued at all. Cmd+Shift+W, for example, issues no removal while instances run below
 the focused slot, so that a key press never quits running processes. A removal that is issued

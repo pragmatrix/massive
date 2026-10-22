@@ -300,8 +300,8 @@ impl DesktopSystem {
         }
     }
 
-    /// The project Cmd+Shift+G ungroups: the focused one, or the one whose slots are all selected
-    /// (ADR 0029). The root project has no parent matrix to take its slots.
+    /// The ungrouping Cmd+Shift+G issues: of the focused project, or of the one whose slots are all
+    /// selected (ADR 0029). Nothing for the root, which has no parent matrix to take its slots.
     fn ungroup_command_for_selection(&self) -> Option<ConfigurationCommand> {
         let focused = self.keyboard_focus.focused();
         let focused_project = match focused {
