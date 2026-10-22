@@ -1,8 +1,6 @@
 //! The desktop's colors.
 //!
 //! Each color was picked by taste. Every submodule groups the colors of one part of the desktop.
-//!
-//! TODO: Need proper color palettes for UI elements.
 
 /// The window behind everything the desktop presents.
 pub mod desktop {
@@ -56,6 +54,7 @@ pub mod project {
 pub mod launcher {
     use massive_geometry::Color;
 
+    // TODO: Need proper color palettes for UI elements.
     // spellcheck: ignore
     // const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
     // const POWDER_BLUE: Color = Color::rgb_u32(0xb0e0e6);

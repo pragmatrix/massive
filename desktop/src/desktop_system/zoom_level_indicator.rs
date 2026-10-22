@@ -13,6 +13,12 @@ use super::ZoomLevel;
 use crate::policy::colors;
 use crate::policy::constants::zoom_level_indicator;
 
+/// The end of the fade-in on the badge's timeline, which runs from 0 to 1 over its duration.
+const FADE_IN_END: f32 =
+    zoom_level_indicator::FADE_IN.as_secs_f32() / zoom_level_indicator::DURATION.as_secs_f32();
+/// The start of the fade-out on the badge's timeline.
+const FADE_OUT_START: f32 = 1.0
+    - zoom_level_indicator::FADE_OUT.as_secs_f32() / zoom_level_indicator::DURATION.as_secs_f32();
 // The renderer draws decal layers in ascending order, so the maximum stays above other visuals.
 const DECAL_ORDER: usize = usize::MAX;
 /// Digits reserved for the project nesting depth so the badge does not resize between depths.
@@ -119,12 +125,10 @@ impl ZoomLevelIndicatorMovement {
         visual: &Handle<Visual>,
     ) {
         let timeline = *self.timeline.proceed_with(progress);
-        let alpha = if timeline < zoom_level_indicator::FADE_IN_END {
-            (timeline / zoom_level_indicator::FADE_IN_END)
-                .interpolate(zoom_level_indicator::FADE_INTERPOLATION)
+        let alpha = if timeline < FADE_IN_END {
+            (timeline / FADE_IN_END).interpolate(zoom_level_indicator::FADE_INTERPOLATION)
         } else {
-            let fade_progress = ((timeline - zoom_level_indicator::FADE_OUT_START)
-                / (1.0 - zoom_level_indicator::FADE_OUT_START))
+            let fade_progress = ((timeline - FADE_OUT_START) / (1.0 - FADE_OUT_START))
                 .clamp(0.0, 1.0)
                 .interpolate(zoom_level_indicator::FADE_INTERPOLATION);
             1.0 - fade_progress

@@ -65,10 +65,10 @@ pub mod zoom_level_indicator {
 
     /// How long the badge is shown, including its fades.
     pub const DURATION: Duration = Duration::from_millis(1375);
-    /// The badge fades in during the first 125ms, as a fraction of `DURATION`.
-    pub const FADE_IN_END: f32 = 125.0 / 1375.0;
-    /// The badge fades out during the last 250ms, as a fraction of `DURATION`.
-    pub const FADE_OUT_START: f32 = 1125.0 / 1375.0;
+    /// How long the badge fades in at the start of `DURATION`.
+    pub const FADE_IN: Duration = Duration::from_millis(125);
+    /// How long the badge fades out at the end of `DURATION`.
+    pub const FADE_OUT: Duration = Duration::from_millis(250);
     pub const FADE_INTERPOLATION: Interpolation = Interpolation::CubicOut;
     /// The badge's distance from the window's top right corner.
     pub const MARGIN: f64 = 16.0;
@@ -87,7 +87,7 @@ pub mod camera {
 
 /// A project's header and the space around its matrix.
 pub mod project {
-    pub const HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
+    pub const HEADER_FONT_SIZE: f32 = 128.0;
     pub const HEADER_MIN_HEIGHT: u32 = 24;
     /// The gap between the header and the matrix.
     pub const HEADER_SPACING: u32 = 10;
@@ -111,7 +111,7 @@ pub mod launcher {
     /// last one disappears.
     pub const FADING_DURATION: Duration = Duration::from_millis(500);
     pub const FADING_INTERPOLATION: Interpolation = Interpolation::CubicOut;
-    pub const NAME_FONT_SIZE: f32 = 32.0 * 8.0;
+    pub const NAME_FONT_SIZE: f32 = 256.0;
     /// Band-mode panels are packed with no per-child spacing.
     pub const CHILD_SPACING: i32 = 0;
     /// How far a collapsed visor pushes its hidden non-anchor instances back.
