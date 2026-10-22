@@ -12,7 +12,7 @@ struct TwoLaunchers {
 }
 
 fn two_launchers() -> Result<TwoLaunchers> {
-    let (mut system, receiver) = system_from(
+    let (system, instance_manager) = boot(
         r#"{
             "startup": "/a",
             "slots": [
@@ -20,15 +20,7 @@ fn two_launchers() -> Result<TwoLaunchers> {
                 { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } }
             ]
         }"#,
-    );
-    let mut instance_manager = instance_manager(&receiver);
-    for command in crate::projects::to_commands(&system.aggregates.configuration) {
-        run(
-            &mut system,
-            &mut instance_manager,
-            DesktopCommand::Configuration(command),
-        )?;
-    }
+    )?;
     let a = system.aggregates.configuration.boot_launcher().unwrap();
     let Some(SlotContent::Launcher(b)) = system
         .aggregates
@@ -43,6 +35,20 @@ fn two_launchers() -> Result<TwoLaunchers> {
         a,
         b,
     })
+}
+
+/// A system that has run the commands its configuration `config` boots with.
+fn boot(config: &str) -> Result<(DesktopSystem, InstanceManager)> {
+    let (mut system, receiver) = system_from(config);
+    let mut instance_manager = instance_manager(&receiver);
+    for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::Configuration(command),
+        )?;
+    }
+    Ok((system, instance_manager))
 }
 
 fn focus(
@@ -142,6 +148,52 @@ async fn the_outline_covers_the_selected_slots() -> Result<()> {
         let between = (a.transform.translate + b.transform.translate) * 0.5;
         assert!((outline.transform.translate - between).length() < 1e-6);
         assert!(outline.rect.size[0] > a.rect.size[0] + b.rect.size[0]);
+
+        Ok(())
+    })
+    .await
+}
+
+/// The camera stays on the zoom level's framing while that shows the view of the selection's
+/// camera, and once it does not, it frames both views together, so the view only grows
+/// (ADR 0032). Four launchers in a row, framed at `Row`: the selection of the middle two leaves
+/// room for the margins, and reaching the last launcher puts the right margin out of view.
+#[tokio::test]
+async fn the_camera_encloses_a_selection_beyond_the_view() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let (mut system, mut instance_manager) = boot(
+            r#"{
+                "startup": "/b",
+                "slots": [
+                    { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
+                    { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } },
+                    { "at": [2, 0], "launcher": { "name": "c", "mode": "visor" } },
+                    { "at": [3, 0], "launcher": { "name": "d", "mode": "visor" } }
+                ]
+            }"#,
+        )?;
+        let b = system.aggregates.configuration.boot_launcher().unwrap();
+        focus(
+            &mut system,
+            &mut instance_manager,
+            FocusableTarget::Launcher(b),
+        )?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::Zoom(Zoom::Out),
+        )?;
+        assert_eq!(system.zoom_level, ZoomLevel::Row);
+        let row_camera = system.resolve_desired_camera();
+
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        assert_eq!(system.resolve_desired_camera(), row_camera);
+
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        let camera = system.resolve_desired_camera().unwrap();
+        let row_camera = row_camera.unwrap();
+        assert!(camera.distance > row_camera.distance);
+        assert!(camera.look_at.translate.x > row_camera.look_at.translate.x);
 
         Ok(())
     })

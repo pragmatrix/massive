@@ -6,18 +6,13 @@
 use std::iter;
 
 use euclid::{Vector2D, vec2};
-use massive_geometry::Transform;
-use massive_layout::{MeasuredLayout, Placement, Rect as LayoutRect};
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::layout_state::DesktopLayoutState;
 use super::topology::DesktopTopology;
-use super::{
-    DesktopTarget, Direction, FocusableTarget, KeyboardFocusReason, LayoutContext, ProjectPart,
-};
+use super::{Direction, FocusableTarget, KeyboardFocusReason};
 use crate::projects::{
     MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration, SlotContent,
-    SlotPosition, intervals_origin, matrix_area, matrix_bounding_box,
+    SlotPosition, matrix_bounding_box,
 };
 
 /// The current selection: its offsets from the focused slot's position. `top_left` counts the
@@ -130,8 +125,7 @@ impl Selection {
         hierarchy: &DesktopTopology,
         configuration: &RuntimeConfiguration,
     ) -> Option<(ProjectId, Vec<SlotPosition>)> {
-        let (_, project, slot) = focused_slot(focused, hierarchy, configuration)?;
-        let rect = self.rect(slot);
+        let (project, rect) = self.selected_rect(focused, hierarchy, configuration)?;
         let slots = configuration
             .project(project)
             .expect("a selection's project is configured")
@@ -142,46 +136,23 @@ impl Selection {
         Some((project, slots))
     }
 
-    /// Where the outline of the selection around the `focused` target goes, in the
-    /// coordinates of the layout root. `None` when only the focused slot is selected, so the
-    /// outline marks the focused target as usual.
-    pub fn outline_placement(
+    /// The rectangle the selection around the `focused` target spans, and the project whose matrix
+    /// holds it. Without a selection beyond the focused slot, this is the focused slot alone.
+    /// `None` when the focus sits in no slot.
+    pub fn selected_rect(
         &self,
         focused: FocusableTarget,
-        layout_state: &DesktopLayoutState,
-        context: &LayoutContext,
-    ) -> Option<Placement<Transform, 2>> {
-        if !self.is_extended() {
-            return None;
-        }
-        let (_, project, slot) = focused_slot(focused, context.hierarchy, context.configuration)?;
-
-        let matrix = DesktopTarget::Project(project, ProjectPart::Matrix);
-        let children: Vec<MeasuredLayout<2>> = context
-            .hierarchy
-            .get_nested(&matrix)
-            .iter()
-            .map(|child| layout_state.measured(child))
-            .collect();
-        let area = matrix_area(project, context, &children, self.rect(slot))?;
-
-        let matrix_placement = layout_state.absolute_placement(&matrix, context.hierarchy);
-        let offset = intervals_origin(
-            matrix_placement.rect.size,
-            layout_state.measured(&matrix).size,
-        ) + area.offset;
-        let area_origin = DesktopLayoutState::origin_transform(&matrix_placement)
-            * Transform::from_xy(offset[0] as f64, offset[1] as f64);
-        Some(Placement::new(
-            area_origin.pivoted_at(DesktopLayoutState::layout_local_center(area.size)),
-            LayoutRect::new(matrix_placement.rect.offset + offset, area.size),
-        ))
+        hierarchy: &DesktopTopology,
+        configuration: &RuntimeConfiguration,
+    ) -> Option<(ProjectId, MatrixRect)> {
+        let (_, project, slot) = focused_slot(focused, hierarchy, configuration)?;
+        Some((project, self.matrix_rect_around(slot)))
     }
 
     /// The rectangle the selection spans around the `focused` slot's position. The selection stays
     /// inside the matrix, so it never reaches past its top-left slot. Release builds do not check
     /// integer overflow, so the assertion keeps a broken selection from wrapping around silently.
-    fn rect(self, focused: SlotPosition) -> MatrixRect {
+    fn matrix_rect_around(self, focused: SlotPosition) -> MatrixRect {
         let focused = MatrixPoint::from(focused);
         assert!(
             !self.top_left.greater_than(focused.to_vector()).any(),

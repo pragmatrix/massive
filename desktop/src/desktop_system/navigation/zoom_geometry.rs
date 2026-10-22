@@ -17,6 +17,10 @@ use crate::projects::{
     LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
+/// The margin the camera keeps around an extended selection on each side, as a fraction of the
+/// slot extent along the same axis (ADR 0032).
+const SELECTION_MARGIN_FRACTION: f64 = 0.25;
+
 /// Resolves where the camera points for a zoom level, from the placed layout.
 #[derive(Debug)]
 pub struct ZoomGeometry<'a> {
@@ -104,6 +108,26 @@ impl<'a> ZoomGeometry<'a> {
             }
             ZoomLevel::Project => self.project_camera(project),
         }
+    }
+
+    /// The camera that frames an extended selection, its `outline`, with a margin around it (ADR
+    /// 0032). It faces the outline the way the outline is placed. The margin is a fraction of the
+    /// `slot_extent` in the outline's own coordinates, so a nested project scales it like its slots
+    /// (ADR 0015).
+    pub fn selection_camera(
+        &self,
+        outline: &Placement<Transform, 2>,
+        slot_extent: SizePx,
+    ) -> PixelCamera {
+        let margin = Size::from(slot_extent) * SELECTION_MARGIN_FRACTION;
+        let points = Self::placement_bounds(outline, margin).points;
+        PixelCamera::framing(&points, outline.transform.rotate, self.window_size)
+            .expect("a rect has corners")
+    }
+
+    /// The camera that shows what both `a` and `b` show in the window (ADR 0032).
+    pub fn joined_camera(&self, a: PixelCamera, b: PixelCamera) -> PixelCamera {
+        a.joined(&b, self.window_size)
     }
 
     fn project_camera(&self, project: ProjectId) -> PixelCamera {
@@ -302,7 +326,12 @@ impl<'a> ZoomGeometry<'a> {
     }
 
     fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {
-        let placement = self.placement(target);
+        Self::placement_bounds(&self.placement(target), Size::default())
+    }
+
+    /// The bounds of a placed rect grown by `margin` on every side, in the placement's local
+    /// coordinates.
+    fn placement_bounds(placement: &Placement<Transform, 2>, margin: Size) -> OverviewBounds {
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
         // `placement.transform` is pivoted at the target's center. Pivot it at the origin before
@@ -310,7 +339,13 @@ impl<'a> ZoomGeometry<'a> {
         let local_rect = size.to_rect();
         let local_center = local_rect.center();
         let origin_transform = placement.transform.pivoted_at_origin(local_center);
-        Self::transform_rect(local_rect, origin_transform)
+        let grown = Rect {
+            left: local_rect.left - margin.width,
+            top: local_rect.top - margin.height,
+            right: local_rect.right + margin.width,
+            bottom: local_rect.bottom + margin.height,
+        };
+        Self::transform_rect(grown, origin_transform)
     }
 
     fn transform_rect(rect: Rect, transform: Transform) -> OverviewBounds {
