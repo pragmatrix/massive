@@ -8,13 +8,15 @@ use massive_renderer::RenderGeometry;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
+use super::navigation::ZoomGeometry;
 use super::{
-    Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, InstancePart,
-    LayoutContext, TargetLayout, TransactionEffectsMode,
+    Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget,
+    FocusableTarget, InstancePart, LayoutContext, TargetLayout, TransactionEffectsMode,
 };
 use crate::coordinate_mapper::CoordinateMapper;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::TITLE_SEPARATOR;
+use crate::projects::slot_extent;
 use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
@@ -344,10 +346,31 @@ impl DesktopSystem {
 
     pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
         let focused = self.keyboard_focus.focused()?;
-        Some(
-            self.zoom_geometry()
-                .resolve_camera_for_target(focused, self.zoom_level),
-        )
+        let zoom_geometry = self.zoom_geometry();
+        let camera = zoom_geometry.resolve_camera_for_target(focused, self.zoom_level);
+        if !self.selection.is_extended() {
+            return Some(camera);
+        }
+        let Some(selection_camera) = self.selection_camera(focused, &zoom_geometry) else {
+            return Some(camera);
+        };
+        Some(zoom_geometry.joined_camera(camera, selection_camera))
+    }
+
+    /// The camera that frames the extended selection around the `focused` target with a margin
+    /// around it (ADR 0032). `None` when the selection has no outline.
+    fn selection_camera(
+        &self,
+        focused: FocusableTarget,
+        zoom_geometry: &ZoomGeometry,
+    ) -> Option<PixelCamera> {
+        let context = self.aggregates.layout_context(
+            self.default_panel_size,
+            self.window_state.inner_size,
+            self.focused_path().instance(),
+        );
+        let outline = self.selection_outline(focused, &context)?;
+        Some(zoom_geometry.selection_camera(&outline, slot_extent(&context)))
     }
 }
 

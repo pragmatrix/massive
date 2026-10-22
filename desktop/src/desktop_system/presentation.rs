@@ -8,10 +8,10 @@ use massive_layout::Placement;
 
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
-use super::{DesktopTarget, FocusableTarget};
+use super::{DesktopTarget, FocusableTarget, LayoutContext};
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::{LaunchProfileId, launcher_mode};
+use crate::projects::{LaunchProfileId, launcher_mode, matrix_area_placement};
 
 use super::DesktopSystem;
 
@@ -168,9 +168,8 @@ impl DesktopSystem {
     pub fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
         if self.event_router.pointer_focus().is_none()
             && let Some(focused) = self.keyboard_focus.hover_outline_focus()
-            && let Some(placement) = self.selection.outline_placement(
+            && let Some(placement) = self.selection_outline(
                 focused,
-                &self.layout_state,
                 &self.aggregates.layout_context(
                     self.default_panel_size,
                     self.window_state.inner_size,
@@ -187,6 +186,23 @@ impl DesktopSystem {
             | DesktopTarget::Instance(..) => Some(self.placement(&target)),
             DesktopTarget::Desktop => None,
         }
+    }
+
+    /// Where the outline of the selection around the `focused` target goes, in the coordinates of
+    /// the layout root. `None` when only the focused slot is selected, so the outline marks the
+    /// focused target as usual.
+    pub fn selection_outline(
+        &self,
+        focused: FocusableTarget,
+        context: &LayoutContext,
+    ) -> Option<Placement<Transform, 2>> {
+        if !self.selection.is_extended() {
+            return None;
+        }
+        let (project, rect) =
+            self.selection
+                .selected_rect(focused, context.hierarchy, context.configuration)?;
+        matrix_area_placement(project, rect, &self.layout_state, context)
     }
 
     fn hover_target(&self) -> Option<DesktopTarget> {

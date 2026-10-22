@@ -30,7 +30,9 @@ impl ChangeSurface {
     }
 
     pub fn camera_invalid(&self) -> bool {
-        !self.size_invalid.is_empty() || self.window_size_changed
+        // The camera keeps an extended selection in view, so setting a selection may move it
+        // (ADR 0032).
+        !self.size_invalid.is_empty() || self.window_size_changed || self.selection_set
     }
 
     pub fn retain(&mut self, predicate: impl Fn(&DesktopTarget) -> bool) {

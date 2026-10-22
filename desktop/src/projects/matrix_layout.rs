@@ -10,7 +10,9 @@ use euclid::vec2;
 use massive_geometry::{Quaternion, Rect, RectPx, SizePx, Transform};
 use massive_layout::{MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size};
 
-use crate::desktop_system::{LayoutContext, fullscreen_scale};
+use crate::desktop_system::{
+    DesktopLayoutState, DesktopTarget, LayoutContext, ProjectPart, fullscreen_scale,
+};
 use crate::instance_presenter::instance_extent;
 use crate::projects::{MatrixRect, ProjectId, SlotContent, SlotPosition};
 
@@ -73,11 +75,42 @@ pub fn place_matrix_children(
     }
 }
 
+/// Where the columns and rows of `rect` in `project`'s matrix go, the spacing between them
+/// included, in the coordinates of the layout root. A selection's outline goes there (ADR 0025).
+/// `None` when `rect` reaches beyond the matrix's intervals.
+pub fn matrix_area_placement(
+    project: ProjectId,
+    rect: MatrixRect,
+    layout_state: &DesktopLayoutState,
+    context: &LayoutContext,
+) -> Option<Placement<Transform, 2>> {
+    let matrix = DesktopTarget::Project(project, ProjectPart::Matrix);
+    let children: Vec<MeasuredLayout<2>> = context
+        .hierarchy
+        .get_nested(&matrix)
+        .iter()
+        .map(|child| layout_state.measured(child))
+        .collect();
+    let area = matrix_area(project, context, &children, rect)?;
+
+    let matrix_placement = layout_state.absolute_placement(&matrix, context.hierarchy);
+    let offset = intervals_origin(
+        matrix_placement.rect.size,
+        layout_state.measured(&matrix).size,
+    ) + area.offset;
+    let area_origin = DesktopLayoutState::origin_transform(&matrix_placement)
+        * Transform::from_xy(offset[0] as f64, offset[1] as f64);
+    Some(Placement::new(
+        area_origin.pivoted_at(DesktopLayoutState::layout_local_center(area.size)),
+        LayoutRect::new(matrix_placement.rect.offset + offset, area.size),
+    ))
+}
+
 /// The rectangle that the columns and rows of `rect` cover, the spacing between them included,
 /// relative to the start of the first interval. [`intervals_origin`] carries it into the matrix's
 /// coordinates. Unassigned slots count like assigned ones, so this is the area a selection
 /// outlines (ADR 0025). `None` when `rect` reaches beyond the matrix's intervals.
-pub fn matrix_area(
+fn matrix_area(
     project: ProjectId,
     context: &LayoutContext,
     children: &[MeasuredLayout<2>],
@@ -99,7 +132,7 @@ pub fn matrix_area(
 
 /// Where the intervals start in a matrix of `size`, so that they sit centered in it. The intervals
 /// span `measured_size`, which `size` exceeds when the project is stretched to its own slot.
-pub fn intervals_origin(size: Size<2>, measured_size: Size<2>) -> Offset<2> {
+fn intervals_origin(size: Size<2>, measured_size: Size<2>) -> Offset<2> {
     Offset::from(array::from_fn(|axis| {
         centering_offset(size[axis], measured_size[axis])
     }))
@@ -129,7 +162,7 @@ impl MatrixGrid {
 
 /// The extent of one slot, a launcher's default panel with its title bar: every column spans its
 /// width, and no slot's content presents larger.
-fn slot_extent(context: &LayoutContext) -> SizePx {
+pub fn slot_extent(context: &LayoutContext) -> SizePx {
     instance_extent(context.default_panel_size, context.title_bar_metrics.height)
 }
 

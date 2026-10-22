@@ -1,4 +1,4 @@
-use crate::{Matrix4, Projection, SizePx, Transform, Vector3};
+use crate::{Matrix4, Projection, Quaternion, Rect, Size, SizePx, Transform, Vector3};
 
 /// A pixel camera.
 ///
@@ -92,6 +92,62 @@ impl PixelCamera {
     ) -> Matrix4 {
         let (width, height) = surface_size.into().into();
         Projection::new(width as f64 / height as f64, z_range).perspective_matrix(self.fovy)
+    }
+
+    /// The camera that shows what both this camera and `other` show on a surface of
+    /// `surface_size`. It faces halfway between the two cameras and frames the corners of both
+    /// views.
+    pub fn joined(&self, other: &Self, surface_size: SizePx) -> Self {
+        let points = [
+            self.view_points(surface_size),
+            other.view_points(surface_size),
+        ]
+        .concat();
+        let rotation = self.look_at.rotate.slerp(other.look_at.rotate, 0.5);
+        Self::framing(&points, rotation, surface_size).expect("a camera's view has corners")
+    }
+
+    /// The corners of the surface rect that the camera shows on the plane through its look-at, in
+    /// model space.
+    pub fn view_points(&self, surface_size: SizePx) -> [Vector3; 4] {
+        // At the pixel-perfect distance, the camera shows one surface of pixels. The shown extent
+        // grows linearly with the distance.
+        let scale = self.distance / Self::pixel_perfect_distance(self.fovy);
+        let half = Size::from(surface_size) * (0.5 * scale);
+        let local = Rect {
+            left: -half.width,
+            top: -half.height,
+            right: half.width,
+            bottom: half.height,
+        };
+        local.to_quad().map(|corner| {
+            self.look_at
+                .transform_point((corner.x, corner.y, 0.0).into())
+        })
+    }
+
+    /// The camera that faces `rotation` and frames all `points` within `surface_size`. It looks at
+    /// the center of their bounding box in its own frame, so points on a plane it faces head-on
+    /// sit centered on the surface. `None` when there are no points.
+    pub fn framing(points: &[Vector3], rotation: Quaternion, surface_size: SizePx) -> Option<Self> {
+        let orientation = Transform::from_rotation(rotation);
+        let to_frame = orientation.inverse();
+        let (min, max) = points
+            .iter()
+            .map(|&point| to_frame.transform_point(point))
+            .fold(None, |bounds: Option<(Vector3, Vector3)>, point| {
+                Some(match bounds {
+                    Some((min, max)) => (min.min(point), max.max(point)),
+                    None => (point, point),
+                })
+            })?;
+        let center = orientation.transform_point((min + max) * 0.5);
+        let camera = Self {
+            look_at: Transform::new(center, rotation, 1.0),
+            ..Self::default()
+        };
+        let distance = camera.fit_distance_for_points(points, surface_size)?;
+        Some(camera.with_distance(distance))
     }
 
     /// The camera distance that exactly frames `points` within `surface_size`, or `None` for an

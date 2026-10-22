@@ -18,7 +18,7 @@ mod zoom_navigation;
 
 use focus_targets::FocusTargets;
 use matrix_navigation::{MatrixNavigation, NavigationStep};
-use zoom_geometry::ZoomGeometry;
+pub use zoom_geometry::ZoomGeometry;
 use zoom_navigation::ZoomNavigation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

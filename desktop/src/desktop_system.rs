@@ -59,7 +59,7 @@ use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
 use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
-use layout_state::DesktopLayoutState;
+pub use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 use reparenting::Reparenting;
 use selection::Selection;
