@@ -494,6 +494,17 @@ impl DesktopSystem {
                 self.window_state = window_state;
                 let mut output = ChangeOutput::default();
                 output.surface.window_size_changed = true;
+                // In Full Screen Mode the view and the title bar are measured at window resolution
+                // (ADR 0014, ADR 0019). The measure pass keeps the cached sizes of measured
+                // children, so the view and the title bar are measured explicitly. Instances in the
+                // regular mode measure at the panel size, so their measurements stay unchanged.
+                let instances: Vec<InstanceId> =
+                    self.aggregates.instances.keys().copied().collect();
+                for instance in instances {
+                    for target in self.instance_view_targets(instance) {
+                        output.measure(target);
+                    }
+                }
                 return Ok(output);
             }
             DesktopChange::ToggleWindowFullScreen => {

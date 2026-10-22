@@ -416,6 +416,10 @@ impl DesktopSystem {
         } else {
             effects_mode.camera_presentation_mode()
         };
+        // A resize snaps the layout, because each resize step would otherwise restart an
+        // animation toward a size the next step already replaces.
+        let animate_layout =
+            effects_mode.permit_animations() && !change_surface.window_size_changed;
         if camera_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
             change_surface.size_invalid += mem::take(&mut self.deferred_focus_launcher_measures)
@@ -447,7 +451,7 @@ impl DesktopSystem {
 
         // Layout and camera focus for presenters that must fit into the window
         // read the size from the system's window state.
-        self.run_effects_to_completion(effects_mode, effects, instance_manager)?;
+        self.run_effects_to_completion(animate_layout, effects, instance_manager)?;
 
         // Resolve camera intent after all effects were run, when all placements are final.
         if update_camera {
