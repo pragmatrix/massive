@@ -11,7 +11,7 @@ use super::layout_state::PlacementUpdate;
 use super::navigation::ZoomGeometry;
 use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget,
-    FocusableTarget, InstancePart, LayoutContext, TargetLayout, TransactionEffectsMode,
+    FocusableTarget, InstancePart, LayoutContext, TargetLayout,
 };
 use crate::coordinate_mapper::CoordinateMapper;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -22,14 +22,14 @@ use crate::window_state::WindowPresentationState;
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
         &mut self,
-        effects_mode: TransactionEffectsMode,
+        animate: bool,
         initial_effects: Effects,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
-            let follow_up = self.handle_effect(effect, effects_mode, instance_manager)?;
+            let follow_up = self.handle_effect(effect, animate, instance_manager)?;
             effects.enqueue_all(follow_up);
         }
 
@@ -39,7 +39,7 @@ impl DesktopSystem {
     fn handle_effect(
         &mut self,
         effect: DesktopEffect,
-        effects_mode: TransactionEffectsMode,
+        animate: bool,
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         match effect {
@@ -47,7 +47,7 @@ impl DesktopSystem {
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::Reparent(target) => Ok(self.reparent_effect(target)),
             DesktopEffect::ApplyLayout(target) => {
-                self.apply_layout_effect(target, effects_mode, instance_manager)
+                self.apply_layout_effect(target, animate, instance_manager)
             }
         }
     }
@@ -274,20 +274,14 @@ impl DesktopSystem {
     fn apply_layout_effect(
         &mut self,
         target: DesktopTarget,
-        effects_mode: TransactionEffectsMode,
+        animate: bool,
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         let placement = self.layout_state.local_placement(&target);
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         let layout = SizedTransform::new(size_px, placement.transform);
-        self.apply_layout(
-            target,
-            layout,
-            placement.visible,
-            effects_mode.permit_animations(),
-            instance_manager,
-        )?;
+        self.apply_layout(target, layout, placement.visible, animate, instance_manager)?;
 
         Ok(Effects::None)
     }
