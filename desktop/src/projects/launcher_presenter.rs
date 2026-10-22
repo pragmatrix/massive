@@ -21,13 +21,14 @@ use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput,
-    KeyOutcome, LayoutContext, Shortcut, TargetLayout, measure_container, place_container_children,
+    KeyOutcome, LayoutContext, SelectionOperation, Shortcut, TargetLayout, measure_container,
+    place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
 use crate::policy::colors;
 use crate::policy::constants::launcher;
 use crate::policy::when::{self, PressingCommandEnter};
-use crate::projects::{LaunchProfileId, LauncherMode, SlotContent};
+use crate::projects::{LaunchProfileId, LauncherMode};
 
 use super::runtime_configuration::Params;
 
@@ -273,8 +274,8 @@ impl KeyHandler for LauncherPresenter {
                 }
             }
             Some(Shortcut::RemoveSlot) => {
-                let content = SlotContent::Launcher(self.id);
-                return KeyOutcome::Consumed(DesktopCommand::RemoveSlot(content).into());
+                let command = DesktopCommand::ConfigureSelection(SelectionOperation::Remove);
+                return KeyOutcome::Consumed(command.into());
             }
             Some(Shortcut::Enter | Shortcut::StartInstance) => {}
             _ => return KeyOutcome::Pass,

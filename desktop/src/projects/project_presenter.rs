@@ -11,12 +11,13 @@ use massive_scene::prelude::*;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, KeyContext, KeyFocus, KeyHandler, KeyInput, KeyOutcome,
-    LayoutContext, ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
-    expand_main_axis_child_size, measure_container, place_container_children,
+    LayoutContext, ProjectPart, SelectionOperation, Shortcut, TargetLayout,
+    expand_cross_axis_child_sizes, expand_main_axis_child_size, measure_container,
+    place_container_children,
 };
 use crate::policy::colors;
 use crate::policy::constants::project;
-use crate::projects::{ProjectId, SlotContent, SlotPosition};
+use crate::projects::{ProjectId, SlotPosition};
 
 use super::matrix_layout::{measure_matrix, place_matrix_children};
 use super::slot_layout::SlotLayout;
@@ -100,7 +101,9 @@ impl KeyHandler for ProjectPresenter {
             Some(Shortcut::SelectAll) if selects_all => DesktopCommand::SelectAll(self.id),
             _ if !context.is_focused => return KeyOutcome::Pass,
             Some(Shortcut::Enter | Shortcut::CommandEnter) => DesktopCommand::Zoom(Zoom::Enter),
-            Some(Shortcut::RemoveSlot) => DesktopCommand::RemoveSlot(SlotContent::Project(self.id)),
+            Some(Shortcut::RemoveSlot) => {
+                DesktopCommand::ConfigureSelection(SelectionOperation::Remove)
+            }
             _ => return KeyOutcome::Pass,
         };
         KeyOutcome::Consumed(command.into())

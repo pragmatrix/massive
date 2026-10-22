@@ -281,6 +281,26 @@ fn deliver_view(
     Ok(())
 }
 
+/// Sends `request` from `instance`, the way the CLI running in it does.
+fn request(
+    system: &mut DesktopSystem,
+    instance_manager: &mut InstanceManager,
+    instance: InstanceId,
+    request: massive_applications::ConfigurationRequest,
+) -> Result<()> {
+    let mut submission = massive_util::ChangeSet::default();
+    submission.push(InstanceChange::Configuration(request));
+    system.transact(
+        DesktopChange::IntegrateInstanceSubmission(
+            instance,
+            InstanceSubmission::new(submission, massive_renderer::RenderPacing::default()),
+        ),
+        instance_manager,
+        TransactionEffectsMode::Setup,
+    )?;
+    Ok(())
+}
+
 fn camera_distance(system: &DesktopSystem) -> f64 {
     system
         .resolve_desired_camera()

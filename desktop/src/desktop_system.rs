@@ -13,6 +13,7 @@ pub mod change;
 mod change_surface;
 mod command_dispatch;
 mod commands;
+mod configuration_planning;
 mod effects;
 mod event_forwarding;
 mod focus_input;
@@ -65,7 +66,7 @@ use reparenting::Reparenting;
 use selection::Selection;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
-pub use commands::{ConfigurationCommand, DesktopCommand};
+pub use commands::{ConfigurationCommand, DesktopCommand, SelectionOperation};
 pub use effects::Effects;
 pub use fullscreen::{fullscreen_scale, view_size};
 pub use key_delivery::{KeyContext, KeyFocus, KeyHandler, KeyOutcome};

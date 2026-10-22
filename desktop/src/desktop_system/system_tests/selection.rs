@@ -223,7 +223,7 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::GroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Group),
         )?;
 
         let configuration = &system.aggregates.configuration;
@@ -243,7 +243,7 @@ async fn grouping_a_selection_and_ungrouping_it_selects_the_slots_again() -> Res
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::UngroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Ungroup),
         )?;
 
         let configuration = &system.aggregates.configuration;
@@ -284,7 +284,9 @@ async fn the_outline_reads_a_slot_added_in_the_same_transaction() -> Result<()> 
         )?;
 
         let mut changes = system.plan(DesktopCommand::ExtendSelection(Direction::Right))?;
-        changes += system.plan(DesktopCommand::AddLauncher)?;
+        changes += system.plan(DesktopCommand::ConfigureSelection(
+            SelectionOperation::AddLauncher,
+        ))?;
         system.transact(
             changes,
             &mut instance_manager,
@@ -320,7 +322,7 @@ async fn selecting_all_slots_of_a_project_ungroups_it() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::GroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Group),
         )?;
 
         focus(
@@ -332,7 +334,7 @@ async fn selecting_all_slots_of_a_project_ungroups_it() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::UngroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Ungroup),
         )?;
 
         let configuration = &system.aggregates.configuration;
@@ -369,7 +371,7 @@ async fn selecting_all_root_slots_ungroups_the_focused_project() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::GroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Group),
         )?;
         let Some((group, _)) = system.aggregates.configuration.slot_of_content(a) else {
             panic!("grouping keeps the launcher in a slot");
@@ -384,7 +386,7 @@ async fn selecting_all_root_slots_ungroups_the_focused_project() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::UngroupSlot,
+            DesktopCommand::ConfigureSelection(SelectionOperation::Ungroup),
         )?;
 
         assert_eq!(

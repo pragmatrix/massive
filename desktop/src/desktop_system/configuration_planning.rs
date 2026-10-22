@@ -1,0 +1,399 @@
+//! The one planner of configuration commands (ADR 0024). It expands each [`ConfigurationCommand`]
+//! into the primitive configuration changes of ADR 0011, together with the topology and focus
+//! changes the command needs. The keyboard, the CLI, and the boot replay only name the slots they
+//! mean and issue a command, so an operation ends the same way whichever of them issued it.
+
+use anyhow::{Result, bail};
+use log::warn;
+
+use massive_applications::{MoveDirection, SlotShift};
+
+use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
+use super::grouping;
+use super::navigation::{FocusTargets, MatrixNavigation};
+use super::reparenting::Reparenting;
+use super::topology::DesktopTopology;
+use super::{
+    ConfigurationCommand, DesktopSystem, DesktopTarget, FocusableTarget, KeyboardFocusReason,
+    ProjectPart,
+};
+use crate::focus_path::PathResolver;
+use crate::policy::when::{self, SlotSuccessor, UngroupingProject};
+use crate::projects::{
+    LaunchProfileId, ProjectId, RuntimeConfiguration, SlotAssignment, SlotContent, SlotPosition,
+};
+
+impl DesktopSystem {
+    /// The configuration planner over the desktop state it reads.
+    pub fn configuration_planning(&self) -> ConfigurationPlanning<'_> {
+        ConfigurationPlanning {
+            configuration: &self.aggregates.configuration,
+            hierarchy: &self.aggregates.hierarchy,
+            focus_targets: self.focus_targets(),
+            focused: self.keyboard_focus.focused(),
+        }
+    }
+}
+
+/// Borrows the only state configuration planning reads: the configuration, the topology, and the
+/// keyboard focus. The window, the layout, the camera, and the instances stay out of its reach.
+#[derive(Debug)]
+pub struct ConfigurationPlanning<'a> {
+    configuration: &'a RuntimeConfiguration,
+    hierarchy: &'a DesktopTopology,
+    /// Picks the target that takes over the focus from removed content.
+    focus_targets: FocusTargets<'a>,
+    focused: Option<FocusableTarget>,
+}
+
+impl ConfigurationPlanning<'_> {
+    /// Plans the changes that carry out `command`, including where the focus goes afterwards.
+    pub fn plan(&self, command: ConfigurationCommand) -> Result<Changes> {
+        let mut changes = Changes::Empty;
+        match command {
+            ConfigurationCommand::AssignSlot {
+                parent,
+                slot,
+                content,
+                shift,
+            } => {
+                let Some(parent) = parent else {
+                    return self.plan_root_creation(slot, content);
+                };
+                changes += self.plan_assign_slot(parent, slot, content, shift)?;
+            }
+            ConfigurationCommand::ClearSlot {
+                parent,
+                slot,
+                shift,
+            } => {
+                changes += self.plan_clear_slot(parent, slot, shift)?;
+            }
+            ConfigurationCommand::MoveSlot { source, dest } => {
+                changes += self.plan_move_slot(source, dest);
+            }
+            ConfigurationCommand::SwapSlots { parent, a, b } => {
+                changes <<= ConfigurationChange::SwapSlots { parent, a, b };
+            }
+            ConfigurationCommand::PushSlot {
+                parent,
+                slot,
+                direction,
+            } => {
+                changes += self.plan_push_slot(parent, slot, direction);
+            }
+            ConfigurationCommand::AddNextTo { anchor, content } => {
+                changes += self.plan_add_next_to(anchor, content)?;
+            }
+            ConfigurationCommand::Group {
+                parent,
+                slots,
+                name,
+            } => {
+                changes += grouping::plan(parent, slots, name, self.configuration);
+            }
+            ConfigurationCommand::Ungroup { project } => {
+                changes += self.plan_ungroup(project)?;
+            }
+            ConfigurationCommand::SetStartupPath(path) => {
+                changes <<= ConfigurationChange::SetStartupPath(path)
+            }
+        }
+
+        Ok(changes)
+    }
+
+    /// Creating the root is a parentless assignment of [`ProjectId::ROOT`] under
+    /// the `Desktop` target: the root is hosted by no project and lives in no
+    /// slot, so `slot` is carried through but never slotted.
+    fn plan_root_creation(&self, slot: SlotPosition, content: SlotAssignment) -> Result<Changes> {
+        let (id, name) = match content {
+            SlotAssignment::Project { id, name } => (id, name),
+            // Only boot plans a parentless assignment, and it only creates the root.
+            SlotAssignment::Launcher { .. } => {
+                panic!("a launcher is always assigned into a project's slot")
+            }
+        };
+        if id != ProjectId::ROOT
+            || self.hierarchy.exists(&DesktopTarget::Project(
+                ProjectId::ROOT,
+                ProjectPart::Project,
+            ))
+        {
+            bail!(
+                "Internal error (plan AssignSlot): the root project is created exactly once, as `AssignSlot {{ parent: None }}` with id {:?}",
+                ProjectId::ROOT
+            );
+        }
+        let mut changes: Changes = Changes::Empty;
+        changes <<= ConfigurationChange::AssignSlot {
+            parent: None,
+            slot,
+            assignment: SlotAssignment::Project { id, name },
+        };
+        changes += plan_add_project_topology(id, DesktopTarget::Desktop);
+        Ok(changes)
+    }
+
+    /// A move that would land on an assigned slot is a bug of its issuer, which chooses
+    /// `SwapSlots` for that.
+    fn plan_move_slot(
+        &self,
+        source: (ProjectId, SlotPosition),
+        dest: (ProjectId, SlotPosition),
+    ) -> Changes {
+        let configuration = self.configuration;
+        assert!(
+            configuration.content_at(dest.0, dest.1).is_none(),
+            "a move lands on an unassigned slot, a swap exchanges assigned ones"
+        );
+        let mut changes = Changes::Empty;
+        if configuration.can_move_slot(source, dest) {
+            changes += Reparenting::plan(source, dest, configuration);
+            changes <<= ConfigurationChange::MoveSlot { source, dest };
+        }
+        changes
+    }
+
+    /// A push that would move content out of the matrix, left of its first column or above its
+    /// first row, plans nothing.
+    fn plan_push_slot(
+        &self,
+        parent: ProjectId,
+        slot: SlotPosition,
+        direction: MoveDirection,
+    ) -> Changes {
+        match self.slot_shift_sequence(parent, slot, direction) {
+            Ok(changes) => changes,
+            Err(_) => {
+                warn!(
+                    "Ignoring {direction:?} push from slot ({}, {})",
+                    slot.column, slot.row,
+                );
+                Changes::Empty
+            }
+        }
+    }
+
+    fn plan_add_next_to(&self, anchor: SlotContent, content: SlotAssignment) -> Result<Changes> {
+        let (parent, slot) = self
+            .configuration
+            .slot_of_content(anchor)
+            .expect("the anchor of an addition sits in a slot");
+
+        let focus = content.content().focusable_target();
+        let mut changes = self.plan_assign_slot(
+            parent,
+            SlotPosition {
+                column: slot.column + 1,
+                row: slot.row,
+            },
+            content,
+            SlotShift::default(),
+        )?;
+        changes += set_focus(Some(focus), KeyboardFocusReason::AddSlotContent);
+        Ok(changes)
+    }
+
+    fn plan_ungroup(&self, project: ProjectId) -> Result<Changes> {
+        assert_ne!(
+            project,
+            ProjectId::ROOT,
+            "the root project has no parent matrix to take its slots"
+        );
+        let configuration = self.configuration;
+        match when::ungrouping_project(configuration.first_slot(project).is_none()) {
+            UngroupingProject::MoveSlotsOut => Ok(grouping::plan_ungroup(project, configuration)),
+            UngroupingProject::RemoveProject => {
+                let (parent, slot) = configuration
+                    .slot_of_content(project)
+                    .expect("a nested project sits in a slot");
+                self.plan_clear_slot(parent, slot, SlotShift::Keep)
+            }
+        }
+    }
+
+    fn plan_assign_slot(
+        &self,
+        parent: ProjectId,
+        slot: SlotPosition,
+        content: SlotAssignment,
+        shift: SlotShift,
+    ) -> Result<Changes> {
+        let mut changes = Changes::Empty;
+        // The parsed aggregate already has boot slots, while the topology
+        // starts empty; only displace occupants that are live in the scene.
+        let assigned = self
+            .configuration
+            .content_at(parent, slot)
+            .filter(|previous| self.hierarchy.exists(&previous.target()));
+        if assigned.is_some() {
+            match shift {
+                SlotShift::Shift => {
+                    changes += self.slot_shift_sequence(parent, slot, MoveDirection::Right)?;
+                }
+                SlotShift::Keep => {
+                    changes += self.plan_clear_slot(parent, slot, SlotShift::Keep)?;
+                }
+            }
+        }
+
+        changes <<= ConfigurationChange::AssignSlot {
+            parent: Some(parent),
+            slot,
+            assignment: content.clone(),
+        };
+        let under = DesktopTarget::Project(parent, ProjectPart::Matrix);
+        match content.content() {
+            SlotContent::Project(project) => changes += plan_add_project_topology(project, under),
+            SlotContent::Launcher(launcher) => {
+                changes <<= TopologyChange::Add {
+                    what: DesktopTarget::Launcher(launcher),
+                    under,
+                    after: None,
+                }
+            }
+        }
+        Ok(changes)
+    }
+
+    fn plan_clear_slot(
+        &self,
+        parent: ProjectId,
+        slot: SlotPosition,
+        shift: SlotShift,
+    ) -> Result<Changes> {
+        let Some(content) = self.configuration.content_at(parent, slot) else {
+            return Ok(Changes::Empty);
+        };
+
+        let mut changes = Changes::Empty;
+        // Retarget focus before the content leaves the topology, so the removal does
+        // not fall back to the generic parent retarget.
+        changes += self.clear_slot_focus(content);
+        match content {
+            SlotContent::Launcher(launcher) => {
+                changes += self.plan_remove_launcher_instances(launcher);
+                changes <<= TopologyChange::Remove(DesktopTarget::Launcher(launcher));
+            }
+            SlotContent::Project(project) => {
+                changes += self.plan_remove_project_content(project);
+                changes <<= TopologyChange::Remove(project.into());
+            }
+        }
+        changes <<= ConfigurationChange::ClearSlot { parent, slot };
+
+        if shift == SlotShift::Shift {
+            for (source, dest) in self.configuration.shifted_left_slots(parent, slot) {
+                changes <<= ConfigurationChange::MoveSlot {
+                    source: (parent, source),
+                    dest: (parent, dest),
+                };
+            }
+        }
+
+        Ok(changes)
+    }
+
+    /// Retargets keyboard focus when the cleared slot holds it, so the removal does
+    /// not leave the router pointing at a target about to leave the topology: the
+    /// removed content gets a neighbouring replacement instead of its parent.
+    fn clear_slot_focus(&self, content: SlotContent) -> Changes {
+        let focused = self.focused.map(DesktopTarget::from);
+        if !self
+            .hierarchy
+            .resolve_path(focused.as_ref())
+            .contains(&content.target())
+        {
+            return Changes::Empty;
+        }
+        let replacement = self.slot_removal_focus(content);
+        set_focus(Some(replacement), KeyboardFocusReason::InputTransition)
+    }
+
+    /// The focus replacement when slot `content` is removed, as the desktop policy
+    /// chooses it from the nearest assigned slot in its matrix and its hosting project.
+    fn slot_removal_focus(&self, content: SlotContent) -> FocusableTarget {
+        let (parent, slot) = self
+            .configuration
+            .slot_of_content(content)
+            .expect("removed content is assigned to a project slot");
+        let matrix_navigation = MatrixNavigation::new(self.hierarchy, self.configuration);
+        when::clearing_focused_slot()
+            .into_iter()
+            .find_map(|successor| match successor {
+                SlotSuccessor::Neighbor(direction) => matrix_navigation
+                    .navigate_within_matrix(parent, slot, direction, None)
+                    .map(|replacement| self.focus_targets.slot_focus_target(replacement)),
+                SlotSuccessor::HostingProject => Some(FocusableTarget::Project(parent)),
+            })
+            .expect("the hosting project always takes the focus")
+    }
+
+    fn plan_remove_launcher_instances(&self, launcher: LaunchProfileId) -> Changes {
+        let mut changes = Changes::Empty;
+        for instance in self.hierarchy.launcher_instances(launcher) {
+            changes += [
+                DesktopChange::Topology(TopologyChange::Remove(instance.into())),
+                DesktopChange::HideInstance { launcher, instance },
+                DesktopChange::ShutdownInstance(instance),
+            ];
+        }
+        changes
+    }
+
+    fn plan_remove_project_content(&self, project: ProjectId) -> Changes {
+        let mut changes = Changes::Empty;
+        for slot in self.configuration.slots_ordered(project) {
+            match slot.1 {
+                SlotContent::Launcher(launcher) => {
+                    changes += self.plan_remove_launcher_instances(launcher);
+                    changes <<= TopologyChange::Remove(DesktopTarget::Launcher(launcher));
+                }
+                SlotContent::Project(nested) => {
+                    changes += self.plan_remove_project_content(nested);
+                    changes <<= TopologyChange::Remove(DesktopTarget::Project(
+                        nested,
+                        ProjectPart::Project,
+                    ));
+                }
+            }
+        }
+        changes
+    }
+
+    fn slot_shift_sequence(
+        &self,
+        project: ProjectId,
+        slot: SlotPosition,
+        direction: MoveDirection,
+    ) -> Result<Changes> {
+        let mut changes = Changes::Empty;
+        for (source, dest) in self.configuration.shifted_slots(project, slot, direction)? {
+            changes <<= ConfigurationChange::MoveSlot {
+                source: (project, source),
+                dest: (project, dest),
+            };
+        }
+        Ok(changes)
+    }
+}
+
+/// Adds a project and its header and matrix under the hosting target.
+pub fn plan_add_project_topology(project: ProjectId, under: DesktopTarget) -> Changes {
+    let mut changes = Changes::Empty;
+    changes <<= TopologyChange::Add {
+        what: project.into(),
+        under,
+        after: None,
+    };
+    changes <<= TopologyChange::AddNested {
+        what: [
+            DesktopTarget::Project(project, ProjectPart::Header),
+            DesktopTarget::Project(project, ProjectPart::Matrix),
+        ]
+        .into(),
+        under: project.into(),
+    };
+    changes
+}

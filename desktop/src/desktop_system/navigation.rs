@@ -6,7 +6,6 @@ use super::topology::DesktopTopology;
 use super::{
     DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap, ProjectMap,
 };
-use crate::policy::when::{self, SlotSuccessor};
 use crate::projects::{
     LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
@@ -16,8 +15,9 @@ mod matrix_navigation;
 mod zoom_geometry;
 mod zoom_navigation;
 
-use focus_targets::FocusTargets;
-use matrix_navigation::{MatrixNavigation, NavigationStep};
+pub use focus_targets::FocusTargets;
+pub use matrix_navigation::MatrixNavigation;
+use matrix_navigation::NavigationStep;
 pub use zoom_geometry::ZoomGeometry;
 use zoom_navigation::ZoomNavigation;
 
@@ -131,27 +131,6 @@ impl DesktopSystem {
         let mut changes = set_focus(Some(plan.candidate), KeyboardFocusReason::Navigate);
         changes <<= DesktopChange::SetNavigationAffinity(plan.column_affinity);
         Ok(changes)
-    }
-
-    /// The focus replacement when slot `content` is removed, as the desktop policy
-    /// chooses it from the nearest assigned slot in its matrix and its hosting project.
-    pub fn slot_removal_focus(&self, content: SlotContent) -> FocusableTarget {
-        let (parent, slot) = self
-            .aggregates
-            .configuration
-            .slot_of_content(content)
-            .expect("removed content is assigned to a project slot");
-        let matrix_navigation =
-            MatrixNavigation::new(&self.aggregates.hierarchy, &self.aggregates.configuration);
-        when::clearing_focused_slot()
-            .into_iter()
-            .find_map(|successor| match successor {
-                SlotSuccessor::Neighbor(direction) => matrix_navigation
-                    .navigate_within_matrix(parent, slot, direction, None)
-                    .map(|replacement| self.focus_targets().slot_focus_target(replacement)),
-                SlotSuccessor::HostingProject => Some(FocusableTarget::Project(parent)),
-            })
-            .expect("the hosting project always takes the focus")
     }
 
     pub(super) fn zoom_navigation(&self) -> ZoomNavigation<'_> {

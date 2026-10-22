@@ -12,6 +12,10 @@ _Avoid_: settings, workspace, layout
 A change to the desktop configuration: adding the root project, assigning content to a slot or clearing it, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
 _Avoid_: project change
 
+**Configuration command**:
+An operation a user asks for on the desktop configuration, such as assigning, clearing, moving, swapping, or pushing slot content, adding content next to a slot, grouping, ungrouping, or setting the startup launcher. It names its slots by ids and slot positions. The keyboard, the CLI, and the boot replay each turn what they mean into one, and the desktop system plans it into configuration changes, together with where the focus goes afterwards (ADR 0024). A `ConfigurationRequest` is not one: it is the CLI's message, which names content by names and target paths and becomes a command.
+_Avoid_: configuration request
+
 **Desktop**:
 The hierarchy's virtual root target. It is never inserted explicitly and only parents the root project's target — the one node every hit-test miss maps to. The root project's framing is the outermost camera position.
 _Avoid_: desktop depth, root project (the root project hangs *below* it)

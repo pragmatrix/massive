@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, SlotShift};
+use massive_applications::{InstanceId, InstanceParameters, MoveDirection, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
@@ -11,6 +11,10 @@ use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotContent, S
 #[derive(Debug)]
 pub enum DesktopCommand {
     Configuration(ConfigurationCommand),
+    /// Applies a configuration operation to the selection, which always contains the
+    /// keyboard-focused slot. A key cannot know which slots the selection covers, so the desktop
+    /// system builds the [`ConfigurationCommand`] the operation stands for (ADR 0024).
+    ConfigureSelection(SelectionOperation),
     /// Present an instance under `launcher`, spawning it if necessary.
     ///
     /// When `root` is `None`, a fresh root is created and the instance is spawned. When `root` is
@@ -25,19 +29,6 @@ pub enum DesktopCommand {
         kind: InstanceKind,
     },
     StopInstance(InstanceId),
-    /// Adds a default launcher right of the focused slot and focuses it (Cmd+N).
-    AddLauncher,
-    /// Removes a launcher or a nested project, if no instance runs anywhere below it
-    /// (Cmd+Shift+W). Otherwise the content is kept, so that a key press never quits running
-    /// processes.
-    RemoveSlot(SlotContent),
-    /// Wraps the selected slots, or else the focused slot, into a new project (Cmd+G, ADR 0026).
-    /// The new project takes the slots' place and receives the focus.
-    GroupSlot,
-    /// Moves the slots of the focused nested project, or of the project whose slots are all
-    /// selected, into its parent's matrix, removes the project, and selects the ungrouped slots
-    /// (Cmd+Shift+G, ADR 0026, ADR 0029).
-    UngroupSlot,
 
     Navigate(Direction),
     /// Extends the slot selection by one slot in the direction (Shift+Cmd+arrow, ADR 0025).
@@ -54,6 +45,29 @@ pub enum DesktopCommand {
     ToggleFullScreen,
 }
 
+/// A configuration operation a key applies to the selection, before the desktop system knows which
+/// slots the selection covers (ADR 0024). Grouping and ungrouping act on the whole selection.
+/// Adding and removing act on its keyboard-focused slot only. Each operation stands for one
+/// [`ConfigurationCommand`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionOperation {
+    /// Adds a default launcher right of the focused slot (Cmd+N).
+    AddLauncher,
+    /// Removes the focused launcher or nested project, if no instance runs anywhere below it
+    /// (Cmd+Shift+W). Otherwise nothing is removed, so that a key press never quits running
+    /// processes.
+    Remove,
+    /// Wraps the selected slots, or else the focused slot, into a new project (Cmd+G, ADR 0026).
+    Group,
+    /// Ungroups the focused nested project, or the project whose slots are all selected
+    /// (Cmd+Shift+G, ADR 0026, ADR 0029).
+    Ungroup,
+}
+
+/// Every operation a user can perform on the configuration (ADR 0024). A command names its slots
+/// by ids and slot positions only. The keyboard, the CLI, and the boot replay turn what they
+/// mean into these, and the desktop system plans each command in one place, together with where the
+/// focus goes afterwards.
 #[derive(Debug)]
 pub enum ConfigurationCommand {
     /// Assigns slot content, displacing the assigned content according to `shift`.
@@ -68,14 +82,49 @@ pub enum ConfigurationCommand {
         content: SlotAssignment,
         shift: SlotShift,
     },
+    /// Unassigns a slot. The instances that run below its content are stopped. The focus moves to a
+    /// neighbor when it was inside the content.
     ClearSlot {
         parent: ProjectId,
         slot: SlotPosition,
         shift: SlotShift,
     },
+    /// Moves a slot's content to an unassigned slot, possibly in another project. Moving onto an
+    /// assigned slot is a [`ConfigurationCommand::SwapSlots`] instead, so a move never displaces
+    /// content.
     MoveSlot {
         source: (ProjectId, SlotPosition),
         dest: (ProjectId, SlotPosition),
+    },
+    /// Exchanges the contents of two assigned slots of one project.
+    SwapSlots {
+        parent: ProjectId,
+        a: SlotPosition,
+        b: SlotPosition,
+    },
+    /// Pushes a slot's content one slot in `direction`, together with the contents in its way.
+    PushSlot {
+        parent: ProjectId,
+        slot: SlotPosition,
+        direction: MoveDirection,
+    },
+    /// Assigns `content` right of the slot that `anchor` sits in, shifting the row, and focuses it,
+    /// so that new content appears where the user works.
+    AddNextTo {
+        anchor: SlotContent,
+        content: SlotAssignment,
+    },
+    /// Wraps `parent`'s `slots` into a new project named `name`, which takes their place and
+    /// receives the focus (ADR 0026).
+    Group {
+        parent: ProjectId,
+        slots: Vec<SlotPosition>,
+        name: String,
+    },
+    /// Moves the slots of a nested project into its parent's matrix, removes the project, and
+    /// selects the ungrouped slots (ADR 0026). An empty project is just removed.
+    Ungroup {
+        project: ProjectId,
     },
     SetStartupPath(Option<String>),
 }
