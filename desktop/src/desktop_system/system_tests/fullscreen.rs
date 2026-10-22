@@ -255,6 +255,47 @@ async fn native_fullscreen_resize_keeps_the_presented_camera_on_the_focused_inst
     .await
 }
 
+/// Regression (ADR 0014, ADR 0019): in Full Screen Mode the view and the title bar are measured at
+/// window resolution, so a native window resize must remeasure both. A stale view keeps the
+/// instance framed at the windowed size, and a stale title bar spans only part of the view once a
+/// later focus change remeasures the view alone.
+#[tokio::test]
+async fn native_window_resize_remeasures_a_fullscreen_instance_at_window_resolution() -> Result<()>
+{
+    task_context::with_context(task_context(), async {
+        let frame = massive_applications::begin_frame();
+        let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
+        let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+        deliver_view(&mut system, &mut instance_manager, instance)?;
+        let view = system.aggregates.instances[&instance]
+            .primary_view_id()
+            .expect("the delivered view is the primary view");
+
+        let window_size = SizePx::new(2560, 1440);
+        system.transact(
+            DesktopChange::WindowResized(WindowState::new(window_size, true)),
+            &mut instance_manager,
+            Option::<TransactionEffectsMode>::None,
+        )?;
+
+        let measured_width = |target: DesktopTarget| system.layout_state.measured(&target).size[0];
+        assert_eq!(
+            measured_width(DesktopTarget::view(instance, view)),
+            window_size.width,
+            "the view must be measured at the resized window's width"
+        );
+        assert_eq!(
+            measured_width(DesktopTarget::Instance(instance, InstancePart::TitleBar)),
+            window_size.width,
+            "the title bar must be measured at the resized window's width"
+        );
+
+        drop(frame.submission::<SceneChange>());
+        Ok(())
+    })
+    .await
+}
+
 /// A primary instance created in a Full Screen launcher spawns at window
 /// resolution and frames fullscreen from its view-less first commit;
 /// framing it at the panel distance dollies the camera out and back in when
