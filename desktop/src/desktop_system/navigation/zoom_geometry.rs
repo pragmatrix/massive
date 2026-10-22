@@ -329,8 +329,8 @@ impl<'a> ZoomGeometry<'a> {
         Self::placement_bounds(&self.placement(target), Size::default())
     }
 
-    /// The bounds of a placed rect grown by `margin` on every side, in the placement's local
-    /// coordinates.
+    /// The bounds of a placed rect grown by `margin` on every side. `margin` is in the placement's
+    /// local coordinates, so it scales with the placement.
     fn placement_bounds(placement: &Placement<Transform, 2>, margin: Size) -> OverviewBounds {
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();

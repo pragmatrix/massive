@@ -194,7 +194,7 @@ impl Selection {
     }
 
     /// The selection around the `focused` slot whose rectangle is `rect`, which contains the slot.
-    /// It is the inverse of [`Self::rect`].
+    /// It is the inverse of [`Self::matrix_rect_around`].
     fn from_rect(focused: SlotPosition, rect: MatrixRect) -> Self {
         let focused = MatrixPoint::from(focused);
         Self {
