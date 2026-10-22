@@ -23,20 +23,20 @@ removing by CLI stops them, and only some operations decide where the focus goes
 
 Every front end does two separate jobs, and they are kept apart:
 
-1. **Addressing** decides which slot is meant. The keyboard addresses the focused slot. The CLI
-   addresses by names and paths, relative to the instance it runs in. The boot replay addresses
-   by ids.
-2. **The operation** decides what happens to the addressed slot.
+1. **Resolving the target** decides which slot is meant. The keyboard targets the focused slot.
+   The CLI names slots by names and target paths, relative to the instance it runs in. The boot
+   replay names them by ids.
+2. **The operation** decides what happens to the targeted slot.
 
 `ConfigurationCommand` becomes the one complete vocabulary of operations. It contains every
 operation a user can perform on the configuration: assign, clear, move, swap, push, add next to,
-group, ungroup, and set the startup path. A command is addressed by ids and placements only, never
+group, ungroup, and set the startup path. A command names its slots by ids and placements only, never
 by focus or by names.
 
 Each command is planned in exactly one place, which expands it into the primitive
 `ConfigurationChange`s of ADR 0011 together with the topology and focus changes it needs.
 
-A front end only resolves its addressing into ids and placements, chooses the policies that may
+A front end only resolves its target into ids and placements, chooses the policies that may
 differ between front ends, and issues a `ConfigurationCommand`. Such a policy rides on the command,
 as `SlotShift` already does. One example is whether a removal refuses or stops running instances.
 

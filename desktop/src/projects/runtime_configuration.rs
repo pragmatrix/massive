@@ -537,14 +537,14 @@ impl RuntimeConfiguration {
         }
     }
 
-    /// The startup address path as the configuration was loaded with, `None`
+    /// The startup target path as the configuration was loaded with, `None`
     /// when no startup launcher is set. The path is what persists; the resolved
     /// launcher id is fresh per session and not serialized.
     pub fn startup_path(&self) -> Option<&str> {
         self.startup_path.as_deref()
     }
 
-    /// Records the startup address path. The resolved launcher id is left as it
+    /// Records the startup target path. The resolved launcher id is left as it
     /// is: the path is what the document carries, and the id is re-resolved at
     /// the next load.
     pub fn set_startup_path(&mut self, path: Option<String>) {
@@ -574,7 +574,7 @@ impl RuntimeConfiguration {
         }
     }
 
-    pub(crate) fn launcher_address_path(&self, launcher: LaunchProfileId) -> Result<String> {
+    pub(crate) fn launcher_target_path(&self, launcher: LaunchProfileId) -> Result<String> {
         let launcher_record = self
             .launcher(launcher)
             .with_context(|| format!("launcher {launcher:?} is not in the configuration"))?;
@@ -601,23 +601,23 @@ impl RuntimeConfiguration {
             segments
                 .iter()
                 .all(|segment| !segment.is_empty() && !segment.contains('/')),
-            "startup address path cannot represent a name containing '/'"
+            "startup target path cannot represent a name containing '/'"
         );
         segments.reverse();
         let path = format!("/{}", segments.join("/"));
         ensure!(
             self.resolve_launcher_path(ProjectId::ROOT, &path) == Some(launcher),
-            "startup address path does not resolve to the selected launcher"
+            "startup target path does not resolve to the selected launcher"
         );
         Ok(path)
     }
 
-    /// Resolves a startup address path to a launcher id.
+    /// Resolves a startup target path to a launcher id.
     ///
     /// The last segment names the launcher and the segments before it walk the
     /// project tree; each segment takes the nearest match, so a path that misses
     /// at one level still resolves within the nearest project. A leading
-    /// separator addresses from the root (the root itself has no name, so the
+    /// separator starts from the root (the root itself has no name, so the
     /// first segment is the first root slot); otherwise the path is relative to
     /// `base`.
     pub fn resolve_launcher_path(&self, base: ProjectId, path: &str) -> Option<LaunchProfileId> {
@@ -626,7 +626,7 @@ impl RuntimeConfiguration {
             .and_then(|project| project.launcher_by_name(last))
     }
 
-    /// Resolves an address path to a project, `None` when no segment resolves.
+    /// Resolves a target path to a project, `None` when no segment resolves.
     ///
     /// The path names the project itself, so `labs` resolves to the project
     /// called `labs` and `labs/shell` resolves to the project `labs` — see
@@ -637,7 +637,7 @@ impl RuntimeConfiguration {
     }
 
     /// Walks the leading segments of `path`, returning the project the last
-    /// segment resolved to and the final segment (the addressed content's name).
+    /// segment resolved to and the final segment, which names the content.
     fn resolve_path<'p>(&self, base: ProjectId, path: &'p str) -> Option<(ProjectId, &'p str)> {
         let mut current = if path.starts_with('/') {
             ProjectId::ROOT
@@ -648,7 +648,7 @@ impl RuntimeConfiguration {
         let mut last = None;
         for segment in path.split('/').filter(|segment| !segment.is_empty()) {
             if let Some(previous) = last {
-                // The previous segment addressed a project by name.
+                // The previous segment named a project.
                 current = self.nearest_child_project(current, previous)?;
             }
             last = Some(segment);
@@ -728,7 +728,7 @@ impl RuntimeConfiguration {
     }
 
     /// The launcher called `name` in `project` that sits nearest — in matrix
-    /// distance — to `focused`. Duplicate names address the nearest, and with no
+    /// distance — to `focused`. Duplicate names resolve to the nearest, and with no
     /// focused launcher in `project` the first match answers; `None` when no
     /// launcher of `project` is so named.
     pub fn nearest_launcher(
@@ -753,7 +753,7 @@ impl RuntimeConfiguration {
     }
 
     /// The project called `name` that sits nearest — in document order — to the
-    /// focused project. Duplicate names address the nearest, and with no focused
+    /// focused project. Duplicate names resolve to the nearest, and with no focused
     /// project or name in it the first match answers; `None` when no project is
     /// so named.
     pub fn nearest_project(&self, name: &str, focused: Option<ProjectId>) -> Option<ProjectId> {
@@ -1129,7 +1129,7 @@ impl Project {
     }
 
     /// The launcher called `name` of this matrix, nearest first in position
-    /// order — duplicates address the first.
+    /// order — duplicates resolve to the first.
     pub fn launcher_by_name(&self, name: &str) -> Option<LaunchProfileId> {
         self.slots.iter().find_map(|slot| match &slot.content {
             SlotPayload::Launcher(launcher) if launcher.name == name => Some(launcher.id),
@@ -1156,7 +1156,7 @@ fn sort_slots(slots: &mut [Slot]) {
 
 /// One assigned slot of a project's matrix.
 ///
-/// Only assigned slots are stored (ADR 0011). A slot is addressed by its
+/// Only assigned slots are stored (ADR 0011). A slot is identified by its
 /// `(project, position)` key rather than by an id. The
 /// position is `Slot`'s own field — the launcher payload carries none — so a
 /// moved slot cannot diverge from its content.
@@ -1760,7 +1760,7 @@ mod tests {
     }
 
     #[test]
-    fn a_startup_address_path_resolves_relative_to_its_base() {
+    fn a_startup_target_path_resolves_relative_to_its_base() {
         let mut configuration =
             configuration([("root-launcher", SlotPosition { column: 0, row: 0 })]);
         let root = root_id_of(&configuration);
@@ -1797,7 +1797,7 @@ mod tests {
         );
         assert_eq!(
             configuration
-                .launcher_address_path(shell)
+                .launcher_target_path(shell)
                 .expect("the nested launcher has a representable root path"),
             "/labs/shell"
         );

@@ -21,7 +21,7 @@ A named group that owns a matrix of slots. A project without assigned slots is e
 _Avoid_: workspace, section, top-level group
 
 **Slot**:
-A position in a project's matrix, addressed by its slot position. Every position is a slot. An assigned slot hosts either a launcher or a nested project, never both; an unassigned slot is empty. Clearing a slot makes it unassigned. Only assigned slots are stored, so a project whose slots are all unassigned stores none.
+A position in a project's matrix, identified by its slot position. Every position is a slot. An assigned slot hosts either a launcher or a nested project, never both; an unassigned slot is empty. Clearing a slot makes it unassigned. Only assigned slots are stored, so a project whose slots are all unassigned stores none.
 _Avoid_: cell, launcher cell, tile, container, occupied, empty placement
 
 **Assigned slot**:
@@ -29,7 +29,7 @@ A slot that hosts a launcher or a nested project. Assigning content to an assign
 _Avoid_: occupied slot, filled slot
 
 **Unassigned slot**:
-A slot that hosts nothing. It is not stored, but it can still be addressed, for example by a selection or as the destination of a move.
+A slot that hosts nothing. It is not stored, but it can still be named, for example by a selection or as the destination of a move.
 _Avoid_: empty placement, gap, free placement
 
 **Slot position**:
@@ -65,15 +65,15 @@ The uniform presentation scale a parent assigns to all its direct nested project
 _Avoid_: per-slot zoom, camera zoom, viewport resize
 
 **Startup launcher**:
-The launcher the session boots into. Persisted by address path in the desktop configuration; resolved to a launcher id on load, falling back to the nearest depth-first launcher from the root with a warning when the path no longer resolves.
+The launcher the session boots into. Persisted by target path in the desktop configuration; resolved to a launcher id on load, falling back to the nearest depth-first launcher from the root with a warning when the path no longer resolves.
 _Avoid_: startup profile, boot target
 
-**Address path**:
-The configuration-level address of a slot's content: slash-separated names resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator addresses from the root, which itself has no name.
-_Avoid_: target path, locator
+**Target path**:
+The configuration-level path to a slot's content: slash-separated names resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator starts from the root, which itself has no name.
+_Avoid_: address path, address, locator
 
 **Launcher id**:
-The stable per-session identity of a launcher. Ids are newly created every session and never persist; names are the persistence identity and may repeat, so a name that addresses one launcher resolves to the nearest match.
+The stable per-session identity of a launcher. Ids are newly created every session and never persist; names are the persistence identity and may repeat, so a name that several launchers share resolves to the nearest match.
 _Avoid_: profile id, launch profile
 
 **Runtime state**:

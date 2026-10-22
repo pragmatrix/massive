@@ -1213,7 +1213,7 @@ impl DesktopSystem {
                         Some(
                             self.aggregates
                                 .configuration
-                                .launcher_address_path(launcher)?,
+                                .launcher_target_path(launcher)?,
                         )
                     }
                     None => None,

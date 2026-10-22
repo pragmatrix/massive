@@ -134,7 +134,7 @@ pub enum ConfigurationRequest {
     Redo,
 }
 
-/// The kind of content an assignment or removal request addresses.
+/// The kind of content an assignment or removal request names.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ConfigurationTarget {
     Project,
