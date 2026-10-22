@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use massive_animation::Movement;
 use massive_applications::prelude::*;
-use massive_geometry::{Color, SizePx, SizedTransform, Transform};
+use massive_geometry::{SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Size as LayoutSize};
 use massive_scene::prelude::*;
 
@@ -14,17 +14,13 @@ use crate::desktop_system::{
     LayoutContext, ProjectPart, Shortcut, TargetLayout, expand_cross_axis_child_sizes,
     expand_main_axis_child_size, measure_container, place_container_children,
 };
+use crate::policy::colors;
+use crate::policy::constants::project;
 use crate::projects::{ProjectId, SlotContent, SlotPosition};
 
 use super::matrix_layout::{measure_matrix, place_matrix_children};
 use super::slot_layout::SlotLayout;
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
-
-const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
-const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
-const PROJECT_PADDING: u32 = 10;
-const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
-const PROJECT_HEADER_SPACING: u32 = 10;
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -44,8 +40,8 @@ impl ProjectPresenter {
             identity_location().relative_to(&parent_location).submit();
         let mut header = TitleBarPresenter::new(
             TitleBarStyle {
-                background_color: PROJECT_HEADER_BACKGROUND_COLOR,
-                font_size: PROJECT_HEADER_FONT_SIZE,
+                background_color: colors::project::HEADER_BACKGROUND,
+                font_size: project::HEADER_FONT_SIZE,
                 indent: 0.0,
             },
             location.clone(),
@@ -126,8 +122,8 @@ impl TargetLayout for ProjectPresenter {
             ProjectPart::Project => {
                 let size = measure_container(
                     LayoutAxis::VERTICAL,
-                    (PROJECT_PADDING, PROJECT_PADDING).into(),
-                    PROJECT_HEADER_SPACING,
+                    (project::PADDING, project::PADDING).into(),
+                    project::HEADER_SPACING,
                     children.iter().map(|child| child.size),
                 );
                 // A project fills its slot (ADR 0023).
@@ -138,7 +134,7 @@ impl TargetLayout for ProjectPresenter {
                 let measured = self.header.measured_size();
                 let size: LayoutSize<2> = SizePx::new(
                     measured.width,
-                    max(measured.height, PROJECT_HEADER_MIN_HEIGHT),
+                    max(measured.height, project::HEADER_MIN_HEIGHT),
                 )
                 .into();
                 MeasuredLayout::new(size, [true, false])
@@ -158,7 +154,7 @@ impl TargetLayout for ProjectPresenter {
     ) {
         match part {
             ProjectPart::Project => {
-                let padding = (PROJECT_PADDING, PROJECT_PADDING).into();
+                let padding = (project::PADDING, project::PADDING).into();
                 let mut child_sizes: Vec<_> = expand_cross_axis_child_sizes(
                     LayoutAxis::VERTICAL,
                     padding,
@@ -182,7 +178,7 @@ impl TargetLayout for ProjectPresenter {
                 );
                 place_container_children(
                     LayoutAxis::VERTICAL,
-                    PROJECT_HEADER_SPACING as i32,
+                    project::HEADER_SPACING as i32,
                     Offset::from(padding.leading),
                     child_sizes,
                     children.placements,

@@ -1,10 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::Result;
 
-use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Movement};
 use massive_applications::prelude::*;
-use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
+use massive_geometry::{Rect, SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement};
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
@@ -15,9 +15,9 @@ use crate::desktop_system::{
     Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
     place_container_children,
 };
-use crate::when::{self, PressingEscape};
-
-const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
+use crate::policy::colors;
+use crate::policy::constants::hover_outline;
+use crate::policy::when::{self, PressingEscape};
 
 /// Presents desktop-level visuals and scene anchors.
 ///
@@ -31,8 +31,6 @@ pub struct DesktopPresenter {
 }
 
 impl DesktopPresenter {
-    const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
-
     pub fn new(location: Handle<Location>) -> Self {
         let (hover_scene_transform, hover_location) = identity_location().submit();
         let hover_visual = create_hover_shapes(None)
@@ -186,8 +184,8 @@ impl HoverMovement {
                 self.alpha.animate_if_changed_with(
                     context,
                     1.0,
-                    HOVER_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
+                    hover_outline::ANIMATION_DURATION,
+                    hover_outline::INTERPOLATION,
                 );
                 if *self.alpha.latest() == 0.0 {
                     self.layout.snap(layout);
@@ -195,16 +193,16 @@ impl HoverMovement {
                     self.layout.animate_if_changed_with(
                         context,
                         layout,
-                        HOVER_ANIMATION_DURATION,
-                        Interpolation::CubicOut,
+                        hover_outline::ANIMATION_DURATION,
+                        hover_outline::INTERPOLATION,
                     );
                 }
             }
             None => self.alpha.animate_if_changed_with(
                 context,
                 0.0,
-                HOVER_ANIMATION_DURATION,
-                Interpolation::CubicOut,
+                hover_outline::ANIMATION_DURATION,
+                hover_outline::INTERPOLATION,
             ),
         }
     }
@@ -213,9 +211,9 @@ impl HoverMovement {
 fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
     rect_alpha
         .map(|(rect, alpha)| StrokeRect {
-            rect: rect.with_outset(DesktopPresenter::HOVER_STROKE),
-            stroke: DesktopPresenter::HOVER_STROKE.into(),
-            color: Color::rgb_u32(0xff0000).with_alpha(alpha),
+            rect: rect.with_outset(hover_outline::STROKE),
+            stroke: hover_outline::STROKE.into(),
+            color: colors::hover_outline::OUTLINE.with_alpha(alpha),
         })
         .map(IntoShape::into_shape)
         .into_iter()

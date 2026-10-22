@@ -2,7 +2,7 @@ use massive_applications::InstanceId;
 
 use super::{DesktopTarget, FocusableTarget, InstancePart};
 use crate::focus_path::PathResolver;
-use crate::when::{self, InstanceSuccessor};
+use crate::policy::when::{self, InstanceSuccessor};
 use crate::{DirectionBias, OrderedHierarchy};
 
 impl OrderedHierarchy<DesktopTarget> {

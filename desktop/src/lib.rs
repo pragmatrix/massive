@@ -10,10 +10,10 @@ mod focus_path;
 mod hit_tester;
 mod instance_manager;
 mod instance_presenter;
+mod policy;
 mod projects;
 mod targeted_event;
 mod view_presenter;
-mod when;
 mod window_state;
 
 pub use aggregates::*;

@@ -10,7 +10,12 @@ type, function or concept in code or an ADR, and add the term there when you int
 ## Exceptional behaviors
 
 A guard, redirect, or fallback that users could expect to work differently is decided in
-`desktop/src/when.rs`. Read ADR 0029 before adding or changing one.
+`desktop/src/policy/when.rs`. Read ADR 0029 before adding or changing one.
+
+## Tuning values
+
+A size, duration, threshold, or easing curve that was picked by taste rather than derived lives in
+`desktop/src/policy/constants.rs`, and a color lives in `desktop/src/policy/colors.rs`.
 
 ## Key bindings
 

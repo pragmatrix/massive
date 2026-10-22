@@ -1,8 +1,8 @@
-use massive_animation::{Animated, Interpolation};
+use massive_animation::Animated;
 use massive_applications::prelude::AmbientAnimation;
 use massive_geometry::PixelCamera;
 
-use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
+use crate::policy::constants::structural_animation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraPresentationMode {
@@ -44,8 +44,8 @@ impl CameraPresentation {
                 if let Some(desired) = self.desired {
                     self.presented.animate_if_changed(
                         desired,
-                        STRUCTURAL_ANIMATION_DURATION,
-                        Interpolation::CubicOut,
+                        structural_animation::DURATION,
+                        structural_animation::INTERPOLATION,
                     );
                 }
             }

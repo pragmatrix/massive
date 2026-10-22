@@ -13,13 +13,10 @@ use crate::desktop_system::layout_state::DesktopLayoutState;
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{DesktopTarget, FocusableTarget, InstancePart, ZoomLevel};
 use crate::focus_path::PathResolver;
+use crate::policy::constants::camera;
 use crate::projects::{
     LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
-
-/// The margin the camera keeps around an extended selection on each side, as a fraction of the
-/// slot extent along the same axis (ADR 0032).
-const SELECTION_MARGIN_FRACTION: f64 = 0.25;
 
 /// Resolves where the camera points for a zoom level, from the placed layout.
 #[derive(Debug)]
@@ -119,7 +116,7 @@ impl<'a> ZoomGeometry<'a> {
         outline: &Placement<Transform, 2>,
         slot_extent: SizePx,
     ) -> PixelCamera {
-        let margin = Size::from(slot_extent) * SELECTION_MARGIN_FRACTION;
+        let margin = Size::from(slot_extent) * camera::SELECTION_MARGIN_FRACTION;
         let points = Self::placement_bounds(outline, margin).points;
         PixelCamera::framing(&points, outline.transform.rotate, self.window_size)
             .expect("a rect has corners")

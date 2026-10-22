@@ -20,7 +20,7 @@ use massive_applications::MoveDirection;
 use massive_util::CollectingVec;
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
-use crate::when::{self, Booting};
+use crate::policy::when::{self, Booting};
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;

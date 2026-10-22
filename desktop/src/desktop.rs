@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use derive_more::Constructor;
 use log::{error, info};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
-use tokio::time::{Duration, Instant as TokioInstant, sleep_until};
+use tokio::time::{Instant as TokioInstant, sleep_until};
 use uuid::Uuid;
 
 use massive_applications::{
@@ -24,12 +24,12 @@ use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{
     InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
 };
+use crate::policy::colors;
+use crate::policy::constants::lifecycle;
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
-
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -124,7 +124,7 @@ impl Desktop {
             .with_shapes()
             .with_text()
             .with_images()
-            .with_background_color(massive_geometry::Color::BLACK)
+            .with_background_color(colors::desktop::BACKGROUND)
             .build()
             .await?;
 
@@ -300,7 +300,7 @@ impl Desktop {
         }
 
         self.instance_manager.request_shutdown_all()?;
-        let shutdown_deadline = TokioInstant::now() + SHUTDOWN_TIMEOUT;
+        let shutdown_deadline = TokioInstant::now() + lifecycle::SHUTDOWN_TIMEOUT;
         info!("Graceful shutdown started for {instance_count} instances");
 
         while !self.instance_manager.is_empty() {

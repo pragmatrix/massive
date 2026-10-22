@@ -1,12 +1,10 @@
 //! The animated layout of slot content. Launchers and nested projects share it, so that both
 //! appear, slide, and follow a re-parent in the same way.
 
-use std::time::Duration;
-
-use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress};
 use massive_geometry::{SizedTransform, Transform};
 
-const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+use crate::policy::constants::structural_animation;
 
 /// The layout is `None` until the first one arrives. The first layout is taken without an
 /// animation, so new content appears directly in its slot. Animating it would make the content
@@ -22,8 +20,8 @@ impl SlotLayout {
             Some(animated) => animated.animate_if_changed_with(
                 context,
                 layout,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
+                structural_animation::DURATION,
+                structural_animation::INTERPOLATION,
             ),
             None => self.layout = Some(layout.into()),
         }

@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use crate::policy::constants::visor;
 
 #[derive(Debug, Clone, Copy)]
 pub struct VisorPlacement {
@@ -7,8 +7,6 @@ pub struct VisorPlacement {
     pub yaw: f64,
 }
 
-const MAX_ARC_RADIANS: f64 = PI / 2.0;
-const ARC_SOFTNESS_INSTANCE_COUNT: f64 = 6.0;
 const MIN_RADIUS: f64 = 1.0;
 pub const FORWARD_Z: f64 = 0.0;
 
@@ -39,10 +37,10 @@ pub fn placement(
 }
 
 fn effective_arc(instance_count: usize) -> f64 {
-    let softness = ARC_SOFTNESS_INSTANCE_COUNT.max(1.0);
+    let softness = visor::ARC_SOFTNESS_INSTANCE_COUNT.max(1.0);
     let count = instance_count as f64;
     let normalized = 1.0 - (-count / softness).exp();
-    MAX_ARC_RADIANS * normalized
+    visor::MAX_ARC_RADIANS * normalized
 }
 
 fn radius_for_center_span(center_span: f64, arc: f64) -> f64 {

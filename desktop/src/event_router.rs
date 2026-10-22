@@ -4,7 +4,6 @@
 //! This type is generic over `T`, which is the element's type. A target is a reference to a concrete
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
-use std::time::Duration;
 use std::{fmt, mem};
 
 use anyhow::{Result, bail};
@@ -17,10 +16,7 @@ use massive_geometry::{Point, Vector3};
 use massive_input::{DeviceStates, Event};
 
 use crate::desktop_system::KeyInput;
-
-// Require intentional mouse movement before returning pointer-first feedback after keyboard use.
-const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
-const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
+use crate::policy::constants::pointer_feedback;
 
 // Detail: The EventRouter works without any knowledge about the relationships between the targets
 // (e.g. their hierarchical structure).
@@ -152,8 +148,8 @@ where
                         // Pointer feedback is currently suppressed (i.e. the focus was cleared for
                         // keyboard navigation). Plain cursor motion is ignored.
                         if input_event.cursor_has_velocity(
-                            POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
-                            POINTER_FEEDBACK_REENABLE_MAX_DURATION,
+                            pointer_feedback::REENABLE_MIN_DISTANCE_PX,
+                            pointer_feedback::REENABLE_MAX_DURATION,
                         ) &&
                             // Cursor movement velocity goes over a certain threshold, re-hit and
                             // re-enable cursor focus.
