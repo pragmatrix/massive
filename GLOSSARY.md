@@ -209,8 +209,8 @@ A desktop behavior that deviates from the plain outcome of what the user asked f
 _Avoid_: special case, edge case, quirk
 
 **Desktop policy**:
-The one place that decides every exceptional behavior of the desktop (ADR 0029). For a command, it allows it, refuses it with a reason, or redirects it to another command. For a lifecycle default or a route, it chooses the outcome.
-_Avoid_: policy (alone, it collides with font policy), rules, guards
+The one place that holds the desktop's choices that could reasonably have been made differently. In code it is the desktop's `policy` module. Its rules decide every exceptional behavior (ADR 0029). For a command, a rule allows it, refuses it with a reason, or redirects it to another command. For a lifecycle default or a route, a rule chooses the outcome. Its tuning values are the sizes, durations, thresholds, easing curves, and colors that were picked by taste and usability experience.
+_Avoid_: policy (alone in prose, it collides with font policy), rules, guards
 
 **Shaping engine**:
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.

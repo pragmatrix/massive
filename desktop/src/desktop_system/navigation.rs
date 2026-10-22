@@ -6,10 +6,10 @@ use super::topology::DesktopTopology;
 use super::{
     DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap, ProjectMap,
 };
+use crate::policy::when::{self, SlotSuccessor};
 use crate::projects::{
     LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
-use crate::when::{self, SlotSuccessor};
 
 mod focus_targets;
 mod matrix_navigation;

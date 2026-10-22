@@ -19,12 +19,14 @@ use super::{
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
+use crate::policy::when::{
+    self, RemovingSlotContent, TogglingFullScreen, Ungrouping, UngroupingProject,
+};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
     LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
     SlotPosition,
 };
-use crate::when::{self, RemovingSlotContent, TogglingFullScreen, Ungrouping, UngroupingProject};
 
 use massive_applications::prelude::*;
 use massive_applications::{

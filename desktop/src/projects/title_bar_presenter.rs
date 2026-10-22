@@ -1,14 +1,14 @@
 use std::iter;
 
-use massive_animation::{Animated, Interpolation, Movement};
+use massive_animation::{Animated, Movement};
 use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
-use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
+use crate::policy::colors;
+use crate::policy::constants::structural_animation;
 
-const TEXT_COLOR: Color = Color::WHITE;
 const TEXT_DECAL_ORDER: usize = 0;
 const ELLIPSIS: char = '…';
 
@@ -90,8 +90,8 @@ impl TitleBarPresenter {
             movement.layout.animate_if_changed_with(
                 context,
                 layout,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
+                structural_animation::DURATION,
+                structural_animation::INTERPOLATION,
             );
         });
         if !animate || !has_layout {
@@ -177,7 +177,7 @@ fn fitted_text(text: &str, available_width: Option<u32>, font_size: f32) -> Fitt
     FittedText {
         text: shaped.map(|run| {
             let height = run.metrics.size().height as f64;
-            (run.with_color(TEXT_COLOR).into_shape(), height)
+            (run.with_color(colors::title_bar::TEXT).into_shape(), height)
         }),
         full_size: full_size.unwrap_or_default(),
     }

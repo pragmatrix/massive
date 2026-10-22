@@ -1,10 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use uuid::Uuid;
 use winit::event::MouseButton;
 
-use massive_animation::{Animated, AnimationProgress, Interpolation, Movement};
+use massive_animation::{Animated, AnimationProgress, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
@@ -24,26 +24,12 @@ use crate::desktop_system::{
     KeyOutcome, LayoutContext, Shortcut, TargetLayout, measure_container, place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
+use crate::policy::colors;
+use crate::policy::constants::launcher;
+use crate::policy::when::{self, PressingCommandEnter};
 use crate::projects::{LaunchProfileId, LauncherMode, SlotContent};
-use crate::when::{self, PressingCommandEnter};
 
 use super::runtime_configuration::Params;
-
-// TODO: Need proper color palettes for UI elements.
-// spellcheck: ignore
-// const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
-// const POWDER_BLUE: Color = Color::rgb_u32(0xb0e0e6);
-const MIDNIGHT_BLUE: Color = Color::rgb_u32(0x191970);
-
-const BACKGROUND_COLOR: Color = MIDNIGHT_BLUE;
-const TEXT_COLOR: Color = Color::WHITE;
-const FADING_DURATION: Duration = Duration::from_millis(500);
-
-const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
-/// Band-mode panels are packed with no per-child spacing; the layout call site
-/// dispatches on the configuration's mode but the spacing value stays with the
-/// presentation geometry it feeds.
-pub const CHILD_SPACING: i32 = 0;
 
 #[derive(Debug, Clone, Copy)]
 struct VisorLayoutSummary {
@@ -89,7 +75,7 @@ impl LauncherPresenter {
         size: Size,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
-        let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
+        let background_shape = background_shape(size.to_rect(), colors::launcher::BACKGROUND);
 
         let (our_transform, our_location) =
             identity_location().relative_to(&parent_location).submit();
@@ -110,9 +96,9 @@ impl LauncherPresenter {
             // Idea: No, this should be fully automatic depending of how large the font is shown I
             // guess. Make this independent of the font size, but dependent on what is visible (a
             // background optimizer).
-            .size(32.0 * 8.0)
+            .size(launcher::NAME_FONT_SIZE)
             .shape()
-            .map(|r| r.with_color(TEXT_COLOR).into_shape())
+            .map(|r| r.with_color(colors::launcher::TEXT).into_shape())
             .at(&fade_location)
             .with_decal_order(0)
             .submit();
@@ -147,7 +133,7 @@ impl LauncherPresenter {
         let Some(summary) = visor_layout_summary(offset, children) else {
             place_container_children(
                 LayoutAxis::HORIZONTAL,
-                CHILD_SPACING,
+                launcher::CHILD_SPACING,
                 offset,
                 children.iter().map(|child| child.size),
                 placements,
@@ -160,7 +146,7 @@ impl LauncherPresenter {
         for (child_index, (child, placement)) in children.iter().zip(placements).enumerate() {
             let child_size = child.size;
             if child_index > 0 {
-                offset[0] += CHILD_SPACING;
+                offset[0] += launcher::CHILD_SPACING;
             }
 
             let center_y = child_center_y(offset, child_size);
@@ -245,18 +231,24 @@ impl LauncherPresenter {
     pub fn fade_out(&mut self) {
         self.presents_instance = true;
         self.movement.modify(|movement, context| {
-            movement
-                .fader
-                .animate_with(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
+            movement.fader.animate_with(
+                context,
+                0.0,
+                launcher::FADING_DURATION,
+                launcher::FADING_INTERPOLATION,
+            );
         });
     }
 
     pub fn fade_in(&mut self) {
         self.presents_instance = false;
         self.movement.modify(|movement, context| {
-            movement
-                .fader
-                .animate_with(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
+            movement.fader.animate_with(
+                context,
+                1.0,
+                launcher::FADING_DURATION,
+                launcher::FADING_INTERPOLATION,
+            );
         });
     }
 }
@@ -317,7 +309,7 @@ impl TargetLayout for LauncherPresenter {
         match context.configuration[self.id].mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
-                CHILD_SPACING,
+                launcher::CHILD_SPACING,
                 Offset::default(),
                 children.measurements.iter().map(|child| child.size),
                 children.placements,
@@ -384,7 +376,7 @@ fn measure_launcher(
         LauncherMode::Band => measure_container(
             LayoutAxis::HORIZONTAL,
             Default::default(),
-            CHILD_SPACING as u32,
+            launcher::CHILD_SPACING as u32,
             children.iter().map(|child| child.size),
         )
         .into(),
@@ -417,7 +409,11 @@ impl LauncherMovement {
         // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
         // is perhaps not reliable.
         background.update_if_changed_with(|visual| {
-            visual.shapes = [background_shape(layout.rect(), BACKGROUND_COLOR)].into()
+            visual.shapes = [background_shape(
+                layout.rect(),
+                colors::launcher::BACKGROUND,
+            )]
+            .into()
         });
     }
 }
@@ -435,7 +431,7 @@ fn children_span(children: &[MeasuredLayout<2>]) -> i32 {
         .iter()
         .map(|child| child.size[0] as i32)
         .sum::<i32>()
-        + CHILD_SPACING * children.len().saturating_sub(1) as i32
+        + launcher::CHILD_SPACING * children.len().saturating_sub(1) as i32
 }
 
 fn visor_layout_summary(
@@ -448,7 +444,7 @@ fn visor_layout_summary(
     for (child_index, child) in children.iter().enumerate() {
         let child_size = child.size;
         if child_index > 0 {
-            offset[0] += CHILD_SPACING;
+            offset[0] += launcher::CHILD_SPACING;
         }
 
         let center_x = child_rect(offset, child_size).center().cast::<f64>().x;
@@ -508,7 +504,8 @@ fn visor_child_transform(
     );
 
     if instance_index != center_index {
-        transform.translate.z += COLLAPSED_NON_ANCHOR_Z_OFFSET * if expanded { 0.0 } else { 1.0 };
+        transform.translate.z +=
+            launcher::COLLAPSED_NON_ANCHOR_Z_OFFSET * if expanded { 0.0 } else { 1.0 };
     }
 
     transform

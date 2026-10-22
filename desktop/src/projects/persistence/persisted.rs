@@ -34,12 +34,12 @@
 use log::warn;
 use serde::{Deserialize, Serialize};
 
+use crate::policy::when::{self, LoadingWithoutLauncher};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, Launcher,
     LauncherMode, Params, Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot,
     SlotAssignment, SlotPayload, SlotPosition,
 };
-use crate::when::{self, LoadingWithoutLauncher};
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
 /// address path and the root project's slots, with every nested project hanging

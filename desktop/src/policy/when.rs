@@ -1,4 +1,4 @@
-//! The desktop policy decides the desktop's exceptional behaviors (ADR 0029).
+//! The `when` rules decide the desktop's exceptional behaviors (ADR 0029).
 //!
 //! Each rule is named after its situation and is a pure function of the facts its caller passes in.
 

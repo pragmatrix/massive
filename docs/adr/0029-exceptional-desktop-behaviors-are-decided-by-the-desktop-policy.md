@@ -21,7 +21,7 @@ reason, so a later notification has nothing to show.
 
 ## Decision
 
-**A desktop policy module, `when` (`desktop/src/when.rs`), decides every exceptional behavior.**
+**A desktop policy module, `when` (`desktop/src/policy/when.rs`), decides every exceptional behavior.**
 Each rule is a pure function named after the situation it decides, so a call reads as
 `when::ungrouping(…)` or `when::booting(…)`. It takes the facts it needs as parameters
 and returns a decision. The code that used to decide the rule now gathers those facts, asks the policy, and

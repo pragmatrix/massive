@@ -14,10 +14,8 @@ use crate::desktop_system::{
     DesktopLayoutState, DesktopTarget, LayoutContext, ProjectPart, fullscreen_scale,
 };
 use crate::instance_presenter::instance_extent;
+use crate::policy::constants::matrix;
 use crate::projects::{MatrixRect, ProjectId, SlotContent, SlotPosition};
-
-/// Column and row spacing, indexed by axis like `Extents`.
-const INTERVAL_SPACING: [u32; 2] = [10, 10];
 
 /// The extents of the columns and of the rows, indexed by axis like sizes and offsets, so both axes
 /// share one measuring and centering rule.
@@ -150,7 +148,8 @@ impl MatrixGrid {
     /// starts relative to the first one.
     fn new(slots: &[MatrixSlot], context: &LayoutContext) -> Self {
         let extents = matrix_extents(slots, slot_extent(context).width);
-        let starts = array::from_fn(|axis| interval_starts(&extents[axis], INTERVAL_SPACING[axis]));
+        let starts =
+            array::from_fn(|axis| interval_starts(&extents[axis], matrix::INTERVAL_SPACING[axis]));
         Self { extents, starts }
     }
 
@@ -299,7 +298,8 @@ fn widen_extent(extents: &mut Vec<u32>, index: usize, extent: u32) {
 /// measured size along it.
 fn extents_span(extents: &Extents, axis: usize) -> u32 {
     let extents = &extents[axis];
-    extents.iter().sum::<u32>() + INTERVAL_SPACING[axis] * extents.len().saturating_sub(1) as u32
+    extents.iter().sum::<u32>()
+        + matrix::INTERVAL_SPACING[axis] * extents.len().saturating_sub(1) as u32
 }
 
 /// Where each interval starts, after its predecessors and their spacing.
