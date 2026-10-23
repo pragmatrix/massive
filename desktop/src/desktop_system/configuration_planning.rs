@@ -165,9 +165,8 @@ impl ConfigurationPlanning<'_> {
         changes
     }
 
-    /// A move that would take the block out of the matrix, left of its first column or above its
-    /// first row, plans nothing, and so does a move with no assigned slot to relocate. The moved
-    /// contents keep their topology nodes, because they stay in the same matrix.
+    /// A move that would take the block out of the matrix, or that relocates no assigned slot, plans
+    /// nothing. The moved contents keep their topology nodes, because they stay in the same matrix.
     fn plan_move_slots(
         &self,
         parent: ProjectId,

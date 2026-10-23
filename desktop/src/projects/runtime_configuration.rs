@@ -480,9 +480,9 @@ impl RuntimeConfiguration {
 
     /// Moves the contents of `project`'s slots to new slots of the same matrix, each `(source,
     /// dest)` pair of `landings` at once. Every source holds content, and after the move no two
-    /// contents share a slot. This is one step, because a moved block's content and the strip
-    /// that jumps behind it need each other's slots (ADR 0033). With single moves, one of them
-    /// would first have to wait in a temporary slot.
+    /// contents share a slot. This is one step, so that a block move is planned as one mapping
+    /// (ADR 0033) and not as an ordered chain of swaps and moves, whose result would depend on the
+    /// order the changes run in.
     pub fn relocate_slots(
         &mut self,
         project: ProjectId,

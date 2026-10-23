@@ -48,9 +48,9 @@ pub enum DesktopCommand {
 }
 
 /// A configuration operation a key applies to the selection, before the desktop system knows which
-/// slots the selection covers (ADR 0024). Grouping, ungrouping, and moving act on the whole selection.
-/// Adding and removing act on its keyboard-focused slot only. Each operation stands for one
-/// [`ConfigurationCommand`].
+/// slots the selection covers (ADR 0024). Grouping, ungrouping, and moving act on the whole
+/// selection. Adding and removing act on its keyboard-focused slot only. Each operation stands for
+/// one [`ConfigurationCommand`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionOperation {
     /// Adds a default launcher right of the focused slot (Cmd+N).
@@ -109,8 +109,8 @@ pub enum ConfigurationCommand {
         b: SlotPosition,
     },
     /// Moves the `block`, a rectangle of `parent`'s matrix, one slot in `direction`. The contents in
-    /// front of the block take the place it leaves, and at the matrix's left or top edge nothing
-    /// moves (ADR 0033).
+    /// front of the block take the place it leaves, and at the matrix's edges nothing moves, so a
+    /// move never grows the matrix (ADR 0033).
     MoveSlots {
         parent: ProjectId,
         block: MatrixRect,
