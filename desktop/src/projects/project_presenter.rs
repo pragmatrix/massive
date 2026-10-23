@@ -144,11 +144,9 @@ impl TargetLayout for ProjectPresenter {
                 );
                 MeasuredLayout::new(SizePx::new(0, height).into(), [true, false])
             }
-            // The matrix stretches across the project's width, so the policy can align its columns
-            // in it (ADR 0034).
-            ProjectPart::Matrix => {
-                MeasuredLayout::new(measure_matrix(self.id, context, children), [true, false])
-            }
+            // The matrix is exactly as wide as its columns, and the project as wide as its matrix,
+            // so it never stretches across (ADR 0035). The project gives it the height it gains.
+            ProjectPart::Matrix => measure_matrix(self.id, context, children).into(),
         }
     }
 

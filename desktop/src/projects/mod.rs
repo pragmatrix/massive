@@ -10,7 +10,7 @@ mod title_bar_presenter;
 mod visor_layout;
 
 pub use self::launcher_presenter::LauncherPresenter;
-pub use self::matrix_layout::{Alignment, matrix_area_placement, slot_extent};
+pub use self::matrix_layout::{matrix_area_placement, slot_extent};
 pub use self::project_presenter::ProjectPresenter;
 pub use self::runtime_configuration::*;
 pub use self::shared_column_counts::SharedColumnCounts;

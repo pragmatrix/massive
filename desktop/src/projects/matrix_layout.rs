@@ -135,23 +135,10 @@ fn matrix_area(
 }
 
 /// Where the intervals start in a matrix of `size`. The intervals span `measured_size`, which `size`
-/// exceeds when the project is stretched to its own slot. Horizontally they follow the policy's
-/// alignment, and vertically they sit centered (ADR 0034).
+/// exceeds vertically when the project is stretched to its own slot, and there they sit centered
+/// (ADR 0023). Horizontally the matrix is exactly as wide as its columns (ADR 0035).
 fn intervals_origin(size: Size<2>, measured_size: Size<2>) -> Offset<2> {
-    let alignments = [matrix::HORIZONTAL_ALIGNMENT, Alignment::Centered];
-    Offset::from(array::from_fn(|axis| {
-        aligned_offset(alignments[axis], size[axis], measured_size[axis])
-    }))
-}
-
-/// Where a matrix's intervals sit along an axis when the matrix is wider than they are. The
-/// desktop policy picks one for the horizontal axis (ADR 0034).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Alignment {
-    Leading,
-    Centered,
-    #[expect(dead_code, reason = "a policy choice that no axis uses yet")]
-    Trailing,
+    Offset::from([0, centering_offset(size[1], measured_size[1])])
 }
 
 /// Where a matrix's intervals lie relative to the first interval: their extents, and where each one
@@ -187,21 +174,11 @@ pub fn slot_extent(context: &LayoutContext) -> SizePx {
     instance_extent(context.default_panel_size, context.title_bar_metrics.height)
 }
 
-/// Where content spanning `span` starts to sit centered in `extent`.
+/// Where content spanning `span` starts to sit centered in `extent`, on whole pixels so it stays on
+/// the pixel grid. A matrix's `extent` can lag its span for one pass (`ChildPlacement::parent_size`),
+/// so a negative excess counts as none.
 fn centering_offset(extent: u32, span: u32) -> i32 {
-    aligned_offset(Alignment::Centered, extent, span)
-}
-
-/// Where content spanning `span` starts to sit in `extent` at `alignment`, on whole pixels so it
-/// stays on the pixel grid. A matrix's `extent` can lag its span for one pass
-/// (`ChildPlacement::parent_size`), so a negative excess counts as none.
-fn aligned_offset(alignment: Alignment, extent: u32, span: u32) -> i32 {
-    let excess = extent.saturating_sub(span);
-    (match alignment {
-        Alignment::Leading => 0,
-        Alignment::Centered => excess / 2,
-        Alignment::Trailing => excess,
-    }) as i32
+    (extent.saturating_sub(span) / 2) as i32
 }
 
 /// Separate intrinsic and presented sizes keep child layout independent of the parent's intervals.
