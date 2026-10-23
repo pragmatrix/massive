@@ -4,6 +4,9 @@
 
 Supersedes [ADR 0015](./0015-nested-projects-share-a-width-derived-presentation-scale.md).
 
+Amended by [ADR 0034](./0034-a-project-header-does-not-widen-its-project.md): the header measures
+no width, and the horizontal alignment of a stretched project's columns is a policy, leading for now.
+
 ## Problem
 
 ADR 0015 scaled nested projects by width only and sized columns and rows by
