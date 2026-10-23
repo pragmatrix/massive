@@ -66,6 +66,10 @@ impl DesktopSystem {
             return Effects::None;
         }
         let parent = aggregates.hierarchy.parent_project_of(project);
+        assert!(
+            parent.is_some() || project == ProjectId::ROOT,
+            "every configured project but the root sits in a matrix of the topology"
+        );
         aggregates
             .shared_column_counts
             .refresh(project, parent, &aggregates.configuration)

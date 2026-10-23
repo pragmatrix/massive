@@ -112,9 +112,9 @@ impl SharedColumnCounts {
         }
     }
 
-    /// The own column count of `project`. A project that a change created in a slot is not
-    /// refreshed itself, because only the project hosting the slot is touched, so it is counted
-    /// when its siblings first need it.
+    /// The own column count of `project`. A project assigned into a slot is not touched itself,
+    /// because only the project hosting the slot is. So it is counted when its siblings first need
+    /// it.
     fn own_column_count_of(
         &mut self,
         project: ProjectId,
