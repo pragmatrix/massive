@@ -119,10 +119,10 @@ pub enum ConfigurationRequest {
         name: Option<String>,
     },
     MoveLauncher {
-        direction: MoveDirection,
+        direction: Direction,
     },
     PushLauncher {
-        direction: MoveDirection,
+        direction: Direction,
     },
     SetStartup {
         path: Option<String>,
@@ -152,8 +152,10 @@ pub enum SlotShift {
     Keep,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum MoveDirection {
+/// A direction in a matrix or on the desktop. The desktop navigates, extends and moves the
+/// selection, and moves slot content in it, and the CLI's configuration requests carry it.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Direction {
     Left,
     Right,
     Up,

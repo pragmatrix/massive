@@ -41,6 +41,7 @@ delivered top down; the level that consumes one decides its meaning (ADR 0020).
 | Cmd+Ctrl+←/→ | desktop | Navigate | resize split (Gh) · move editor to the neighboring group (VS) |
 | Cmd+Ctrl+↑ | desktop | Zoom in | resize split (Gh) |
 | Cmd+Ctrl+↓ | desktop | Zoom out | resize split (Gh) |
+| Cmd+Ctrl+Shift+←/→/↑/↓ | desktop | Move the selected slots, or else the focused slot, by one slot; the slots in front take the place they leave; repeats when held (ADR 0033) | expand / shrink selection by structure (VS, ←/→) |
 | Cmd+Ctrl+F | shell (View menu) | Toggle full screen | full screen (mac) |
 | Cmd+Q | shell (winit app menu) | Quit | quit (mac) |
 | Cmd+H | shell (winit app menu) | Hide the app | hide (mac) |
@@ -209,8 +210,8 @@ Cmd+Shift+8. Gh used Cmd+Opt+drag, like iT, before it moved to Opt+drag to match
   (JB), Ctrl+Shift+click (Xc). Cmd+D for the next occurrence is the one binding VS, Zd and Sb
   share; JB uses Ctrl+G.
 - **Expanding by structure** differs in every editor. Zd's Cmd+Ctrl+←/→ collides with the
-  desktop's Cmd+Ctrl+arrows (navigate); VS's Ctrl+Shift+Cmd+→ adds Shift to the same keys. JB's
-  Opt+↑/↓ takes paragraph movement from macOS text.
+  desktop's Cmd+Ctrl+arrows (navigate); VS's Ctrl+Shift+Cmd+→ adds Shift to the same keys, which
+  move the selected slots on the desktop. JB's Opt+↑/↓ takes paragraph movement from macOS text.
 - **Rectangle selection** is Opt+drag in most tools, with iT (Cmd+Opt) and Kt (Ctrl+Opt) the
   outliers.
 

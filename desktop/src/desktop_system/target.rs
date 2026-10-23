@@ -42,6 +42,21 @@ pub enum FocusableTarget {
 }
 
 impl DesktopTarget {
+    /// The matrix of `project`. Its children in the hierarchy are the project's slots.
+    pub fn matrix(project: ProjectId) -> Self {
+        Self::Project(project, ProjectPart::Matrix)
+    }
+
+    /// The header of `project`, which sits beside its matrix under the project in the hierarchy.
+    pub fn header(project: ProjectId) -> Self {
+        Self::Project(project, ProjectPart::Header)
+    }
+
+    /// The bar above the instance's view (ADR 0019).
+    pub fn title_bar(instance: InstanceId) -> Self {
+        Self::Instance(instance, InstancePart::TitleBar)
+    }
+
     pub fn view(instance: InstanceId, view: ViewId) -> Self {
         Self::Instance(instance, InstancePart::View(view))
     }
@@ -144,7 +159,7 @@ mod tests {
         let instance: InstanceId = Uuid::new_v4().into();
         let view = ViewId::new();
 
-        let title_bar = DesktopTarget::Instance(instance, InstancePart::TitleBar);
+        let title_bar = DesktopTarget::title_bar(instance);
         assert_eq!(
             title_bar.selected_target(),
             FocusableTarget::Instance(instance)

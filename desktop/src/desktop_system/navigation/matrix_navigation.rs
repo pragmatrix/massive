@@ -3,7 +3,7 @@
 
 use massive_applications::InstanceId;
 
-use super::{HorizontalDirection, VerticalDirection};
+use super::{HorizontalDirection, VerticalDirection, horizontal, vertical};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{Direction, FocusableTarget};
 use crate::projects::{
@@ -97,7 +97,7 @@ impl<'a> MatrixNavigation<'a> {
         // consulted along this path.
         let _ = self.configuration.launcher(launcher_id)?;
         let instances: Vec<_> = self.hierarchy.launcher_instances(launcher_id).collect();
-        if let Some(horizontal) = direction.horizontal() {
+        if let Some(horizontal) = horizontal(direction) {
             return horizontal_child_neighbor(&instances, index, horizontal)
                 .map(|instance| NavigationStep {
                     target: FocusableTarget::Instance(instance),
@@ -150,11 +150,11 @@ fn select_matrix_neighbor<K: Copy>(
     direction: Direction,
     preferred_column: Option<u32>,
 ) -> Option<K> {
-    if let Some(horizontal) = direction.horizontal() {
+    if let Some(horizontal) = horizontal(direction) {
         return select_row_neighbor(entries, origin, horizontal);
     }
 
-    if let Some(vertical) = direction.vertical() {
+    if let Some(vertical) = vertical(direction) {
         return select_column_neighbor(
             entries,
             origin.row,

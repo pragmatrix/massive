@@ -5,18 +5,19 @@
 //! name the launchers and projects they host, so no recursive type is needed.
 
 use std::collections::HashSet;
+use std::iter;
 use std::ops::Index;
 
 use anyhow::{Context, Result, bail, ensure};
 use derive_more::{From, Into};
-use euclid::vec2;
+use euclid::{Vector2D, vec2};
 use indexmap::IndexMap;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use massive_applications::MoveDirection;
+use massive_applications::Direction;
 use massive_util::CollectingVec;
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
@@ -477,6 +478,43 @@ impl RuntimeConfiguration {
         sort_slots(&mut project.slots);
     }
 
+    /// Moves the contents of `project`'s slots to new slots of the same matrix, each `(source,
+    /// dest)` pair of `landings` at once. Every source holds content, and after the move no two
+    /// contents share a slot. This is one step, so that a block move is planned as one mapping
+    /// (ADR 0033) and not as an ordered chain of swaps and moves, whose result would depend on the
+    /// order the changes run in.
+    pub fn relocate_slots(
+        &mut self,
+        project: ProjectId,
+        landings: &[(SlotPosition, SlotPosition)],
+    ) {
+        let project = self
+            .project_mut(project)
+            .expect("the project of relocated slots exists");
+        // All indices are taken before any position changes, so a source cannot be confused with
+        // a slot that has just landed there.
+        let indices: Vec<usize> = landings
+            .iter()
+            .map(|(source, _)| {
+                project
+                    .slot_index(*source)
+                    .expect("a relocated slot has content")
+            })
+            .collect();
+        for (index, (_, dest)) in indices.into_iter().zip(landings) {
+            project.slots[index].position = *dest;
+        }
+        // The aggregate's readers rely on slots in position order.
+        sort_slots(&mut project.slots);
+        assert!(
+            project
+                .slots
+                .windows(2)
+                .all(|pair| pair[0].position != pair[1].position),
+            "relocated contents never share a slot"
+        );
+    }
+
     /// Whether the content of `source` can move to `dest`.
     ///
     /// Rejected when the source slot is empty, when the destination project is not
@@ -783,7 +821,7 @@ impl RuntimeConfiguration {
         &self,
         project: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Result<Vec<(SlotPosition, SlotPosition)>> {
         let mut run = vec![slot];
         loop {
@@ -1057,6 +1095,11 @@ impl Project {
         self.slots
             .iter()
             .map(|slot| (slot.position, slot.content()))
+    }
+
+    /// The rectangle of the project's matrix (see [`matrix_bounds`]).
+    pub fn matrix_bounds(&self) -> MatrixRect {
+        matrix_bounds(self.slot_contents().map(|(position, _)| position))
     }
 
     /// The slots with their full payload, including each launcher's record. Only code that needs
@@ -1347,13 +1390,6 @@ pub type MatrixPoint = euclid::Point2D<u32, MatrixUnit>;
 /// one column and one row past the bottom-right position it contains.
 pub type MatrixRect = euclid::Box2D<u32, MatrixUnit>;
 
-/// The bounding box of `points`: the smallest rectangle of positions that contains all of them.
-/// There is at least one point.
-pub fn matrix_bounding_box(points: impl IntoIterator<Item = MatrixPoint>) -> MatrixRect {
-    let rect = MatrixRect::from_points(points);
-    MatrixRect::new(rect.min, rect.max + vec2(1, 1))
-}
-
 /// Where grouping the `grouped` slots puts them (ADR 0026). The new project takes the top-left
 /// slot of their bounding box, and each slot keeps its offset from that corner inside the project.
 /// Returns the project's slot and, for each grouped slot, the slot inside the project it moves to.
@@ -1370,6 +1406,69 @@ pub fn group_landings(
         })
         .collect();
     (top_left.into(), landings)
+}
+
+/// Where moving the `block`, a rectangle of a matrix, one slot in `direction` puts the assigned
+/// `slots` it affects (ADR 0033). Each slot inside the block moves one step. Each slot in the strip
+/// directly in front of the block jumps back across the block's extent, into the strip the block
+/// leaves. The other slots stay and are not listed. `None` when the block would leave the matrix
+/// as it is before the move (see [`matrix_bounds`]), so a move never grows the matrix.
+pub fn move_landings(
+    block: MatrixRect,
+    direction: Direction,
+    slots: impl IntoIterator<Item = SlotPosition>,
+) -> Option<Vec<(SlotPosition, SlotPosition)>> {
+    let slots: Vec<SlotPosition> = slots.into_iter().collect();
+    let step: Vector2D<i32, MatrixUnit> = match direction {
+        Direction::Left => vec2(-1, 0),
+        Direction::Right => vec2(1, 0),
+        Direction::Up => vec2(0, -1),
+        Direction::Down => vec2(0, 1),
+    };
+    let moved = MatrixRect::new(offset(block.min, step)?, offset(block.max, step)?);
+    if !matrix_bounds(slots.iter().copied()).contains_box(&moved) {
+        return None;
+    }
+    let hop = -step.component_mul(block.size().to_vector().to_i32());
+    let landing = |point, by| -> SlotPosition {
+        offset(point, by)
+            .expect("a landing lies inside the moved block or the block itself")
+            .into()
+    };
+    Some(
+        slots
+            .into_iter()
+            .filter_map(|slot| {
+                let point = MatrixPoint::from(slot);
+                if block.contains(point) {
+                    Some((slot, landing(point, step)))
+                } else if moved.contains(point) {
+                    Some((slot, landing(point, hop)))
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    )
+}
+
+/// `point` moved `by` columns and rows, `None` when it would pass the matrix's left or top edge.
+fn offset(point: MatrixPoint, by: Vector2D<i32, MatrixUnit>) -> Option<MatrixPoint> {
+    (point.to_i32() + by).try_cast()
+}
+
+/// The rectangle of a matrix whose assigned slots are `slots`: from its top-left slot to the
+/// rightmost column and the lowest row that hold an assigned slot. Its bottom-right slot may be
+/// unassigned, because that column and that row may belong to different slots.
+pub fn matrix_bounds(slots: impl IntoIterator<Item = SlotPosition>) -> MatrixRect {
+    matrix_bounding_box(iter::once(MatrixPoint::origin()).chain(slots.into_iter().map(Into::into)))
+}
+
+/// The bounding box of `points`: the smallest rectangle of positions that contains all of them.
+/// There is at least one point.
+pub fn matrix_bounding_box(points: impl IntoIterator<Item = MatrixPoint>) -> MatrixRect {
+    let rect = MatrixRect::from_points(points);
+    MatrixRect::new(rect.min, rect.max + vec2(1, 1))
 }
 
 impl From<SlotPosition> for MatrixPoint {
@@ -1395,21 +1494,21 @@ impl SlotPosition {
     }
 
     /// The neighboring slot one `direction` step away, `None` past the matrix edge.
-    pub fn neighbor(self, direction: MoveDirection) -> Option<SlotPosition> {
+    pub fn neighbor(self, direction: Direction) -> Option<SlotPosition> {
         match direction {
-            MoveDirection::Left => self.column.checked_sub(1).map(|column| SlotPosition {
+            Direction::Left => self.column.checked_sub(1).map(|column| SlotPosition {
                 column,
                 row: self.row,
             }),
-            MoveDirection::Right => self.column.checked_add(1).map(|column| SlotPosition {
+            Direction::Right => self.column.checked_add(1).map(|column| SlotPosition {
                 column,
                 row: self.row,
             }),
-            MoveDirection::Up => self.row.checked_sub(1).map(|row| SlotPosition {
+            Direction::Up => self.row.checked_sub(1).map(|row| SlotPosition {
                 row,
                 column: self.column,
             }),
-            MoveDirection::Down => self.row.checked_add(1).map(|row| SlotPosition {
+            Direction::Down => self.row.checked_add(1).map(|row| SlotPosition {
                 row,
                 column: self.column,
             }),
@@ -1449,6 +1548,40 @@ impl LaunchProfileId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A block that moves takes the slots in front of it across its whole extent, and they land in
+    /// the strip it leaves, each in its own row (ADR 0033). Here the block spans columns 1 and 2
+    /// and rows 0 and 1. `(3, 0)` lies in front of it and lands in column 1. `(0, 0)` behind the
+    /// block, `(4, 0)` beyond the strip in front, and `(3, 2)` below the block stay.
+    #[test]
+    fn a_moving_block_takes_the_strip_in_front_to_where_it_leaves() {
+        let at = |column, row| SlotPosition { column, row };
+        let block = MatrixRect::new(MatrixPoint::new(1, 0), MatrixPoint::new(3, 2));
+        let slots = [at(0, 0), at(1, 0), at(2, 1), at(3, 0), at(4, 0), at(3, 2)];
+
+        assert_eq!(
+            move_landings(block, Direction::Right, slots),
+            Some(vec![
+                (at(1, 0), at(2, 0)),
+                (at(2, 1), at(3, 1)),
+                (at(3, 0), at(1, 0)),
+            ])
+        );
+        assert_eq!(
+            move_landings(block, Direction::Left, slots),
+            Some(vec![
+                (at(0, 0), at(2, 0)),
+                (at(1, 0), at(0, 0)),
+                (at(2, 1), at(1, 1)),
+            ])
+        );
+
+        // The block never leaves the matrix, which ends at column 4 and row 2.
+        let at_left_edge = MatrixRect::new(MatrixPoint::new(0, 0), MatrixPoint::new(1, 1));
+        assert_eq!(move_landings(at_left_edge, Direction::Left, slots), None);
+        let at_right_edge = MatrixRect::new(MatrixPoint::new(4, 0), MatrixPoint::new(5, 1));
+        assert_eq!(move_landings(at_right_edge, Direction::Right, slots), None);
+    }
 
     /// Ungrouping pushes the slots in its way only as far as needed. Here `y` has to move two
     /// columns. With one unassigned slot behind it, `w` has to move one column too. With two
@@ -1518,7 +1651,7 @@ mod tests {
             .shifted_slots(
                 root_id_of(&configuration),
                 SlotPosition { column: 1, row: 0 },
-                MoveDirection::Right,
+                Direction::Right,
             )
             .unwrap();
 
@@ -1552,7 +1685,7 @@ mod tests {
             .shifted_slots(
                 root_id_of(&configuration),
                 SlotPosition { column: 1, row: 0 },
-                MoveDirection::Right,
+                Direction::Right,
             )
             .unwrap();
 
@@ -1574,7 +1707,7 @@ mod tests {
                 .shifted_slots(
                     root_id_of(&configuration),
                     SlotPosition { column: 0, row: 0 },
-                    MoveDirection::Left
+                    Direction::Left
                 )
                 .is_err()
         );
@@ -1583,7 +1716,7 @@ mod tests {
                 .shifted_slots(
                     root_id_of(&configuration),
                     SlotPosition { column: 0, row: 0 },
-                    MoveDirection::Up
+                    Direction::Up
                 )
                 .is_err()
         );

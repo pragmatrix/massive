@@ -12,10 +12,9 @@ use super::change::{
 use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
-    FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, SelectionOperation, ZoomLevel,
-    view_size,
+    FocusableTarget, KeyboardFocusReason, SelectionOperation, ZoomLevel, view_size,
 };
-use crate::desktop_system::change_surface::TargetSet;
+use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::policy::when::{self, RemovingSlotContent, TogglingFullScreen, Ungrouping};
@@ -164,7 +163,7 @@ impl DesktopSystem {
                     }),
                     // ADR 0019: The title bar exists with the instance, ahead of its view.
                     DesktopChange::Topology(TopologyChange::Add {
-                        what: DesktopTarget::Instance(instance, InstancePart::TitleBar),
+                        what: DesktopTarget::title_bar(instance),
                         under: instance.into(),
                         after: None,
                     }),
@@ -270,6 +269,23 @@ impl DesktopSystem {
                 })
             }
             SelectionOperation::Ungroup => self.ungroup_command_for_selection(),
+            SelectionOperation::Move(direction) => {
+                let Some((parent, block)) = self.keyboard_focus.focused().and_then(|focused| {
+                    self.selection.selected_rect(
+                        focused,
+                        &self.aggregates.hierarchy,
+                        &self.aggregates.configuration,
+                    )
+                }) else {
+                    warn!("The focus sits in no slot to move");
+                    return None;
+                };
+                Some(ConfigurationCommand::MoveSlots {
+                    parent,
+                    block,
+                    direction,
+                })
+            }
         }
     }
 
@@ -443,11 +459,9 @@ impl DesktopSystem {
                 if self.zoom_level != level {
                     self.zoom_level = level;
 
-                    let mut output = ChangeOutput::default();
-                    if let Some(focused) = self.focused_target() {
-                        output.measure(focused);
-                    }
-                    return Ok(output);
+                    return Ok(ChangeOutput::measures(TargetSet::from_iter(
+                        self.focused_target(),
+                    )));
                 }
             }
             DesktopChange::ToggleFullScreenMode(target) => {
@@ -483,28 +497,24 @@ impl DesktopSystem {
                 // the next focus or rotation re-measures.
                 // The live mode toggle is a configuration change the caller
                 // persists (ADR 0013; 0014).
-                let mut output = ChangeOutput::default();
-                output.surface.configuration_changed = true;
-                for changed_target in changed_targets {
-                    output.measure(changed_target);
-                }
+                let mut output = ChangeOutput::measures(TargetSet::from_iter(changed_targets));
+                output.surface.configuration_impact = ConfigurationImpact::Changed;
                 return Ok(output);
             }
             DesktopChange::WindowResized(window_state) => {
                 self.window_state = window_state;
-                let mut output = ChangeOutput::default();
-                output.surface.window_size_changed = true;
                 // In Full Screen Mode the view and the title bar are measured at window resolution
                 // (ADR 0014, ADR 0019). The measure pass keeps the cached sizes of measured
                 // children, so the view and the title bar are measured explicitly. Instances in the
                 // regular mode measure at the panel size, so their measurements stay unchanged.
-                let instances: Vec<InstanceId> =
-                    self.aggregates.instances.keys().copied().collect();
-                for instance in instances {
-                    for target in self.instance_view_targets(instance) {
-                        output.measure(target);
-                    }
-                }
+                let views: TargetSet = self
+                    .aggregates
+                    .instances
+                    .keys()
+                    .flat_map(|&instance| self.instance_view_targets(instance))
+                    .collect();
+                let mut output = ChangeOutput::measures(views);
+                output.surface.window_size_changed = true;
                 return Ok(output);
             }
             DesktopChange::ToggleWindowFullScreen => {
@@ -557,8 +567,13 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
+                let configuration_impact = if project_change.keeps_selection() {
+                    ConfigurationImpact::Changed
+                } else {
+                    ConfigurationImpact::ChangedUnderSelection
+                };
                 let mut output = self.apply_project_change(project_change)?;
-                output.surface.configuration_changed = true;
+                output.surface.configuration_impact = configuration_impact;
                 return Ok(output);
             }
         }
@@ -648,10 +663,10 @@ impl DesktopSystem {
                 if !self.aggregates.configuration.move_slot(source, dest) {
                     return Ok(ChangeOutput::default());
                 }
-                let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::Project(source_parent, ProjectPart::Matrix));
-                output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
-                return Ok(output);
+                return Ok(ChangeOutput::measures(TargetSet::from_iter([
+                    DesktopTarget::matrix(source_parent),
+                    DesktopTarget::matrix(dest_parent),
+                ])));
             }
             ConfigurationChange::Group {
                 parent,
@@ -667,15 +682,17 @@ impl DesktopSystem {
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
                 self.aggregates.projects.remove(&project)?;
-                let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
-                return Ok(output);
+                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
             }
             ConfigurationChange::SwapSlots { parent, a, b } => {
                 self.aggregates.configuration.swap_slots(parent, a, b);
-                let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
-                return Ok(output);
+                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
+            }
+            ConfigurationChange::RelocateSlots { parent, landings } => {
+                self.aggregates
+                    .configuration
+                    .relocate_slots(parent, &landings);
+                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain the resolved launcher. The path is what persists, so
@@ -1053,10 +1070,7 @@ impl DesktopSystem {
     /// *measurement* (panel vs window size) and its placement both depend on
     /// Full Screen Mode, so a toggle must invalidate both.
     fn instance_view_targets(&self, instance: InstanceId) -> Vec<DesktopTarget> {
-        let mut targets = vec![
-            instance.into(),
-            DesktopTarget::Instance(instance, InstancePart::TitleBar),
-        ];
+        let mut targets = vec![instance.into(), DesktopTarget::title_bar(instance)];
         if let Some(view) = self
             .aggregates
             .instances

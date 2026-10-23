@@ -239,7 +239,7 @@ fn start_instance(
             under: launcher.into(),
         }),
         DesktopChange::Topology(TopologyChange::Add {
-            what: DesktopTarget::Instance(instance, InstancePart::TitleBar),
+            what: DesktopTarget::title_bar(instance),
             under: instance.into(),
             after: None,
         }),

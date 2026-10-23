@@ -35,9 +35,11 @@ pub enum Shortcut {
     Navigate(Direction),
     /// Cmd+Shift+Arrow with no other modifier.
     ExtendSelection(Direction),
-    /// Cmd+Ctrl+Up
+    /// Ctrl+Shift+Cmd+Arrow with no other modifier (ADR 0033).
+    MoveSelection(Direction),
+    /// Cmd+Ctrl+Up with no other modifier.
     ZoomIn,
-    /// Cmd+Ctrl+Down
+    /// Cmd+Ctrl+Down with no other modifier.
     ZoomOut,
 }
 
@@ -116,11 +118,16 @@ fn command_arrow(input: &KeyInput) -> Option<Shortcut> {
         _ => return None,
     };
 
+    let zoom = ModifiersState::SUPER | ModifiersState::CONTROL;
     Some(match direction {
-        Direction::Up if input.is_ctrl() => Shortcut::ZoomIn,
-        Direction::Down if input.is_ctrl() => Shortcut::ZoomOut,
+        // Zooming matches its modifiers exactly, so that adding Shift moves the selection.
+        Direction::Up if input.modifiers == zoom => Shortcut::ZoomIn,
+        Direction::Down if input.modifiers == zoom => Shortcut::ZoomOut,
         direction if input.modifiers == ModifiersState::SUPER | ModifiersState::SHIFT => {
             Shortcut::ExtendSelection(direction)
+        }
+        direction if input.modifiers == zoom | ModifiersState::SHIFT => {
+            Shortcut::MoveSelection(direction)
         }
         direction => Shortcut::Navigate(direction),
     })
@@ -173,6 +180,27 @@ mod tests {
         assert_ne!(
             right(COMMAND | ModifiersState::SHIFT | ModifiersState::ALT),
             Some(Shortcut::ExtendSelection(Direction::Right))
+        );
+    }
+
+    /// Zooming matches Ctrl+Cmd exactly, so that adding Shift moves the selection instead
+    /// (ADR 0033).
+    #[test]
+    fn shift_turns_a_zoom_into_a_move() {
+        let up = |modifiers| {
+            Shortcut::from_input(&input(
+                Key::Named(NamedKey::ArrowUp),
+                ElementState::Pressed,
+                true,
+                modifiers,
+            ))
+        };
+        let zoom = COMMAND | ModifiersState::CONTROL;
+
+        assert_eq!(up(zoom), Some(Shortcut::ZoomIn));
+        assert_eq!(
+            up(zoom | ModifiersState::SHIFT),
+            Some(Shortcut::MoveSelection(Direction::Up))
         );
     }
 }

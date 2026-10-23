@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 use log::warn;
 
-use massive_applications::{MoveDirection, SlotShift};
+use massive_applications::{Direction, SlotShift};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::grouping;
@@ -20,7 +20,8 @@ use super::{
 use crate::focus_path::PathResolver;
 use crate::policy::when::{self, SlotSuccessor, UngroupingProject};
 use crate::projects::{
-    LaunchProfileId, ProjectId, RuntimeConfiguration, SlotAssignment, SlotContent, SlotPosition,
+    LaunchProfileId, MatrixRect, ProjectId, RuntimeConfiguration, SlotAssignment, SlotContent,
+    SlotPosition, move_landings,
 };
 
 impl DesktopSystem {
@@ -75,6 +76,13 @@ impl ConfigurationPlanning<'_> {
             }
             ConfigurationCommand::SwapSlots { parent, a, b } => {
                 changes <<= ConfigurationChange::SwapSlots { parent, a, b };
+            }
+            ConfigurationCommand::MoveSlots {
+                parent,
+                block,
+                direction,
+            } => {
+                changes += self.plan_move_slots(parent, block, direction);
             }
             ConfigurationCommand::PushSlot {
                 parent,
@@ -157,13 +165,36 @@ impl ConfigurationPlanning<'_> {
         changes
     }
 
+    /// A move that would take the block out of the matrix, or that relocates no assigned slot, plans
+    /// nothing. The moved contents keep their topology nodes, because they stay in the same matrix.
+    fn plan_move_slots(
+        &self,
+        parent: ProjectId,
+        block: MatrixRect,
+        direction: Direction,
+    ) -> Changes {
+        let slots = self
+            .configuration
+            .project(parent)
+            .expect("the project of a moved block is configured")
+            .slot_contents()
+            .map(|(slot, _)| slot);
+        let mut changes = Changes::Empty;
+        if let Some(landings) = move_landings(block, direction, slots)
+            && !landings.is_empty()
+        {
+            changes <<= ConfigurationChange::RelocateSlots { parent, landings };
+        }
+        changes
+    }
+
     /// A push that would move content out of the matrix, left of its first column or above its
     /// first row, plans nothing.
     fn plan_push_slot(
         &self,
         parent: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Changes {
         match self.slot_shift_sequence(parent, slot, direction) {
             Ok(changes) => changes,
@@ -232,7 +263,7 @@ impl ConfigurationPlanning<'_> {
         if assigned.is_some() {
             match shift {
                 SlotShift::Shift => {
-                    changes += self.slot_shift_sequence(parent, slot, MoveDirection::Right)?;
+                    changes += self.slot_shift_sequence(parent, slot, Direction::Right)?;
                 }
                 SlotShift::Keep => {
                     changes += self.plan_clear_slot(parent, slot, SlotShift::Keep)?;
@@ -245,7 +276,7 @@ impl ConfigurationPlanning<'_> {
             slot,
             assignment: content.clone(),
         };
-        let under = DesktopTarget::Project(parent, ProjectPart::Matrix);
+        let under = DesktopTarget::matrix(parent);
         match content.content() {
             SlotContent::Project(project) => changes += plan_add_project_topology(project, under),
             SlotContent::Launcher(launcher) => {
@@ -368,7 +399,7 @@ impl ConfigurationPlanning<'_> {
         &self,
         project: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Result<Changes> {
         let mut changes = Changes::Empty;
         for (source, dest) in self.configuration.shifted_slots(project, slot, direction)? {
@@ -391,8 +422,8 @@ pub fn plan_add_project_topology(project: ProjectId, under: DesktopTarget) -> Ch
     };
     changes <<= TopologyChange::AddNested {
         what: [
-            DesktopTarget::Project(project, ProjectPart::Header),
-            DesktopTarget::Project(project, ProjectPart::Matrix),
+            DesktopTarget::header(project),
+            DesktopTarget::matrix(project),
         ]
         .into(),
         under: project.into(),

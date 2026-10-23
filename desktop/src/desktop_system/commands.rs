@@ -1,11 +1,13 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, MoveDirection, SlotShift};
+use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotContent, SlotPosition};
+use crate::projects::{
+    LaunchProfileId, MatrixRect, ProjectId, SlotAssignment, SlotContent, SlotPosition,
+};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -46,9 +48,9 @@ pub enum DesktopCommand {
 }
 
 /// A configuration operation a key applies to the selection, before the desktop system knows which
-/// slots the selection covers (ADR 0024). Grouping and ungrouping act on the whole selection.
-/// Adding and removing act on its keyboard-focused slot only. Each operation stands for one
-/// [`ConfigurationCommand`].
+/// slots the selection covers (ADR 0024). Grouping, ungrouping, and moving act on the whole
+/// selection. Adding and removing act on its keyboard-focused slot only. Each operation stands for
+/// one [`ConfigurationCommand`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionOperation {
     /// Adds a default launcher right of the focused slot (Cmd+N).
@@ -62,6 +64,9 @@ pub enum SelectionOperation {
     /// Ungroups the focused nested project, or the project whose slots are all selected
     /// (Cmd+Shift+G, ADR 0026, ADR 0029).
     Ungroup,
+    /// Moves the selected slots one slot in the direction, and the selection with them
+    /// (Ctrl+Shift+Cmd+arrow, ADR 0033).
+    Move(Direction),
 }
 
 /// Every operation a user can perform on the configuration (ADR 0024). A command names its slots
@@ -103,11 +108,19 @@ pub enum ConfigurationCommand {
         a: SlotPosition,
         b: SlotPosition,
     },
+    /// Moves the `block`, a rectangle of `parent`'s matrix, one slot in `direction`. The contents in
+    /// front of the block take the place it leaves, and at the matrix's edges nothing moves, so a
+    /// move never grows the matrix (ADR 0033).
+    MoveSlots {
+        parent: ProjectId,
+        block: MatrixRect,
+        direction: Direction,
+    },
     /// Pushes a slot's content one slot in `direction`, together with the contents in its way.
     PushSlot {
         parent: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     },
     /// Assigns `content` right of the slot that `anchor` sits in, shifting the row, and focuses it,
     /// so that new content appears where the user works.

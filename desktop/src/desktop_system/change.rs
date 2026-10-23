@@ -149,7 +149,38 @@ pub enum ConfigurationChange {
         a: SlotPosition,
         b: SlotPosition,
     },
+    /// Moves the contents of slots in `parent`'s matrix, each from the first slot of a pair in
+    /// `landings` to the second, all at once (ADR 0033). A moved block needs its own change for the
+    /// same reason as a swap: its content and the strip that jumps behind it need each other's
+    /// slots. Only moving the selection plans it, which is why it keeps the selection (see
+    /// [`ConfigurationChange::keeps_selection`]).
+    RelocateSlots {
+        parent: ProjectId,
+        landings: Vec<(SlotPosition, SlotPosition)>,
+    },
     SetStartupPath(Option<String>),
+}
+
+impl ConfigurationChange {
+    /// Whether the selection survives this change (ADR 0025, ADR 0033). The selection is stored as
+    /// offsets around the focused slot. A change that adds, removes, or moves slots could make
+    /// those offsets cover other slots, or reach past the matrix's edge when the focused slot
+    /// itself moves, so the transaction collapses the selection after it.
+    pub fn keeps_selection(&self) -> bool {
+        match self {
+            Self::AssignSlot { .. }
+            | Self::ClearSlot { .. }
+            | Self::MoveSlot { .. }
+            | Self::Group { .. }
+            | Self::Ungroup { .. }
+            | Self::SwapSlots { .. } => false,
+            // The focused slot moves with the selection's block, so the same offsets cover the
+            // moved block.
+            Self::RelocateSlots { .. } => true,
+            // No matrix changes.
+            Self::SetStartupPath(_) => true,
+        }
+    }
 }
 
 /// Constructs the change(s) for a focus transition.

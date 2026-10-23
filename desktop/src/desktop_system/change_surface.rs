@@ -13,8 +13,7 @@ pub struct ChangeSurface {
     /// the coordinates of its new parent, so that it slides from where it was instead of jumping.
     pub reparented: TargetSet,
     pub window_size_changed: bool,
-    /// A configuration change was applied to the aggregate; the transaction emits persistence.
-    pub configuration_changed: bool,
+    pub configuration_impact: ConfigurationImpact,
     /// The slot selection was set. A selection set by the transaction survives its focus, zoom,
     /// and configuration changes (ADR 0025).
     pub selection_set: bool,
@@ -44,8 +43,20 @@ impl ChangeSurface {
         self.size_invalid += other.size_invalid;
         self.reparented += other.reparented;
         self.window_size_changed |= other.window_size_changed;
-        self.configuration_changed |= other.configuration_changed;
+        self.configuration_impact = self.configuration_impact.max(other.configuration_impact);
         self.selection_set |= other.selection_set;
         self.window_fullscreen_changed |= other.window_fullscreen_changed;
     }
+}
+
+/// What the configuration changes of a transaction did. Any change makes the transaction persist
+/// the configuration. A change that adds, removes, or moves slots also collapses the selection
+/// (see `ConfigurationChange::keeps_selection`). The states are ordered by what follows from
+/// them, so combining two change surfaces keeps the larger impact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum ConfigurationImpact {
+    #[default]
+    Unchanged,
+    Changed,
+    ChangedUnderSelection,
 }

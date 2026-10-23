@@ -451,3 +451,63 @@ async fn cmd_a_selects_all_slots_around_a_launcher_but_not_from_an_instance() ->
     })
     .await
 }
+
+fn move_selection(
+    system: &mut DesktopSystem,
+    instance_manager: &mut InstanceManager,
+    direction: Direction,
+) -> Result<()> {
+    run(
+        system,
+        instance_manager,
+        DesktopCommand::ConfigureSelection(SelectionOperation::Move(direction)),
+    )
+}
+
+/// The content at `column` of the root project's first row.
+fn root_content(system: &DesktopSystem, column: u32) -> Option<SlotContent> {
+    system
+        .aggregates
+        .configuration
+        .content_at(ProjectId::ROOT, SlotPosition { column, row: 0 })
+}
+
+/// Moving a selection moves its slots as one block, and the launcher in front of it jumps to the
+/// column the block leaves. The focus and the selection move with the block. At the matrix's last
+/// column, the block stops, because a move never grows the matrix (ADR 0033).
+#[tokio::test]
+async fn a_moved_selection_takes_the_focus_and_the_selection_along() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let (mut system, mut instance_manager) = boot(
+            r#"{
+                "startup": "/a",
+                "slots": [
+                    { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
+                    { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } },
+                    { "at": [2, 0], "launcher": { "name": "c", "mode": "visor" } }
+                ]
+            }"#,
+        )?;
+        let [a, b, c] = [0, 1, 2].map(|column| root_content(&system, column).unwrap());
+        focus(&mut system, &mut instance_manager, a.focusable_target())?;
+        extend(&mut system, &mut instance_manager, Direction::Right)?;
+        let selection = system.selection;
+
+        move_selection(&mut system, &mut instance_manager, Direction::Right)?;
+        assert_eq!(
+            [0, 1, 2].map(|column| root_content(&system, column)),
+            [Some(c), Some(a), Some(b)]
+        );
+        assert_eq!(system.keyboard_focus.focused(), Some(a.focusable_target()));
+        assert_eq!(system.selection, selection);
+
+        move_selection(&mut system, &mut instance_manager, Direction::Right)?;
+        assert_eq!(
+            [0, 1, 2, 3].map(|column| root_content(&system, column)),
+            [Some(c), Some(a), Some(b), None]
+        );
+
+        Ok(())
+    })
+    .await
+}

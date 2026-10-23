@@ -135,7 +135,7 @@ impl OrderedHierarchy<DesktopTarget> {
         &self,
         project: ProjectId,
     ) -> impl Iterator<Item = SlotContent> + Clone + '_ {
-        self.get_nested(&DesktopTarget::Project(project, ProjectPart::Matrix))
+        self.get_nested(&DesktopTarget::matrix(project))
             .iter()
             .map(|target| match target {
                 DesktopTarget::Launcher(launcher_id) => SlotContent::Launcher(*launcher_id),
@@ -152,9 +152,7 @@ impl OrderedHierarchy<DesktopTarget> {
     /// nested projects are skipped, so the layout's zip with child measurements
     /// uses [`Self::matrix_slots`].
     pub fn matrix_launchers(&self, project: ProjectId) -> impl Iterator<Item = LaunchProfileId> {
-        let targets = self
-            .get_nested(&DesktopTarget::Project(project, ProjectPart::Matrix))
-            .to_vec();
+        let targets = self.get_nested(&DesktopTarget::matrix(project)).to_vec();
         targets.into_iter().filter_map(|target| match target {
             DesktopTarget::Launcher(launcher_id) => Some(launcher_id),
             _ => None,
@@ -172,17 +170,14 @@ mod tests {
             .add_nested(
                 project.into(),
                 [
-                    DesktopTarget::Project(project, ProjectPart::Header),
-                    DesktopTarget::Project(project, ProjectPart::Matrix),
+                    DesktopTarget::header(project),
+                    DesktopTarget::matrix(project),
                 ],
             )
             .unwrap();
         for slot in slots {
             topology
-                .add(
-                    DesktopTarget::Project(project, ProjectPart::Matrix),
-                    slot.clone(),
-                )
+                .add(DesktopTarget::matrix(project), slot.clone())
                 .unwrap();
         }
         topology
@@ -232,15 +227,12 @@ mod tests {
         topology
             .add_nested(
                 nested.into(),
-                [
-                    DesktopTarget::Project(nested, ProjectPart::Header),
-                    DesktopTarget::Project(nested, ProjectPart::Matrix),
-                ],
+                [DesktopTarget::header(nested), DesktopTarget::matrix(nested)],
             )
             .unwrap();
         topology
             .add(
-                DesktopTarget::Project(nested, ProjectPart::Matrix),
+                DesktopTarget::matrix(nested),
                 DesktopTarget::Launcher(launcher),
             )
             .unwrap();

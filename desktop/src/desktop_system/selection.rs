@@ -3,8 +3,6 @@
 //! corners, so it always contains the focused slot and follows the keyboard focus. Operations on
 //! the selection act on the assigned slots inside the rectangle.
 
-use std::iter;
-
 use euclid::{Vector2D, vec2};
 
 use super::change::{Changes, DesktopChange, set_focus};
@@ -74,8 +72,11 @@ impl Selection {
         let Some((content, project, slot)) = focused_slot(focused, hierarchy, configuration) else {
             return Changes::Empty;
         };
-        let Some(extended) = self.extended(slot, direction, matrix_bounds(project, configuration))
-        else {
+        let bounds = configuration
+            .project(project)
+            .expect("a selection's project is configured")
+            .matrix_bounds();
+        let Some(extended) = self.extended(slot, direction, bounds) else {
             return Changes::Empty;
         };
         plan_selection(extended, focused, content)
@@ -239,18 +240,6 @@ pub fn focused_slot(
         .slot_of_content(content)
         .expect("slot content sits in a slot");
     Some((content, project, slot))
-}
-
-/// The rectangle of `project`'s matrix, from its top-left slot to the rightmost column and the
-/// lowest row that hold an assigned slot. Its bottom-right slot may be unassigned, because that
-/// column and that row may belong to different slots.
-fn matrix_bounds(project: ProjectId, configuration: &RuntimeConfiguration) -> MatrixRect {
-    let slots = configuration
-        .project(project)
-        .expect("a selection's project is configured")
-        .slot_contents()
-        .map(|(position, _)| position.into());
-    matrix_bounding_box(iter::once(MatrixPoint::origin()).chain(slots))
 }
 
 #[cfg(test)]

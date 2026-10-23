@@ -33,24 +33,6 @@ enum VerticalDirection {
     Down,
 }
 
-impl Direction {
-    fn horizontal(self) -> Option<HorizontalDirection> {
-        match self {
-            Direction::Left => Some(HorizontalDirection::Left),
-            Direction::Right => Some(HorizontalDirection::Right),
-            Direction::Up | Direction::Down => None,
-        }
-    }
-
-    fn vertical(self) -> Option<VerticalDirection> {
-        match self {
-            Direction::Up => Some(VerticalDirection::Up),
-            Direction::Down => Some(VerticalDirection::Down),
-            Direction::Left | Direction::Right => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NavigationControl {
     column_affinity: Option<u32>,
@@ -67,11 +49,11 @@ impl NavigationControl {
         direction: Direction,
         origin: Option<SlotPosition>,
     ) -> Option<u32> {
-        if direction.horizontal().is_some() {
+        if horizontal(direction).is_some() {
             return None;
         }
 
-        if direction.vertical().is_some() && self.column_affinity.is_none() {
+        if vertical(direction).is_some() && self.column_affinity.is_none() {
             return origin.map(|origin| origin.column);
         }
 
@@ -182,7 +164,7 @@ fn plan_navigation_candidate(
     // An escape into an ancestor matrix re-latches the vertical affinity from the column of the
     // slot hosting the origin there; the nested matrix's column means nothing in it.
     let column_affinity = match step.escaped_from {
-        Some(position) if direction.vertical().is_some() => Some(position.column),
+        Some(position) if vertical(direction).is_some() => Some(position.column),
         _ => column_affinity,
     };
     let target = match step.target {
@@ -362,6 +344,22 @@ fn select_concrete_instance_index(
     match direction {
         Direction::Left => Some(instance_count - 1),
         Direction::Right | Direction::Up | Direction::Down => Some(0),
+    }
+}
+
+fn horizontal(direction: Direction) -> Option<HorizontalDirection> {
+    match direction {
+        Direction::Left => Some(HorizontalDirection::Left),
+        Direction::Right => Some(HorizontalDirection::Right),
+        Direction::Up | Direction::Down => None,
+    }
+}
+
+fn vertical(direction: Direction) -> Option<VerticalDirection> {
+    match direction {
+        Direction::Up => Some(VerticalDirection::Up),
+        Direction::Down => Some(VerticalDirection::Down),
+        Direction::Left | Direction::Right => None,
     }
 }
 

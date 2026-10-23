@@ -77,12 +77,12 @@ pub use layout_algorithm::{
     expand_cross_axis_child_sizes, expand_main_axis_child_size, measure_container,
     place_container_children,
 };
-pub use massive_applications::SlotShift;
+pub use massive_applications::{Direction, SlotShift};
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
-use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
+use crate::desktop_system::change_surface::{ChangeSurface, ConfigurationImpact, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
@@ -93,13 +93,6 @@ use crate::projects::{
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    Left,
-    Right,
-    Up,
-    Down,
-}
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
@@ -398,7 +391,9 @@ impl DesktopSystem {
         }
 
         // A setup transaction replays configuration already on disk and never persists it (ADR 0013).
-        if change_surface.configuration_changed && effects_mode != TransactionEffectsMode::Setup {
+        if change_surface.configuration_impact != ConfigurationImpact::Unchanged
+            && effects_mode != TransactionEffectsMode::Setup
+        {
             system_effects.push(DesktopSystemEffect::PersistConfiguration);
         }
 
@@ -435,10 +430,12 @@ impl DesktopSystem {
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
         let zoom_level_changed = self.zoom_level_state() != previous_zoom_level_state;
-        // A focus, zoom, or configuration change collapses the selection, unless the transaction set
-        // it, because then the operation that set it planned these changes (ADR 0025). The zoom
-        // level state includes the keyboard focus.
-        if (zoom_level_changed || change_surface.configuration_changed)
+        // A focus or zoom change, and a configuration change the selection does not survive,
+        // collapse the selection, unless the transaction set it, because then the operation that
+        // set it planned these changes (ADR 0025, ADR 0033). The zoom level state includes the
+        // keyboard focus.
+        if (zoom_level_changed
+            || change_surface.configuration_impact == ConfigurationImpact::ChangedUnderSelection)
             && !change_surface.selection_set
         {
             self.selection.collapse();
