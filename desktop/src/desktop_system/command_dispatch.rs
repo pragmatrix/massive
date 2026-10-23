@@ -460,11 +460,9 @@ impl DesktopSystem {
                 if self.zoom_level != level {
                     self.zoom_level = level;
 
-                    let mut output = ChangeOutput::default();
-                    if let Some(focused) = self.focused_target() {
-                        output.measure(focused);
-                    }
-                    return Ok(output);
+                    return Ok(ChangeOutput::measures(TargetSet::from_iter(
+                        self.focused_target(),
+                    )));
                 }
             }
             DesktopChange::ToggleFullScreenMode(target) => {
@@ -500,28 +498,24 @@ impl DesktopSystem {
                 // the next focus or rotation re-measures.
                 // The live mode toggle is a configuration change the caller
                 // persists (ADR 0013; 0014).
-                let mut output = ChangeOutput::default();
+                let mut output = ChangeOutput::measures(TargetSet::from_iter(changed_targets));
                 output.surface.configuration_impact = ConfigurationImpact::Changed;
-                for changed_target in changed_targets {
-                    output.measure(changed_target);
-                }
                 return Ok(output);
             }
             DesktopChange::WindowResized(window_state) => {
                 self.window_state = window_state;
-                let mut output = ChangeOutput::default();
-                output.surface.window_size_changed = true;
                 // In Full Screen Mode the view and the title bar are measured at window resolution
                 // (ADR 0014, ADR 0019). The measure pass keeps the cached sizes of measured
                 // children, so the view and the title bar are measured explicitly. Instances in the
                 // regular mode measure at the panel size, so their measurements stay unchanged.
-                let instances: Vec<InstanceId> =
-                    self.aggregates.instances.keys().copied().collect();
-                for instance in instances {
-                    for target in self.instance_view_targets(instance) {
-                        output.measure(target);
-                    }
-                }
+                let views: TargetSet = self
+                    .aggregates
+                    .instances
+                    .keys()
+                    .flat_map(|&instance| self.instance_view_targets(instance))
+                    .collect();
+                let mut output = ChangeOutput::measures(views);
+                output.surface.window_size_changed = true;
                 return Ok(output);
             }
             DesktopChange::ToggleWindowFullScreen => {
@@ -670,10 +664,10 @@ impl DesktopSystem {
                 if !self.aggregates.configuration.move_slot(source, dest) {
                     return Ok(ChangeOutput::default());
                 }
-                let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::Project(source_parent, ProjectPart::Matrix));
-                output.measure(DesktopTarget::Project(dest_parent, ProjectPart::Matrix));
-                return Ok(output);
+                return Ok(ChangeOutput::measures(TargetSet::from_iter([
+                    DesktopTarget::Project(source_parent, ProjectPart::Matrix),
+                    DesktopTarget::Project(dest_parent, ProjectPart::Matrix),
+                ])));
             }
             ConfigurationChange::Group {
                 parent,
@@ -689,15 +683,17 @@ impl DesktopSystem {
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
                 self.aggregates.projects.remove(&project)?;
-                let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
-                return Ok(output);
+                return Ok(ChangeOutput::measures(DesktopTarget::Project(
+                    parent,
+                    ProjectPart::Matrix,
+                )));
             }
             ConfigurationChange::SwapSlots { parent, a, b } => {
                 self.aggregates.configuration.swap_slots(parent, a, b);
-                let mut output = ChangeOutput::default();
-                output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
-                return Ok(output);
+                return Ok(ChangeOutput::measures(DesktopTarget::Project(
+                    parent,
+                    ProjectPart::Matrix,
+                )));
             }
             ConfigurationChange::RelocateSlots { parent, landings } => {
                 self.aggregates
