@@ -90,6 +90,7 @@ use crate::instance_presenter::{
 };
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
+    SharedColumnCounts,
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
@@ -266,6 +267,9 @@ struct Aggregates {
     projects: ProjectMap,
     launchers: LauncherMap,
     configuration: RuntimeConfiguration,
+    /// Derived from `configuration` and refreshed in the effects of every transaction that
+    /// changed it (ADR 0035).
+    shared_column_counts: SharedColumnCounts,
     instances: InstanceMap,
 
     /// The sizes of the instance title bar (ADR 0019).
@@ -283,6 +287,7 @@ impl Aggregates {
             projects: Map::default(),
 
             launchers: Map::default(),
+            shared_column_counts: SharedColumnCounts::new(&configuration),
             configuration,
             instances: Map::default(),
             instance_title_bar_metrics,
@@ -645,9 +650,13 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
 }
 
 fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
+    let refreshes = surface
+        .column_counts_invalid
+        .into_iter()
+        .map(DesktopEffect::RefreshColumnCount);
     let measures = surface.size_invalid.into_iter().map(DesktopEffect::Measure);
     let reparents = surface.reparented.into_iter().map(DesktopEffect::Reparent);
-    measures.chain(reparents).collect()
+    refreshes.chain(measures).chain(reparents).collect()
 }
 
 #[cfg(test)]

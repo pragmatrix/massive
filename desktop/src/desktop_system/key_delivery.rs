@@ -8,7 +8,6 @@ use anyhow::Result;
 use massive_applications::{InstanceId, ViewEvent, ViewId};
 
 use super::change::{Changes, DesktopChange};
-use super::selection::focused_slot;
 use super::{
     Commands, DesktopFocusPath, DesktopSystem, DesktopTarget, FocusableTarget, InputFocus, KeyInput,
 };
@@ -56,12 +55,9 @@ impl DesktopSystem {
         let delivery = {
             let focused = self.keyboard_focus.focused();
             let focused_slot_project = focused.and_then(|focused| {
-                focused_slot(
-                    focused,
-                    &self.aggregates.hierarchy,
-                    &self.aggregates.configuration,
-                )
-                .map(|(_, project, _)| project)
+                self.selection_context()
+                    .focused_slot(focused)
+                    .map(|(_, project, _)| project)
             });
             let context = KeyContext {
                 is_focused: false,

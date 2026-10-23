@@ -524,6 +524,7 @@ mod tests {
     use crate::OrderedHierarchy;
     use crate::desktop_system::InstancePart;
     use crate::instance_presenter::InstanceTitleBarMetrics;
+    use crate::projects::SharedColumnCounts;
     use crate::projects::persistence::parse_configuration;
 
     /// A launcher spans an instance's extent, title bar included, and only an empty one stretches
@@ -556,9 +557,11 @@ mod tests {
                 DesktopTarget::Instance(Uuid::new_v4().into(), InstancePart::Instance),
             )
             .unwrap();
+        let shared_column_counts = SharedColumnCounts::new(&configuration);
         let context = LayoutContext {
             hierarchy: &hierarchy,
             configuration: &configuration,
+            shared_column_counts: &shared_column_counts,
             default_panel_size: SizePx::new(800, 600),
             window_size: SizePx::new(800, 600),
             focused_instance: None,

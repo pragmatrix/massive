@@ -511,3 +511,57 @@ async fn a_moved_selection_takes_the_focus_and_the_selection_along() -> Result<(
     })
     .await
 }
+
+/// A project lays out the columns of its widest sibling, so a selected block moves into those
+/// columns although nothing is assigned there, but not beyond them. The selection extends into
+/// them too, and the outline covers them (ADR 0035).
+#[tokio::test]
+async fn a_selection_reaches_the_columns_a_wider_sibling_shares() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let (mut system, mut instance_manager) = boot(
+            r#"{
+                "startup": "/narrow/n",
+                "slots": [
+                    { "at": [0, 0], "project": { "name": "wide", "slots": [
+                        { "at": [0, 0], "launcher": { "name": "w0", "mode": "visor" } },
+                        { "at": [1, 0], "launcher": { "name": "w1", "mode": "visor" } },
+                        { "at": [2, 0], "launcher": { "name": "w2", "mode": "visor" } }
+                    ] } },
+                    { "at": [1, 0], "project": { "name": "narrow", "slots": [
+                        { "at": [0, 0], "launcher": { "name": "n", "mode": "visor" } }
+                    ] } }
+                ]
+            }"#,
+        )?;
+        let Some(SlotContent::Project(narrow)) = root_content(&system, 1) else {
+            panic!("the narrow project sits in the root's second column");
+        };
+        let narrow_content = |system: &DesktopSystem, column| {
+            system
+                .aggregates
+                .configuration
+                .content_at(narrow, SlotPosition { column, row: 0 })
+        };
+        let n = narrow_content(&system, 0).expect("the narrow project holds a launcher");
+        focus(&mut system, &mut instance_manager, n.focusable_target())?;
+
+        for _ in 0..3 {
+            move_selection(&mut system, &mut instance_manager, Direction::Right)?;
+        }
+        assert_eq!(
+            [0, 1, 2].map(|column| narrow_content(&system, column)),
+            [None, None, Some(n)]
+        );
+
+        extend(&mut system, &mut instance_manager, Direction::Left)?;
+        let SlotContent::Launcher(launcher) = n else {
+            panic!("n is a launcher");
+        };
+        let slot = system.placement(&DesktopTarget::Launcher(launcher));
+        let outline = system.hover_placement().expect("the selection is outlined");
+        assert!(outline.rect.size[0] > slot.rect.size[0]);
+
+        Ok(())
+    })
+    .await
+}

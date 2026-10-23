@@ -4,9 +4,13 @@ use std::{ops, vec};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 use super::DesktopTarget;
+use crate::projects::ProjectId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopEffect {
+    /// Refreshes the shared column counts after configuration changes edited the project's slots,
+    /// or drops the counts of a project they removed (ADR 0035).
+    RefreshColumnCount(ProjectId),
     Measure(DesktopTarget),
     Place(DesktopTarget),
     /// Converts the on-screen position of a target that moved to a new parent into that parent's
@@ -19,7 +23,9 @@ pub enum DesktopEffect {
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter,
 )]
 enum DesktopEffectPhase {
+    /// Every count is final before a matrix measures, because layout reads it.
     #[default]
+    ColumnCounts,
     Layout,
     PropagatePlacements,
 }
@@ -27,6 +33,7 @@ enum DesktopEffectPhase {
 impl DesktopEffect {
     const fn phase(&self) -> DesktopEffectPhase {
         match self {
+            Self::RefreshColumnCount(_) => DesktopEffectPhase::ColumnCounts,
             Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
             // Both run after all placement is done. A `Reparent` needs the new parent's placement,
             // and that parent may have been created in the same transaction.

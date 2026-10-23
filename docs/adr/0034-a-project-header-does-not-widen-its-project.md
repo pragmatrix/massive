@@ -5,6 +5,9 @@
 Builds on [ADR 0023](./0023-matrix-slots-share-one-slot-extent-and-center-their-content.md), whose
 slot extent, shared project scale and stretching stay in force.
 
+Amended by [ADR 0035](./0035-sibling-projects-share-a-column-count.md): a project is never wider than
+its columns, so the horizontal alignment policy is removed.
+
 ## Problem
 
 A project's header shows its name in a large font. The header measured the full width of that

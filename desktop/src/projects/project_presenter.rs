@@ -129,8 +129,10 @@ impl TargetLayout for ProjectPresenter {
                     project::HEADER_SPACING,
                     children.iter().map(|child| child.size),
                 );
-                // A project fills its slot (ADR 0023).
-                MeasuredLayout::new(size, [true, true])
+                // A project fills its slot vertically (ADR 0023). Its width already holds the
+                // columns it shares with its sibling projects, so it never stretches across
+                // (ADR 0035).
+                MeasuredLayout::new(size, [false, true])
             }
             // The header stretches across the project's width and elides a name that does not
             // fit. It measures no width, so a project's name never changes its size or, through the
@@ -142,11 +144,9 @@ impl TargetLayout for ProjectPresenter {
                 );
                 MeasuredLayout::new(SizePx::new(0, height).into(), [true, false])
             }
-            // The matrix stretches across the project's width, so the policy can align its columns
-            // in it (ADR 0034).
-            ProjectPart::Matrix => {
-                MeasuredLayout::new(measure_matrix(self.id, context, children), [true, false])
-            }
+            // The matrix is exactly as wide as its columns, and the project as wide as its matrix,
+            // so it never stretches across (ADR 0035). The project gives it the height it gains.
+            ProjectPart::Matrix => measure_matrix(self.id, context, children).into(),
         }
     }
 

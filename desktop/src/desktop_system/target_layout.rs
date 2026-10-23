@@ -7,7 +7,7 @@ use massive_layout::{ChildPlacement, MeasuredLayout};
 use super::DesktopTarget;
 use crate::OrderedHierarchy;
 use crate::instance_presenter::InstanceTitleBarMetrics;
-use crate::projects::RuntimeConfiguration;
+use crate::projects::{RuntimeConfiguration, SharedColumnCounts};
 
 /// How a presenter's parts are measured, placed and applied (ADR 0022).
 pub trait TargetLayout {
@@ -48,6 +48,8 @@ pub trait TargetLayout {
 pub struct LayoutContext<'a> {
     pub hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     pub configuration: &'a RuntimeConfiguration,
+    /// How many columns each project's matrix lays out (ADR 0035).
+    pub shared_column_counts: &'a SharedColumnCounts,
     pub default_panel_size: SizePx,
     pub window_size: SizePx,
     /// A visor expands while one of its instances holds the keyboard focus.

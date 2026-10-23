@@ -44,6 +44,10 @@ _Avoid_: matrix placement, placement, coordinates, index
 The stretch a column or a row of a project's matrix covers along its axis. Every column interval is one slot extent wide, and a row interval is as tall as the tallest slot in it. Intervals are separated by a fixed spacing.
 _Avoid_: track, lane, band
 
+**Shared column count**:
+The number of columns a project's matrix lays out: the largest number of columns any project in its parent's matrix holds, so sibling projects line up on the same columns. A selection extends and a block moves within them (ADR 0035).
+_Avoid_: column span (reserved for slots), target span, slot span
+
 **Selection**:
 A rectangle of slots in one project's matrix that contains the keyboard-focused slot. It is two offsets of columns and rows from that slot's position, one towards its top-left slot and one towards its bottom-right slot, and the zero offsets select only the focused slot. The rectangle includes unassigned slots, and the operations that act on a selection act on the assigned slots inside it. Esc or Cmd+Esc, any focus or zoom change, and any configuration change that adds, removes, or moves slots other than by moving the selection, collapses it to the zero offsets.
 _Avoid_: anchor, far corner, multi-selection
