@@ -72,6 +72,9 @@ impl KeyHandler for DesktopPresenter {
             Some(Shortcut::ExtendSelection(direction)) => {
                 DesktopCommand::ExtendSelection(direction)
             }
+            Some(Shortcut::MoveSelection(direction)) => {
+                DesktopCommand::ConfigureSelection(SelectionOperation::Move(direction))
+            }
             Some(shortcut @ (Shortcut::Escape | Shortcut::CommandEscape)) => {
                 match when::pressing_escape(shortcut == Shortcut::CommandEscape, context.focus) {
                     PressingEscape::CollapseSelection => DesktopCommand::CollapseSelection,

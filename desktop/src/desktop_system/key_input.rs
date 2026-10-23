@@ -81,10 +81,6 @@ impl KeyInput {
         self.modifiers.shift_key()
     }
 
-    pub fn is_ctrl(&self) -> bool {
-        self.modifiers.control_key()
-    }
-
     /// The event as an application receives it.
     pub fn view_event(&self) -> &ViewEvent {
         &self.view_event

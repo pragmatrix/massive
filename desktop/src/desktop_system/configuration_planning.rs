@@ -20,7 +20,8 @@ use super::{
 use crate::focus_path::PathResolver;
 use crate::policy::when::{self, SlotSuccessor, UngroupingProject};
 use crate::projects::{
-    LaunchProfileId, ProjectId, RuntimeConfiguration, SlotAssignment, SlotContent, SlotPosition,
+    LaunchProfileId, MatrixRect, ProjectId, RuntimeConfiguration, SlotAssignment, SlotContent,
+    SlotPosition, move_landings,
 };
 
 impl DesktopSystem {
@@ -75,6 +76,13 @@ impl ConfigurationPlanning<'_> {
             }
             ConfigurationCommand::SwapSlots { parent, a, b } => {
                 changes <<= ConfigurationChange::SwapSlots { parent, a, b };
+            }
+            ConfigurationCommand::MoveSlots {
+                parent,
+                block,
+                direction,
+            } => {
+                changes += self.plan_move_slots(parent, block, direction);
             }
             ConfigurationCommand::PushSlot {
                 parent,
@@ -154,6 +162,30 @@ impl ConfigurationPlanning<'_> {
         );
         let mut changes = Reparenting::plan(source, dest, configuration);
         changes <<= ConfigurationChange::MoveSlot { source, dest };
+        changes
+    }
+
+    /// A move that would take the block out of the matrix, left of its first column or above its
+    /// first row, plans nothing, and so does a move with no assigned slot to relocate. The moved
+    /// contents keep their topology nodes, because they stay in the same matrix.
+    fn plan_move_slots(
+        &self,
+        parent: ProjectId,
+        block: MatrixRect,
+        direction: MoveDirection,
+    ) -> Changes {
+        let slots = self
+            .configuration
+            .project(parent)
+            .expect("the project of a moved block is configured")
+            .slot_contents()
+            .map(|(slot, _)| slot);
+        let mut changes = Changes::Empty;
+        if let Some(landings) = move_landings(block, direction, slots)
+            && !landings.is_empty()
+        {
+            changes <<= ConfigurationChange::RelocateSlots { parent, landings };
+        }
         changes
     }
 

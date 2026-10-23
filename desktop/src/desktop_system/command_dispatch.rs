@@ -15,7 +15,7 @@ use super::{
     FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, SelectionOperation, ZoomLevel,
     view_size,
 };
-use crate::desktop_system::change_surface::TargetSet;
+use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::policy::when::{self, RemovingSlotContent, TogglingFullScreen, Ungrouping};
@@ -270,6 +270,23 @@ impl DesktopSystem {
                 })
             }
             SelectionOperation::Ungroup => self.ungroup_command_for_selection(),
+            SelectionOperation::Move(direction) => {
+                let Some((parent, block)) = self.keyboard_focus.focused().and_then(|focused| {
+                    self.selection.selected_rect(
+                        focused,
+                        &self.aggregates.hierarchy,
+                        &self.aggregates.configuration,
+                    )
+                }) else {
+                    warn!("The focus sits in no slot to move");
+                    return None;
+                };
+                Some(ConfigurationCommand::MoveSlots {
+                    parent,
+                    block,
+                    direction: direction.into(),
+                })
+            }
         }
     }
 
@@ -484,7 +501,7 @@ impl DesktopSystem {
                 // The live mode toggle is a configuration change the caller
                 // persists (ADR 0013; 0014).
                 let mut output = ChangeOutput::default();
-                output.surface.configuration_changed = true;
+                output.surface.configuration_impact = ConfigurationImpact::Changed;
                 for changed_target in changed_targets {
                     output.measure(changed_target);
                 }
@@ -557,8 +574,13 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
+                let configuration_impact = if project_change.keeps_selection() {
+                    ConfigurationImpact::Changed
+                } else {
+                    ConfigurationImpact::ChangedUnderSelection
+                };
                 let mut output = self.apply_project_change(project_change)?;
-                output.surface.configuration_changed = true;
+                output.surface.configuration_impact = configuration_impact;
                 return Ok(output);
             }
         }
@@ -676,6 +698,15 @@ impl DesktopSystem {
                 let mut output = ChangeOutput::default();
                 output.measure(DesktopTarget::Project(parent, ProjectPart::Matrix));
                 return Ok(output);
+            }
+            ConfigurationChange::RelocateSlots { parent, landings } => {
+                self.aggregates
+                    .configuration
+                    .relocate_slots(parent, &landings);
+                return Ok(ChangeOutput::measures(DesktopTarget::Project(
+                    parent,
+                    ProjectPart::Matrix,
+                )));
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain the resolved launcher. The path is what persists, so
