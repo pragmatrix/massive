@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, MoveDirection, SlotShift};
+use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
@@ -114,13 +114,13 @@ pub enum ConfigurationCommand {
     MoveSlots {
         parent: ProjectId,
         block: MatrixRect,
-        direction: MoveDirection,
+        direction: Direction,
     },
     /// Pushes a slot's content one slot in `direction`, together with the contents in its way.
     PushSlot {
         parent: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     },
     /// Assigns `content` right of the slot that `anchor` sits in, shifting the row, and focuses it,
     /// so that new content appears where the user works.

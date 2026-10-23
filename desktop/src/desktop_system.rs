@@ -47,7 +47,7 @@ use derive_more::Debug;
 use log::warn;
 
 use massive_applications::prelude::*;
-use massive_applications::{InstanceId, MoveDirection, ViewId};
+use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
@@ -77,7 +77,7 @@ pub use layout_algorithm::{
     expand_cross_axis_child_sizes, expand_main_axis_child_size, measure_container,
     place_container_children,
 };
-pub use massive_applications::SlotShift;
+pub use massive_applications::{Direction, SlotShift};
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
@@ -93,27 +93,6 @@ use crate::projects::{
 };
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-/// Configuration commands move slot content in the applications' direction type, which the CLI
-/// shares, so a move key's direction converts into it.
-impl From<Direction> for MoveDirection {
-    fn from(direction: Direction) -> Self {
-        match direction {
-            Direction::Left => Self::Left,
-            Direction::Right => Self::Right,
-            Direction::Up => Self::Up,
-            Direction::Down => Self::Down,
-        }
-    }
-}
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 

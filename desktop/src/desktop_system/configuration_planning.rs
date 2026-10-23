@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 use log::warn;
 
-use massive_applications::{MoveDirection, SlotShift};
+use massive_applications::{Direction, SlotShift};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::grouping;
@@ -171,7 +171,7 @@ impl ConfigurationPlanning<'_> {
         &self,
         parent: ProjectId,
         block: MatrixRect,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Changes {
         let slots = self
             .configuration
@@ -194,7 +194,7 @@ impl ConfigurationPlanning<'_> {
         &self,
         parent: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Changes {
         match self.slot_shift_sequence(parent, slot, direction) {
             Ok(changes) => changes,
@@ -263,7 +263,7 @@ impl ConfigurationPlanning<'_> {
         if assigned.is_some() {
             match shift {
                 SlotShift::Shift => {
-                    changes += self.slot_shift_sequence(parent, slot, MoveDirection::Right)?;
+                    changes += self.slot_shift_sequence(parent, slot, Direction::Right)?;
                 }
                 SlotShift::Keep => {
                     changes += self.plan_clear_slot(parent, slot, SlotShift::Keep)?;
@@ -399,7 +399,7 @@ impl ConfigurationPlanning<'_> {
         &self,
         project: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Result<Changes> {
         let mut changes = Changes::Empty;
         for (source, dest) in self.configuration.shifted_slots(project, slot, direction)? {

@@ -507,7 +507,7 @@ async fn a_move_request_onto_an_assigned_neighbor_swaps() -> Result<()> {
             &mut instance_manager,
             instance_a,
             massive_applications::ConfigurationRequest::MoveLauncher {
-                direction: massive_applications::MoveDirection::Right,
+                direction: Direction::Right,
             },
         )?;
 

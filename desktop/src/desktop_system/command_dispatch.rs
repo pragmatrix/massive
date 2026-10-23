@@ -283,7 +283,7 @@ impl DesktopSystem {
                 Some(ConfigurationCommand::MoveSlots {
                     parent,
                     block,
-                    direction: direction.into(),
+                    direction,
                 })
             }
         }

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use massive_applications::MoveDirection;
+use massive_applications::Direction;
 use massive_util::CollectingVec;
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
@@ -821,7 +821,7 @@ impl RuntimeConfiguration {
         &self,
         project: ProjectId,
         slot: SlotPosition,
-        direction: MoveDirection,
+        direction: Direction,
     ) -> Result<Vec<(SlotPosition, SlotPosition)>> {
         let mut run = vec![slot];
         loop {
@@ -1415,15 +1415,15 @@ pub fn group_landings(
 /// as it is before the move (see [`matrix_bounds`]), so a move never grows the matrix.
 pub fn move_landings(
     block: MatrixRect,
-    direction: MoveDirection,
+    direction: Direction,
     slots: impl IntoIterator<Item = SlotPosition>,
 ) -> Option<Vec<(SlotPosition, SlotPosition)>> {
     let slots: Vec<SlotPosition> = slots.into_iter().collect();
     let step: Vector2D<i32, MatrixUnit> = match direction {
-        MoveDirection::Left => vec2(-1, 0),
-        MoveDirection::Right => vec2(1, 0),
-        MoveDirection::Up => vec2(0, -1),
-        MoveDirection::Down => vec2(0, 1),
+        Direction::Left => vec2(-1, 0),
+        Direction::Right => vec2(1, 0),
+        Direction::Up => vec2(0, -1),
+        Direction::Down => vec2(0, 1),
     };
     let moved = MatrixRect::new(offset(block.min, step)?, offset(block.max, step)?);
     if !matrix_bounds(slots.iter().copied()).contains_box(&moved) {
@@ -1494,21 +1494,21 @@ impl SlotPosition {
     }
 
     /// The neighboring slot one `direction` step away, `None` past the matrix edge.
-    pub fn neighbor(self, direction: MoveDirection) -> Option<SlotPosition> {
+    pub fn neighbor(self, direction: Direction) -> Option<SlotPosition> {
         match direction {
-            MoveDirection::Left => self.column.checked_sub(1).map(|column| SlotPosition {
+            Direction::Left => self.column.checked_sub(1).map(|column| SlotPosition {
                 column,
                 row: self.row,
             }),
-            MoveDirection::Right => self.column.checked_add(1).map(|column| SlotPosition {
+            Direction::Right => self.column.checked_add(1).map(|column| SlotPosition {
                 column,
                 row: self.row,
             }),
-            MoveDirection::Up => self.row.checked_sub(1).map(|row| SlotPosition {
+            Direction::Up => self.row.checked_sub(1).map(|row| SlotPosition {
                 row,
                 column: self.column,
             }),
-            MoveDirection::Down => self.row.checked_add(1).map(|row| SlotPosition {
+            Direction::Down => self.row.checked_add(1).map(|row| SlotPosition {
                 row,
                 column: self.column,
             }),
@@ -1560,7 +1560,7 @@ mod tests {
         let slots = [at(0, 0), at(1, 0), at(2, 1), at(3, 0), at(4, 0), at(3, 2)];
 
         assert_eq!(
-            move_landings(block, MoveDirection::Right, slots),
+            move_landings(block, Direction::Right, slots),
             Some(vec![
                 (at(1, 0), at(2, 0)),
                 (at(2, 1), at(3, 1)),
@@ -1568,7 +1568,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            move_landings(block, MoveDirection::Left, slots),
+            move_landings(block, Direction::Left, slots),
             Some(vec![
                 (at(0, 0), at(2, 0)),
                 (at(1, 0), at(0, 0)),
@@ -1578,15 +1578,9 @@ mod tests {
 
         // The block never leaves the matrix, which ends at column 4 and row 2.
         let at_left_edge = MatrixRect::new(MatrixPoint::new(0, 0), MatrixPoint::new(1, 1));
-        assert_eq!(
-            move_landings(at_left_edge, MoveDirection::Left, slots),
-            None
-        );
+        assert_eq!(move_landings(at_left_edge, Direction::Left, slots), None);
         let at_right_edge = MatrixRect::new(MatrixPoint::new(4, 0), MatrixPoint::new(5, 1));
-        assert_eq!(
-            move_landings(at_right_edge, MoveDirection::Right, slots),
-            None
-        );
+        assert_eq!(move_landings(at_right_edge, Direction::Right, slots), None);
     }
 
     /// Ungrouping pushes the slots in its way only as far as needed. Here `y` has to move two
@@ -1657,7 +1651,7 @@ mod tests {
             .shifted_slots(
                 root_id_of(&configuration),
                 SlotPosition { column: 1, row: 0 },
-                MoveDirection::Right,
+                Direction::Right,
             )
             .unwrap();
 
@@ -1691,7 +1685,7 @@ mod tests {
             .shifted_slots(
                 root_id_of(&configuration),
                 SlotPosition { column: 1, row: 0 },
-                MoveDirection::Right,
+                Direction::Right,
             )
             .unwrap();
 
@@ -1713,7 +1707,7 @@ mod tests {
                 .shifted_slots(
                     root_id_of(&configuration),
                     SlotPosition { column: 0, row: 0 },
-                    MoveDirection::Left
+                    Direction::Left
                 )
                 .is_err()
         );
@@ -1722,7 +1716,7 @@ mod tests {
                 .shifted_slots(
                     root_id_of(&configuration),
                     SlotPosition { column: 0, row: 0 },
-                    MoveDirection::Up
+                    Direction::Up
                 )
                 .is_err()
         );
