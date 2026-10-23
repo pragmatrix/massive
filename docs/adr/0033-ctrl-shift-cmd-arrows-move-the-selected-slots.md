@@ -7,6 +7,9 @@ Builds on [ADR 0025](./0025-slots-can-be-selected-beside-the-keyboard-focus.md) 
 [ADR 0024](./0024-configuration-operations-are-one-command-vocabulary.md), whose command vocabulary
 it extends.
 
+Amended by [ADR 0035](./0035-sibling-projects-share-a-column-count.md): the block moves within the
+columns its project shares with its sibling projects, not only within its assigned slots.
+
 ## Problem
 
 Rearranging a project's matrix from the keyboard is not possible. The configuration commands
