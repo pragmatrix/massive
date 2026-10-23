@@ -10,9 +10,7 @@ use euclid::vec2;
 use massive_geometry::{Quaternion, Rect, RectPx, SizePx, Transform};
 use massive_layout::{MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size};
 
-use crate::desktop_system::{
-    DesktopLayoutState, DesktopTarget, LayoutContext, ProjectPart, fullscreen_scale,
-};
+use crate::desktop_system::{DesktopLayoutState, DesktopTarget, LayoutContext, fullscreen_scale};
 use crate::instance_presenter::instance_extent;
 use crate::policy::constants::matrix;
 use crate::projects::{MatrixRect, ProjectId, SlotContent, SlotPosition};
@@ -82,7 +80,7 @@ pub fn matrix_area_placement(
     layout_state: &DesktopLayoutState,
     context: &LayoutContext,
 ) -> Option<Placement<Transform, 2>> {
-    let matrix = DesktopTarget::Project(project, ProjectPart::Matrix);
+    let matrix = DesktopTarget::matrix(project);
     let children: Vec<MeasuredLayout<2>> = context
         .hierarchy
         .get_nested(&matrix)

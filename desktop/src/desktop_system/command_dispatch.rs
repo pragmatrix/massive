@@ -12,8 +12,7 @@ use super::change::{
 use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
-    FocusableTarget, InstancePart, KeyboardFocusReason, ProjectPart, SelectionOperation, ZoomLevel,
-    view_size,
+    FocusableTarget, KeyboardFocusReason, SelectionOperation, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -164,7 +163,7 @@ impl DesktopSystem {
                     }),
                     // ADR 0019: The title bar exists with the instance, ahead of its view.
                     DesktopChange::Topology(TopologyChange::Add {
-                        what: DesktopTarget::Instance(instance, InstancePart::TitleBar),
+                        what: DesktopTarget::title_bar(instance),
                         under: instance.into(),
                         after: None,
                     }),
@@ -665,8 +664,8 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 }
                 return Ok(ChangeOutput::measures(TargetSet::from_iter([
-                    DesktopTarget::Project(source_parent, ProjectPart::Matrix),
-                    DesktopTarget::Project(dest_parent, ProjectPart::Matrix),
+                    DesktopTarget::matrix(source_parent),
+                    DesktopTarget::matrix(dest_parent),
                 ])));
             }
             ConfigurationChange::Group {
@@ -683,26 +682,17 @@ impl DesktopSystem {
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
                 self.aggregates.projects.remove(&project)?;
-                return Ok(ChangeOutput::measures(DesktopTarget::Project(
-                    parent,
-                    ProjectPart::Matrix,
-                )));
+                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
             }
             ConfigurationChange::SwapSlots { parent, a, b } => {
                 self.aggregates.configuration.swap_slots(parent, a, b);
-                return Ok(ChangeOutput::measures(DesktopTarget::Project(
-                    parent,
-                    ProjectPart::Matrix,
-                )));
+                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
             }
             ConfigurationChange::RelocateSlots { parent, landings } => {
                 self.aggregates
                     .configuration
                     .relocate_slots(parent, &landings);
-                return Ok(ChangeOutput::measures(DesktopTarget::Project(
-                    parent,
-                    ProjectPart::Matrix,
-                )));
+                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain the resolved launcher. The path is what persists, so
@@ -1080,10 +1070,7 @@ impl DesktopSystem {
     /// *measurement* (panel vs window size) and its placement both depend on
     /// Full Screen Mode, so a toggle must invalidate both.
     fn instance_view_targets(&self, instance: InstanceId) -> Vec<DesktopTarget> {
-        let mut targets = vec![
-            instance.into(),
-            DesktopTarget::Instance(instance, InstancePart::TitleBar),
-        ];
+        let mut targets = vec![instance.into(), DesktopTarget::title_bar(instance)];
         if let Some(view) = self
             .aggregates
             .instances

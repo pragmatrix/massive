@@ -154,7 +154,7 @@ async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
                 .aggregates
                 .hierarchy
                 .parent(&DesktopTarget::Launcher(launcher_a)),
-            Some(&DesktopTarget::Project(project_b, ProjectPart::Matrix))
+            Some(&DesktopTarget::matrix(project_b))
         );
         assert_eq!(
             system.aggregates.hierarchy.launcher_of_instance(instance_a),
@@ -206,7 +206,7 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
         let hierarchy = &system.aggregates.hierarchy;
         assert_eq!(
             hierarchy.parent(&DesktopTarget::Project(project_b, ProjectPart::Project)),
-            Some(&DesktopTarget::Project(project_a, ProjectPart::Matrix))
+            Some(&DesktopTarget::matrix(project_a))
         );
         assert_eq!(hierarchy.parent_project_of(project_b), Some(project_a));
         assert_eq!(
@@ -268,7 +268,7 @@ async fn group_wraps_the_focused_slot_in_a_new_project_in_its_slot() -> Result<(
                 .aggregates
                 .hierarchy
                 .parent(&DesktopTarget::Launcher(launcher_a)),
-            Some(&DesktopTarget::Project(group, ProjectPart::Matrix))
+            Some(&DesktopTarget::matrix(group))
         );
         assert_eq!(
             system.keyboard_focus.focused(),

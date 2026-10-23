@@ -276,7 +276,7 @@ impl ConfigurationPlanning<'_> {
             slot,
             assignment: content.clone(),
         };
-        let under = DesktopTarget::Project(parent, ProjectPart::Matrix);
+        let under = DesktopTarget::matrix(parent);
         match content.content() {
             SlotContent::Project(project) => changes += plan_add_project_topology(project, under),
             SlotContent::Launcher(launcher) => {
@@ -422,8 +422,8 @@ pub fn plan_add_project_topology(project: ProjectId, under: DesktopTarget) -> Ch
     };
     changes <<= TopologyChange::AddNested {
         what: [
-            DesktopTarget::Project(project, ProjectPart::Header),
-            DesktopTarget::Project(project, ProjectPart::Matrix),
+            DesktopTarget::header(project),
+            DesktopTarget::matrix(project),
         ]
         .into(),
         under: project.into(),

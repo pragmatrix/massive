@@ -69,7 +69,6 @@ impl OrderedHierarchy<DesktopTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop_system::ProjectPart;
     use crate::projects::{LaunchProfileId, ProjectId};
     use uuid::Uuid;
 
@@ -96,14 +95,14 @@ mod tests {
             .add_nested(
                 project.into(),
                 [
-                    DesktopTarget::Project(project, ProjectPart::Header),
-                    DesktopTarget::Project(project, ProjectPart::Matrix),
+                    DesktopTarget::header(project),
+                    DesktopTarget::matrix(project),
                 ],
             )
             .unwrap();
         hierarchy
             .add(
-                DesktopTarget::Project(project, ProjectPart::Matrix),
+                DesktopTarget::matrix(project),
                 DesktopTarget::Launcher(launcher),
             )
             .unwrap();

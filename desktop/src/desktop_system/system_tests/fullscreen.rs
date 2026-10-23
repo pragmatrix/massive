@@ -285,7 +285,7 @@ async fn native_window_resize_remeasures_a_fullscreen_instance_at_window_resolut
             "the view must be measured at the resized window's width"
         );
         assert_eq!(
-            measured_width(DesktopTarget::Instance(instance, InstancePart::TitleBar)),
+            measured_width(DesktopTarget::title_bar(instance)),
             window_size.width,
             "the title bar must be measured at the resized window's width"
         );

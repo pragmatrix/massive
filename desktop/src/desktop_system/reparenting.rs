@@ -54,7 +54,7 @@ impl Reparenting {
             .expect("a movable slot has content");
         DesktopChange::Topology(TopologyChange::Reparent {
             what: content.target(),
-            under: DesktopTarget::Project(dest_parent, ProjectPart::Matrix),
+            under: DesktopTarget::matrix(dest_parent),
         })
         .into()
     }

@@ -86,7 +86,7 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
             .expect("the focused instance is inside a project");
 
         system.transact(
-            pointer_press_focus(Some(DesktopTarget::Project(project, ProjectPart::Matrix))),
+            pointer_press_focus(Some(DesktopTarget::matrix(project))),
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;

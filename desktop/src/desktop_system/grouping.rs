@@ -38,8 +38,7 @@ pub fn plan(
         project,
         name,
     };
-    changes +=
-        plan_add_project_topology(project, DesktopTarget::Project(parent, ProjectPart::Matrix));
+    changes += plan_add_project_topology(project, DesktopTarget::matrix(parent));
     for (outer, inner) in landings {
         changes += Reparenting::plan((parent, outer), (project, inner), configuration);
     }

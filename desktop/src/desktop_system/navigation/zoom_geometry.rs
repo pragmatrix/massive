@@ -11,7 +11,7 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::layout_state::DesktopLayoutState;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::desktop_system::{DesktopTarget, FocusableTarget, InstancePart, ZoomLevel};
+use crate::desktop_system::{DesktopTarget, FocusableTarget, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::policy::constants::camera;
 use crate::projects::{
@@ -143,7 +143,7 @@ impl<'a> ZoomGeometry<'a> {
         // view-less fullscreen instance already frames fullscreen and the camera does not zoom out
         // and back in when the view arrives.
         let content_scale = self
-            .placement(&DesktopTarget::Instance(instance, InstancePart::TitleBar))
+            .placement(&DesktopTarget::title_bar(instance))
             .transform
             .scale;
         Self::camera_from_placement(Transform::new(
