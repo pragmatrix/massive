@@ -1,6 +1,7 @@
 use massive_util::CollectingSet;
 
 use crate::DesktopTarget;
+use crate::projects::ProjectId;
 
 pub type TargetSet = CollectingSet<DesktopTarget>;
 
@@ -8,6 +9,10 @@ pub type TargetSet = CollectingSet<DesktopTarget>;
 pub struct ChangeSurface {
     /// A remeasure is required.
     pub size_invalid: TargetSet,
+    /// The projects whose slots configuration changes edited, and the projects they removed, so
+    /// their shared column counts are refreshed once the transaction's changes have all run
+    /// (ADR 0035). It keeps removed projects, because their refresh drops their counts.
+    pub column_counts_invalid: CollectingSet<ProjectId>,
     /// The targets that this transaction moved under a different parent. Each of them gets a
     /// `Reparent` effect after layout. That effect converts the target's on-screen position into
     /// the coordinates of its new parent, so that it slides from where it was instead of jumping.
@@ -41,6 +46,7 @@ impl ChangeSurface {
 
     pub fn combine(&mut self, other: Self) {
         self.size_invalid += other.size_invalid;
+        self.column_counts_invalid += other.column_counts_invalid;
         self.reparented += other.reparented;
         self.window_size_changed |= other.window_size_changed;
         self.configuration_impact = self.configuration_impact.max(other.configuration_impact);

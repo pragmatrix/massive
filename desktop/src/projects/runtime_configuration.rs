@@ -1411,12 +1411,13 @@ pub fn group_landings(
 /// Where moving the `block`, a rectangle of a matrix, one slot in `direction` puts the assigned
 /// `slots` it affects (ADR 0033). Each slot inside the block moves one step. Each slot in the strip
 /// directly in front of the block jumps back across the block's extent, into the strip the block
-/// leaves. The other slots stay and are not listed. `None` when the block would leave the matrix
-/// as it is before the move (see [`matrix_bounds`]), so a move never grows the matrix.
+/// leaves. The other slots stay and are not listed. `None` when the block would leave `bounds`,
+/// the rectangle the matrix lays out before the move, so a move never grows the matrix (ADR 0035).
 pub fn move_landings(
     block: MatrixRect,
     direction: Direction,
     slots: impl IntoIterator<Item = SlotPosition>,
+    bounds: MatrixRect,
 ) -> Option<Vec<(SlotPosition, SlotPosition)>> {
     let slots: Vec<SlotPosition> = slots.into_iter().collect();
     let step: Vector2D<i32, MatrixUnit> = match direction {
@@ -1426,7 +1427,7 @@ pub fn move_landings(
         Direction::Down => vec2(0, 1),
     };
     let moved = MatrixRect::new(offset(block.min, step)?, offset(block.max, step)?);
-    if !matrix_bounds(slots.iter().copied()).contains_box(&moved) {
+    if !bounds.contains_box(&moved) {
         return None;
     }
     let hop = -step.component_mul(block.size().to_vector().to_i32());
@@ -1558,9 +1559,10 @@ mod tests {
         let at = |column, row| SlotPosition { column, row };
         let block = MatrixRect::new(MatrixPoint::new(1, 0), MatrixPoint::new(3, 2));
         let slots = [at(0, 0), at(1, 0), at(2, 1), at(3, 0), at(4, 0), at(3, 2)];
+        let bounds = matrix_bounds(slots);
 
         assert_eq!(
-            move_landings(block, Direction::Right, slots),
+            move_landings(block, Direction::Right, slots, bounds),
             Some(vec![
                 (at(1, 0), at(2, 0)),
                 (at(2, 1), at(3, 1)),
@@ -1568,7 +1570,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            move_landings(block, Direction::Left, slots),
+            move_landings(block, Direction::Left, slots, bounds),
             Some(vec![
                 (at(0, 0), at(2, 0)),
                 (at(1, 0), at(0, 0)),
@@ -1578,9 +1580,15 @@ mod tests {
 
         // The block never leaves the matrix, which ends at column 4 and row 2.
         let at_left_edge = MatrixRect::new(MatrixPoint::new(0, 0), MatrixPoint::new(1, 1));
-        assert_eq!(move_landings(at_left_edge, Direction::Left, slots), None);
+        assert_eq!(
+            move_landings(at_left_edge, Direction::Left, slots, bounds),
+            None
+        );
         let at_right_edge = MatrixRect::new(MatrixPoint::new(4, 0), MatrixPoint::new(5, 1));
-        assert_eq!(move_landings(at_right_edge, Direction::Right, slots), None);
+        assert_eq!(
+            move_landings(at_right_edge, Direction::Right, slots, bounds),
+            None
+        );
     }
 
     /// Ungrouping pushes the slots in its way only as far as needed. Here `y` has to move two

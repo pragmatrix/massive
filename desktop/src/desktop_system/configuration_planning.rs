@@ -20,8 +20,8 @@ use super::{
 use crate::focus_path::PathResolver;
 use crate::policy::when::{self, SlotSuccessor, UngroupingProject};
 use crate::projects::{
-    LaunchProfileId, MatrixRect, ProjectId, RuntimeConfiguration, SlotAssignment, SlotContent,
-    SlotPosition, move_landings,
+    LaunchProfileId, MatrixRect, ProjectId, RuntimeConfiguration, SharedColumnCounts,
+    SlotAssignment, SlotContent, SlotPosition, move_landings,
 };
 
 impl DesktopSystem {
@@ -29,6 +29,7 @@ impl DesktopSystem {
     pub fn configuration_planning(&self) -> ConfigurationPlanning<'_> {
         ConfigurationPlanning {
             configuration: &self.aggregates.configuration,
+            shared_column_counts: &self.aggregates.shared_column_counts,
             hierarchy: &self.aggregates.hierarchy,
             focus_targets: self.focus_targets(),
             focused: self.keyboard_focus.focused(),
@@ -36,12 +37,13 @@ impl DesktopSystem {
     }
 }
 
-/// Borrows the only state configuration planning reads: the configuration, the topology, the
-/// keyboard focus, and the focus slots and instance anchors the project and launcher presenters
-/// remember. The window, the layout, and the camera stay out of its reach.
+/// Borrows the only state configuration planning reads: the configuration with its shared column
+/// counts, the topology, the keyboard focus, and the focus slots and instance anchors the project
+/// and launcher presenters remember. The window, the layout, and the camera stay out of its reach.
 #[derive(Debug)]
 pub struct ConfigurationPlanning<'a> {
     configuration: &'a RuntimeConfiguration,
+    shared_column_counts: &'a SharedColumnCounts,
     hierarchy: &'a DesktopTopology,
     /// Picks the target that takes over the focus from removed content.
     focus_targets: FocusTargets<'a>,
@@ -165,22 +167,23 @@ impl ConfigurationPlanning<'_> {
         changes
     }
 
-    /// A move that would take the block out of the matrix, or that relocates no assigned slot, plans
-    /// nothing. The moved contents keep their topology nodes, because they stay in the same matrix.
+    /// A move that would take the block out of the columns and rows the matrix lays out, or that
+    /// relocates no assigned slot, plans nothing. The moved contents keep their topology nodes,
+    /// because they stay in the same matrix.
     fn plan_move_slots(
         &self,
         parent: ProjectId,
         block: MatrixRect,
         direction: Direction,
     ) -> Changes {
-        let slots = self
+        let project = self
             .configuration
             .project(parent)
-            .expect("the project of a moved block is configured")
-            .slot_contents()
-            .map(|(slot, _)| slot);
+            .expect("the project of a moved block is configured");
+        let slots = project.slot_contents().map(|(slot, _)| slot);
+        let bounds = self.shared_column_counts.shared_matrix_bounds(project);
         let mut changes = Changes::Empty;
-        if let Some(landings) = move_landings(block, direction, slots)
+        if let Some(landings) = move_landings(block, direction, slots, bounds)
             && !landings.is_empty()
         {
             changes <<= ConfigurationChange::RelocateSlots { parent, landings };

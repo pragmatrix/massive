@@ -1,13 +1,13 @@
 use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
-use massive_util::CollectingVec;
+use massive_util::{CollectingSet, CollectingVec};
 
 use super::selection::Selection;
 use super::{FocusableTarget, InputFocus, KeyboardFocusReason};
 use crate::DesktopTarget;
 use crate::desktop_system::ZoomLevel;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotPosition};
+use crate::projects::{LaunchProfileId, ProjectId, SlotAssignment, SlotContent, SlotPosition};
 use crate::targeted_event::EventTransitions;
 use crate::window_state::WindowState;
 
@@ -179,6 +179,43 @@ impl ConfigurationChange {
             Self::RelocateSlots { .. } => true,
             // No matrix changes.
             Self::SetStartupPath(_) => true,
+        }
+    }
+
+    /// The projects whose slots this change edits, so the shared column counts are refreshed
+    /// for them (ADR 0035). A project the change creates in a slot is not listed, because
+    /// refreshing the project hosting that slot takes it in. The projects a change removes are
+    /// named where it is applied, because only the removal knows the subtree it takes along.
+    pub fn touched_projects(&self) -> CollectingSet<ProjectId> {
+        match self {
+            // Without a parent, the assignment creates the root, which no slot hosts.
+            Self::AssignSlot {
+                parent: None,
+                assignment,
+                ..
+            } => match assignment.content() {
+                SlotContent::Project(root) => root.into(),
+                SlotContent::Launcher(_) => {
+                    unreachable!("a launcher is always assigned into a project's slot")
+                }
+            },
+            Self::AssignSlot {
+                parent: Some(parent),
+                ..
+            }
+            | Self::ClearSlot { parent, .. }
+            | Self::Ungroup { parent, .. }
+            | Self::SwapSlots { parent, .. }
+            | Self::RelocateSlots { parent, .. } => (*parent).into(),
+            Self::MoveSlot {
+                source: (source, _),
+                dest: (dest, _),
+            } => [*source, *dest].into_iter().collect(),
+            // The new project is touched too, because it takes slots from its parent.
+            Self::Group {
+                parent, project, ..
+            } => [*parent, *project].into_iter().collect(),
+            Self::SetStartupPath(_) => CollectingSet::default(),
         }
     }
 }

@@ -205,14 +205,12 @@ impl DesktopSystem {
             DesktopCommand::ExtendSelection(direction) => Ok(self.selection.plan_extend(
                 direction,
                 self.keyboard_focus.focused(),
-                &self.aggregates.hierarchy,
-                &self.aggregates.configuration,
+                &self.selection_context(),
             )),
             DesktopCommand::SelectAll(project) => Ok(Selection::plan_select_all(
                 project,
                 self.keyboard_focus.focused(),
-                &self.aggregates.hierarchy,
-                &self.aggregates.configuration,
+                &self.selection_context(),
             )),
             DesktopCommand::CollapseSelection => {
                 Ok(DesktopChange::SetSelection(Selection::default()).into())
@@ -253,11 +251,8 @@ impl DesktopSystem {
             SelectionOperation::Remove => self.removal_command_for_focus(),
             SelectionOperation::Group => {
                 let Some((parent, slots)) = self.keyboard_focus.focused().and_then(|focused| {
-                    self.selection.selected_slots(
-                        focused,
-                        &self.aggregates.hierarchy,
-                        &self.aggregates.configuration,
-                    )
+                    self.selection
+                        .selected_slots(focused, &self.selection_context())
                 }) else {
                     warn!("The focus sits in no slot to group");
                     return None;
@@ -271,11 +266,8 @@ impl DesktopSystem {
             SelectionOperation::Ungroup => self.ungroup_command_for_selection(),
             SelectionOperation::Move(direction) => {
                 let Some((parent, block)) = self.keyboard_focus.focused().and_then(|focused| {
-                    self.selection.selected_rect(
-                        focused,
-                        &self.aggregates.hierarchy,
-                        &self.aggregates.configuration,
-                    )
+                    self.selection
+                        .selected_rect(focused, &self.selection_context())
                 }) else {
                     warn!("The focus sits in no slot to move");
                     return None;
@@ -327,11 +319,8 @@ impl DesktopSystem {
         // Selecting all slots of the root does not count.
         let selected_project = focused
             .and_then(|focused| {
-                self.selection.fully_selected_project(
-                    focused,
-                    &self.aggregates.hierarchy,
-                    &self.aggregates.configuration,
-                )
+                self.selection
+                    .fully_selected_project(focused, &self.selection_context())
             })
             .filter(|&project| project != ProjectId::ROOT);
         let project = match when::ungrouping(
@@ -625,7 +614,16 @@ impl DesktopSystem {
         }
     }
 
+    /// Applies `change` to the configuration and marks the projects it touched, so that their shared
+    /// column counts are refreshed once the transaction's changes have all run (ADR 0035).
     fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
+        let touched = change.touched_projects();
+        let mut output = self.apply_configuration_change(change)?;
+        output.surface.column_counts_invalid += touched;
+        Ok(output)
+    }
+
+    fn apply_configuration_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
         match change {
             ConfigurationChange::AssignSlot {
                 parent,
@@ -645,7 +643,8 @@ impl DesktopSystem {
             }
             ConfigurationChange::ClearSlot { parent, slot } => {
                 // A cleared project takes its whole subtree along, so every presenter below it
-                // goes too.
+                // goes too. Its counts are dropped by the refresh, which finds it gone.
+                let mut output = ChangeOutput::default();
                 for content in self.aggregates.configuration.clear_slot(parent, slot) {
                     match content {
                         SlotContent::Launcher(launcher) => {
@@ -653,9 +652,11 @@ impl DesktopSystem {
                         }
                         SlotContent::Project(project) => {
                             self.aggregates.projects.remove(&project)?;
+                            output.surface.column_counts_invalid += project;
                         }
                     }
                 }
+                return Ok(output);
             }
             ConfigurationChange::MoveSlot { source, dest } => {
                 let (source_parent, _) = source;
@@ -682,7 +683,9 @@ impl DesktopSystem {
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
                 self.aggregates.projects.remove(&project)?;
-                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
+                let mut output = ChangeOutput::measures(DesktopTarget::matrix(parent));
+                output.surface.column_counts_invalid += project;
+                return Ok(output);
             }
             ConfigurationChange::SwapSlots { parent, a, b } => {
                 self.aggregates.configuration.swap_slots(parent, a, b);

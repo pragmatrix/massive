@@ -199,9 +199,9 @@ impl DesktopSystem {
         if !self.selection.is_extended() {
             return None;
         }
-        let (project, rect) =
-            self.selection
-                .selected_rect(focused, context.hierarchy, context.configuration)?;
+        let (project, rect) = self
+            .selection
+            .selected_rect(focused, &self.selection_context())?;
         matrix_area_placement(project, rect, &self.layout_state, context)
     }
 

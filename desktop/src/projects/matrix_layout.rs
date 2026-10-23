@@ -1,6 +1,7 @@
 //! The geometry of a project's matrix: slots on columns of one slot width and on rows as tall as
 //! their tallest slot, each slot's content scaled to fit one slot extent and centered in its slot
-//! (ADR 0023).
+//! (ADR 0023). A matrix lays out as many columns as its project shares with its sibling projects
+//! (ADR 0035).
 
 use std::array;
 use std::cmp::max;
@@ -19,21 +20,28 @@ use crate::projects::{MatrixRect, ProjectId, SlotContent, SlotPosition};
 /// share one measuring and centering rule.
 type Extents = [Vec<u32>; 2];
 
-/// The size the intervals span, spacing included. An empty matrix spans one slot extent, like an
+/// The size the intervals span, spacing included. An empty matrix is one slot extent tall, like an
 /// empty launcher, so an empty project stays as readable as one holding a launcher.
 pub fn measure_matrix(
     project: ProjectId,
     context: &LayoutContext,
     children: &[MeasuredLayout<2>],
 ) -> Size<2> {
-    if children.is_empty() {
-        return slot_extent(context).into();
-    }
-    // Shared presented extents keep measured matrix bounds consistent with placement.
-    let extents = matrix_extents(
-        &matrix_slots(project, context, children),
-        slot_extent(context).width,
-    );
+    let column_count = context.shared_column_counts.shared_column_count(project);
+    let slot_extent = slot_extent(context);
+    let extents = if children.is_empty() {
+        [
+            vec![slot_extent.width; column_count as usize],
+            vec![slot_extent.height],
+        ]
+    } else {
+        // Shared presented extents keep measured matrix bounds consistent with placement.
+        matrix_extents(
+            &matrix_slots(project, context, children),
+            column_count,
+            slot_extent.width,
+        )
+    };
     Size(array::from_fn(|axis| extents_span(&extents, axis)))
 }
 
@@ -49,7 +57,7 @@ pub fn place_matrix_children(
     placements: &mut [Placement<Transform, 2>],
 ) {
     let slots = matrix_slots(project, context, children);
-    let grid = MatrixGrid::new(&slots, context);
+    let grid = MatrixGrid::new(project, &slots, context);
     let origin = intervals_origin(size, measured_size);
 
     for ((slot, measurement), placement) in slots.iter().zip(children).zip(placements) {
@@ -112,7 +120,7 @@ fn matrix_area(
     children: &[MeasuredLayout<2>],
     rect: MatrixRect,
 ) -> Option<LayoutRect<2>> {
-    let grid = MatrixGrid::new(&matrix_slots(project, context, children), context);
+    let grid = MatrixGrid::new(project, &matrix_slots(project, context, children), context);
     let top_left = SlotPosition::from(rect.min).indices();
     let bottom_right = SlotPosition::from(rect.max - vec2(1, 1)).indices();
     let mut start = [0; 2];
@@ -154,10 +162,14 @@ struct MatrixGrid {
 }
 
 impl MatrixGrid {
-    /// The grid of the matrix that holds `slots`: each column's and row's extent, and where it
-    /// starts relative to the first one.
-    fn new(slots: &[MatrixSlot], context: &LayoutContext) -> Self {
-        let extents = matrix_extents(slots, slot_extent(context).width);
+    /// The grid of `project`'s matrix, which holds `slots`: each column's and row's extent, and
+    /// where it starts relative to the first one.
+    fn new(project: ProjectId, slots: &[MatrixSlot], context: &LayoutContext) -> Self {
+        let extents = matrix_extents(
+            slots,
+            context.shared_column_counts.shared_column_count(project),
+            slot_extent(context).width,
+        );
         let starts =
             array::from_fn(|axis| interval_starts(&extents[axis], matrix::INTERVAL_SPACING[axis]));
         Self { extents, starts }
@@ -293,17 +305,21 @@ fn expand_to_slot(
     size
 }
 
-/// The extents of a matrix's columns and rows: every column `column_width` regardless of its
-/// slots, so columns line up across rows, and each row the tallest slot in it.
-fn matrix_extents(slots: &[MatrixSlot], column_width: u32) -> Extents {
-    let mut column_count = 0;
+/// The extents of a matrix's columns and rows: `column_count` columns, each `column_width` wide
+/// regardless of its slots, so columns line up across rows and across sibling projects, and each
+/// row as tall as the tallest slot in it. The slots sit inside the columns, because a project
+/// shares at least its own columns (ADR 0035).
+fn matrix_extents(slots: &[MatrixSlot], column_count: u32, column_width: u32) -> Extents {
     let mut rows = Vec::new();
     for slot in slots {
         let [column, row] = slot.indices();
-        column_count = max(column_count, column + 1);
+        assert!(
+            column < column_count as usize,
+            "a slot sits inside its matrix's shared columns"
+        );
         widen_extent(&mut rows, row, slot.size[1]);
     }
-    [vec![column_width; column_count], rows]
+    [vec![column_width; column_count as usize], rows]
 }
 
 /// Grows the extents to reach `index`. A row no slot reaches keeps a zero extent, but its spacing.
@@ -346,8 +362,8 @@ mod tests {
         assert_eq!(presentation_scale(slot, SizePx::new(150, 100)), 1.0);
     }
 
-    /// Columns line up across rows, so no slot widens its column and a column without slots keeps
-    /// its width.
+    /// Columns line up across rows and sibling projects, so no slot widens its column and a column
+    /// without slots keeps its width, also past the last slot.
     #[test]
     fn every_column_spans_the_slot_width_regardless_of_its_slots() {
         let slot = |size: Size<2>, column, row| MatrixSlot {
@@ -358,8 +374,8 @@ mod tests {
         };
         let slots = [slot(Size([50, 40]), 0, 0), slot(Size([400, 70]), 2, 0)];
 
-        let [columns, rows] = matrix_extents(&slots, 300);
-        assert_eq!(columns, [300, 300, 300]);
+        let [columns, rows] = matrix_extents(&slots, 4, 300);
+        assert_eq!(columns, [300, 300, 300, 300]);
         assert_eq!(rows, [70]);
     }
 

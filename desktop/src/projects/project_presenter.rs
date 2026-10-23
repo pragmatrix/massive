@@ -129,8 +129,10 @@ impl TargetLayout for ProjectPresenter {
                     project::HEADER_SPACING,
                     children.iter().map(|child| child.size),
                 );
-                // A project fills its slot (ADR 0023).
-                MeasuredLayout::new(size, [true, true])
+                // A project fills its slot vertically (ADR 0023). Its width already holds the
+                // columns it shares with its sibling projects, so it never stretches across
+                // (ADR 0035).
+                MeasuredLayout::new(size, [false, true])
             }
             // The header stretches across the project's width and elides a name that does not
             // fit. It measures no width, so a project's name never changes its size or, through the

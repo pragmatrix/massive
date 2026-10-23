@@ -16,7 +16,7 @@ use super::{
 use crate::coordinate_mapper::CoordinateMapper;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::TITLE_SEPARATOR;
-use crate::projects::slot_extent;
+use crate::projects::{ProjectId, slot_extent};
 use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
@@ -43,6 +43,9 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         match effect {
+            DesktopEffect::RefreshColumnCount(project) => {
+                Ok(self.refresh_column_count_effect(project))
+            }
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::Reparent(target) => Ok(self.reparent_effect(target)),
@@ -50,6 +53,25 @@ impl DesktopSystem {
                 self.apply_layout_effect(target, animate, instance_manager)
             }
         }
+    }
+
+    /// Refreshes the shared column counts around `project`, whose slots changed, and measures the
+    /// matrices whose count changed. The topology already holds the transaction's changes, so it
+    /// names the project's current parent. A project the transaction removed loses its counts,
+    /// and the refresh of the project that hosted it updates its former siblings (ADR 0035).
+    fn refresh_column_count_effect(&mut self, project: ProjectId) -> Effects {
+        let aggregates = &mut self.aggregates;
+        if aggregates.configuration.project(project).is_none() {
+            aggregates.shared_column_counts.forget(project);
+            return Effects::None;
+        }
+        let parent = aggregates.hierarchy.parent_project_of(project);
+        aggregates
+            .shared_column_counts
+            .refresh(project, parent, &aggregates.configuration)
+            .into_iter()
+            .map(|project| DesktopEffect::Measure(DesktopTarget::matrix(project)))
+            .collect()
     }
 
     pub fn window_presentation_state(
@@ -378,6 +400,7 @@ impl Aggregates {
         LayoutContext {
             hierarchy: &self.hierarchy,
             configuration: &self.configuration,
+            shared_column_counts: &self.shared_column_counts,
             default_panel_size,
             window_size,
             focused_instance,

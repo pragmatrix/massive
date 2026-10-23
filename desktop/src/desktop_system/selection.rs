@@ -7,11 +7,22 @@ use euclid::{Vector2D, vec2};
 
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
-use super::{Direction, FocusableTarget, KeyboardFocusReason};
+use super::{DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason};
 use crate::projects::{
-    MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration, SlotContent,
-    SlotPosition, matrix_bounding_box,
+    MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration, SharedColumnCounts,
+    SlotContent, SlotPosition, matrix_bounding_box,
 };
+
+impl DesktopSystem {
+    /// The desktop state the selection reads.
+    pub fn selection_context(&self) -> SelectionContext<'_> {
+        SelectionContext {
+            hierarchy: &self.aggregates.hierarchy,
+            configuration: &self.aggregates.configuration,
+            shared_column_counts: &self.aggregates.shared_column_counts,
+        }
+    }
+}
 
 /// The current selection: its offsets from the focused slot's position. `top_left` counts the
 /// columns to the left and the rows above, `bottom_right` the columns to the right and the rows
@@ -58,24 +69,26 @@ impl Selection {
     /// the `focused` target.
     ///
     /// When an instance has the focus, its launcher takes the focus, and the selection starts
-    /// there. When the focus sits in no slot, or the step would leave the matrix, nothing changes.
+    /// there. When the focus sits in no slot, or the step would leave the columns and rows the
+    /// matrix lays out (ADR 0035), nothing changes.
     pub fn plan_extend(
         &self,
         direction: Direction,
         focused: Option<FocusableTarget>,
-        hierarchy: &DesktopTopology,
-        configuration: &RuntimeConfiguration,
+        context: &SelectionContext,
     ) -> Changes {
         let Some(focused) = focused else {
             return Changes::Empty;
         };
-        let Some((content, project, slot)) = focused_slot(focused, hierarchy, configuration) else {
+        let Some((content, project, slot)) = context.focused_slot(focused) else {
             return Changes::Empty;
         };
-        let bounds = configuration
-            .project(project)
-            .expect("a selection's project is configured")
-            .matrix_bounds();
+        let bounds = context.shared_column_counts.shared_matrix_bounds(
+            context
+                .configuration
+                .project(project)
+                .expect("a selection's project is configured"),
+        );
         let Some(extended) = self.extended(slot, direction, bounds) else {
             return Changes::Empty;
         };
@@ -88,17 +101,18 @@ impl Selection {
     pub fn plan_select_all(
         project: ProjectId,
         focused: Option<FocusableTarget>,
-        hierarchy: &DesktopTopology,
-        configuration: &RuntimeConfiguration,
+        context: &SelectionContext,
     ) -> Changes {
         let focused = focused.expect("selecting all starts from the keyboard focus");
-        let (content, focused_project, slot) = focused_slot(focused, hierarchy, configuration)
+        let (content, focused_project, slot) = context
+            .focused_slot(focused)
             .expect("selecting all starts from a focused slot");
         assert_eq!(
             focused_project, project,
             "selecting all acts on the project of the focused slot"
         );
-        let slots = configuration
+        let slots = context
+            .configuration
             .slots_ordered(project)
             .map(|(slot, _)| slot.into());
         let all = Self::from_rect(slot, matrix_bounding_box(slots));
@@ -109,11 +123,10 @@ impl Selection {
     pub fn fully_selected_project(
         &self,
         focused: FocusableTarget,
-        hierarchy: &DesktopTopology,
-        configuration: &RuntimeConfiguration,
+        context: &SelectionContext,
     ) -> Option<ProjectId> {
-        let (project, selected) = self.selected_slots(focused, hierarchy, configuration)?;
-        (selected.len() == configuration.slots_ordered(project).count()).then_some(project)
+        let (project, selected) = self.selected_slots(focused, context)?;
+        (selected.len() == context.configuration.slots_ordered(project).count()).then_some(project)
     }
 
     /// The slots the selection around the `focused` target covers: the project whose matrix
@@ -123,11 +136,11 @@ impl Selection {
     pub fn selected_slots(
         &self,
         focused: FocusableTarget,
-        hierarchy: &DesktopTopology,
-        configuration: &RuntimeConfiguration,
+        context: &SelectionContext,
     ) -> Option<(ProjectId, Vec<SlotPosition>)> {
-        let (project, rect) = self.selected_rect(focused, hierarchy, configuration)?;
-        let slots = configuration
+        let (project, rect) = self.selected_rect(focused, context)?;
+        let slots = context
+            .configuration
             .project(project)
             .expect("a selection's project is configured")
             .slot_contents()
@@ -143,10 +156,9 @@ impl Selection {
     pub fn selected_rect(
         &self,
         focused: FocusableTarget,
-        hierarchy: &DesktopTopology,
-        configuration: &RuntimeConfiguration,
+        context: &SelectionContext,
     ) -> Option<(ProjectId, MatrixRect)> {
-        let (_, project, slot) = focused_slot(focused, hierarchy, configuration)?;
+        let (_, project, slot) = context.focused_slot(focused)?;
         Some((project, self.matrix_rect_around(slot)))
     }
 
@@ -211,6 +223,32 @@ impl Selection {
     }
 }
 
+/// Borrows the only state the selection reads: the topology, the configuration, and the shared
+/// column counts that bound how far a selection extends (ADR 0035).
+#[derive(Debug, Clone, Copy)]
+pub struct SelectionContext<'a> {
+    pub hierarchy: &'a DesktopTopology,
+    pub configuration: &'a RuntimeConfiguration,
+    pub shared_column_counts: &'a SharedColumnCounts,
+}
+
+impl SelectionContext<'_> {
+    /// The slot the `focused` target belongs to: its content, the project whose matrix holds it,
+    /// and the slot itself. An instance belongs to its launcher's slot. `None` when the focus sits
+    /// in no slot, which is the case for the root project.
+    pub fn focused_slot(
+        &self,
+        focused: FocusableTarget,
+    ) -> Option<(SlotContent, ProjectId, SlotPosition)> {
+        let content = self.hierarchy.slot_content_of_target(&focused.into())?;
+        let (project, slot) = self
+            .configuration
+            .slot_of_content(content)
+            .expect("slot content sits in a slot");
+        Some((content, project, slot))
+    }
+}
+
 /// Plans setting `selection` around the slot of `content`, which the `focused` target belongs to.
 /// When an instance has the focus, its launcher takes it, so that the focus and the selection
 /// outline mark the same slot (ADR 0025). The selection comes last, so that it survives that
@@ -225,21 +263,6 @@ fn plan_selection(selection: Selection, focused: FocusableTarget, content: SlotC
     }
     changes <<= DesktopChange::SetSelection(selection);
     changes
-}
-
-/// The slot the `focused` target belongs to: its content, the project whose matrix holds it, and
-/// the slot itself. An instance belongs to its launcher's slot. `None` when the focus sits in
-/// no slot, which is the case for the root project.
-pub fn focused_slot(
-    focused: FocusableTarget,
-    hierarchy: &DesktopTopology,
-    configuration: &RuntimeConfiguration,
-) -> Option<(SlotContent, ProjectId, SlotPosition)> {
-    let content = hierarchy.slot_content_of_target(&focused.into())?;
-    let (project, slot) = configuration
-        .slot_of_content(content)
-        .expect("slot content sits in a slot");
-    Some((content, project, slot))
 }
 
 #[cfg(test)]
