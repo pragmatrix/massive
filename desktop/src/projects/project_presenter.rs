@@ -5,7 +5,7 @@ use anyhow::Result;
 use massive_animation::Movement;
 use massive_applications::prelude::*;
 use massive_geometry::{SizePx, SizedTransform, Transform};
-use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Size as LayoutSize};
+use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
@@ -132,15 +132,15 @@ impl TargetLayout for ProjectPresenter {
                 // A project fills its slot (ADR 0023).
                 MeasuredLayout::new(size, [true, true])
             }
-            // The header stretches across the project's width.
+            // The header stretches across the project's width and elides a name that does not
+            // fit. It measures no width, so a project's name never changes its size or, through the
+            // shared scale, its siblings' (ADR 0034).
             ProjectPart::Header => {
-                let measured = self.header.measured_size();
-                let size: LayoutSize<2> = SizePx::new(
-                    measured.width,
-                    max(measured.height, project::HEADER_MIN_HEIGHT),
-                )
-                .into();
-                MeasuredLayout::new(size, [true, false])
+                let height = max(
+                    self.header.measured_size().height,
+                    project::HEADER_MIN_HEIGHT,
+                );
+                MeasuredLayout::new(SizePx::new(0, height).into(), [true, false])
             }
             // The matrix stretches across the project's width to center its columns in it.
             ProjectPart::Matrix => {
