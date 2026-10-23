@@ -97,8 +97,13 @@ pub mod project {
 
 /// The matrix of slots in a project.
 pub mod matrix {
+    use crate::projects::Alignment;
+
     /// Column and row spacing, indexed by axis.
     pub const INTERVAL_SPACING: [u32; 2] = [10, 10];
+    /// Where the columns sit in a project stretched wider than them, so they line up under the
+    /// start of the header (ADR 0034).
+    pub const HORIZONTAL_ALIGNMENT: Alignment = Alignment::Leading;
 }
 
 /// A launcher and the instances it presents.
