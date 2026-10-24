@@ -1,3 +1,4 @@
+use std::mem;
 use std::ops::Range;
 use std::time::Instant;
 
@@ -51,6 +52,11 @@ pub struct Renderer {
 
     /// The changed visuals since the previous draw call.
     changed_visuals: ChangedIds,
+    /// Whether changes were applied since the last [`Self::prepare`]. Preparing waits for the
+    /// next [`Self::render_and_present`], because it creates GPU buffers whose uploads wgpu
+    /// holds in memory until the next queue submit. Preparing without rendering, for example
+    /// while the window is occluded, would accumulate these uploads without bound.
+    prepare_due: bool,
 
     visual_locations: LocationTransforms,
     batches: RenderBatches,
@@ -206,6 +212,7 @@ impl Renderer {
             transaction_manager: Default::default(),
             scene: Default::default(),
             changed_visuals: Default::default(),
+            prepare_due: false,
             visual_locations: Default::default(),
             batches: Default::default(),
         };
@@ -218,9 +225,11 @@ impl Renderer {
     ///
     /// This can be called multiple times with new changes without losing significant performance compared to combining all changes first. I.e. no expensive value computation is done here.
     ///
-    /// After all changes are pushed, call prepare().
+    /// This touches CPU state only and is safe to call without rendering. The next
+    /// [`Self::render_and_present`] prepares the changes for the GPU.
     #[tracing::instrument(skip_all)]
     pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) -> Result<()> {
+        self.prepare_due = true;
         let transaction = self.transaction_manager.new_transaction();
 
         for change in changes {
@@ -232,7 +241,7 @@ impl Renderer {
         Ok(())
     }
 
-    /// Prepare everything we can before the final render, without changing GPU state.
+    /// Prepare everything we can before the final render: produces GPU buffers, but submits nothing.
     ///
     /// Currently this
     /// - produces all pipeline batches.
@@ -248,7 +257,10 @@ impl Renderer {
     /// The prepare step should run before get_current_texture(), because it would block, and wait
     /// for the next VSync. If we run prepare steps before, we can utilize CPU time more.
     /// **Update:** Yes, but this would delay output for 16ms, so prepare now runs after that.
-    pub fn prepare(&mut self) -> Result<()> {
+    ///
+    /// Only [`Self::render_and_present`] calls this, so that a queue submit always follows (see
+    /// [`Self::prepare_due`]).
+    fn prepare(&mut self) -> Result<()> {
         self.prepare_batches()?;
 
         self.prepare_index_buffer();
@@ -386,7 +398,11 @@ impl Renderer {
         &mut self,
         view_projections: &ViewProjections,
         surface_texture: SurfaceTexture,
-    ) {
+    ) -> Result<()> {
+        if mem::take(&mut self.prepare_due) {
+            self.prepare()?;
+        }
+
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -491,6 +507,7 @@ impl Renderer {
         }
 
         surface_texture.present();
+        Ok(())
     }
 
     /// Pick up one specific pipeline batch from every visual and render it.
