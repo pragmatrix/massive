@@ -89,9 +89,11 @@ impl WindowRenderer {
                 // any message; the match below decides the work and whether to block on events.
                 // Matched on the two flags:
                 // - occluded: rendering is impossible (acquire fails with Occluded), but pending
-                //   scene changes are applied so the submission buffer drains continuously and
-                //   the next present shows fresh content. Cheap: only runs when the application
-                //   produced changes; otherwise park. Any new submission message wakes us.
+                //   scene changes are applied so the submission buffer drains continuously.
+                //   Applying touches CPU state only. The GPU preparation of the changes waits for
+                //   the next rendered frame (see `Renderer::apply_changes`). Cheap: only runs when
+                //   the application produced changes; otherwise park. Any new submission message
+                //   wakes us.
                 // - vblank-driven (Smooth pacing or fullscreen): render a frame. It must not
                 //   additionally block on events when the pacing just flipped to Smooth (the
                 //   `ApplyAnimations` handshake is only sent by the next frame, which sees the
@@ -204,7 +206,7 @@ impl WindowRenderer {
         // noticeably (for example in the logs example while smooth rendering).
         self.apply_scene_changes(submission.changes)?;
 
-        self.render_and_present(&submission.view_projections, texture);
+        self.render_and_present(&submission.view_projections, texture)?;
 
         // Update pacing now
 
@@ -278,7 +280,6 @@ impl WindowRenderer {
             let changes = changes.release();
             id_generator::gc(&changes);
             self.renderer.apply_changes(changes)?;
-            self.renderer.prepare()?;
             #[cfg(feature = "metrics")]
             {
                 self.oldest_change = time_of_oldest_change;
@@ -291,8 +292,9 @@ impl WindowRenderer {
         &mut self,
         view_projections: &ViewProjections,
         texture: wgpu::SurfaceTexture,
-    ) {
-        self.renderer.render_and_present(view_projections, texture);
+    ) -> Result<()> {
+        self.renderer
+            .render_and_present(view_projections, texture)?;
 
         #[cfg(feature = "metrics")]
         if let Some(oldest_change) = self.oldest_change {
@@ -304,6 +306,7 @@ impl WindowRenderer {
             }
             self.oldest_change = None;
         }
+        Ok(())
     }
 }
 
