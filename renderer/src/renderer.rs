@@ -1,25 +1,23 @@
-use std::mem;
 use std::ops::Range;
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use derive_more::Constructor;
-use itertools::Itertools;
 use log::{info, warn};
 use smallvec::{SmallVec, smallvec};
 use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
-use massive_scene::{ChangedIds, Id, LocationSpace, SceneChange, VisualRenderObj};
+use massive_scene::{Id, LocationSpace, SceneChange, VisualRenderObj};
 
+use crate::RenderDevice;
 use crate::config::RendererConfig;
 use crate::pods::{AsBytes, ClipRect, Immediates, ToPod};
 use crate::render_batches::RenderBatches;
 use crate::render_geometry::ViewProjections;
-use crate::scene::{LocationTransforms, Scene};
+use crate::scene::SceneState;
 use crate::stats::MeasureSeries;
 use crate::tools::{DEPTH_FORMAT, PipelineVariant, QuadIndexBuffer};
-use crate::{RenderDevice, Transaction, TransactionManager};
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
@@ -44,21 +42,7 @@ pub struct Renderer {
     quads_index_buffer: QuadIndexBuffer,
     max_quads_in_use: usize,
 
-    //
-    // Scene and Cache updates
-    //
-    transaction_manager: TransactionManager,
-    scene: Scene,
-
-    /// The changed visuals since the previous draw call.
-    changed_visuals: ChangedIds,
-    /// Whether changes were applied since the last [`Self::prepare`]. Preparing waits for the
-    /// next [`Self::render_and_present`], because it creates GPU buffers whose uploads wgpu
-    /// holds in memory until the next queue submit. Preparing without rendering, for example
-    /// while the window is occluded, would accumulate these uploads without bound.
-    prepare_due: bool,
-
-    visual_locations: LocationTransforms,
+    scene_state: SceneState,
     batches: RenderBatches,
 }
 
@@ -209,11 +193,7 @@ impl Renderer {
             quads_index_buffer: index_buffer,
             max_quads_in_use: 0,
 
-            transaction_manager: Default::default(),
-            scene: Default::default(),
-            changed_visuals: Default::default(),
-            prepare_due: false,
-            visual_locations: Default::default(),
+            scene_state: Default::default(),
             batches: Default::default(),
         };
 
@@ -221,23 +201,13 @@ impl Renderer {
         renderer
     }
 
-    /// Apply changes to the renderer hierarchy.
-    ///
-    /// This can be called multiple times with new changes without losing significant performance compared to combining all changes first. I.e. no expensive value computation is done here.
+    /// Apply changes to the renderer's [`SceneState`].
     ///
     /// This touches CPU state only and is safe to call without rendering. The next
     /// [`Self::render_and_present`] prepares the changes for the GPU.
     #[tracing::instrument(skip_all)]
     pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) -> Result<()> {
-        self.prepare_due = true;
-        let transaction = self.transaction_manager.new_transaction();
-
-        for change in changes {
-            if let SceneChange::Visual(visual_change) = &change {
-                self.changed_visuals.add(visual_change.id());
-            }
-            self.scene.apply(change, &transaction);
-        }
+        self.scene_state.apply_changes(changes);
         Ok(())
     }
 
@@ -250,7 +220,7 @@ impl Renderer {
     ///
     /// It's important that pipeline batches are updated before index buffer and final matrices,
     /// because they both depend on it. The index buffer needs the max quads used, and the final
-    /// matrix computation needs a unique list of locations.
+    /// matrix computation needs the locations of the drawn visuals.
     ///
     /// Architecture: These dependencies should probably be encoded with the type system.
     ///
@@ -258,17 +228,18 @@ impl Renderer {
     /// for the next VSync. If we run prepare steps before, we can utilize CPU time more.
     /// **Update:** Yes, but this would delay output for 16ms, so prepare now runs after that.
     ///
-    /// Only [`Self::render_and_present`] calls this, so that a queue submit always follows (see
-    /// [`Self::prepare_due`]).
+    /// Only [`Self::render_and_present`] calls this, so that a queue submit always follows. wgpu
+    /// holds the uploads of the created GPU buffers in memory until the next queue submit, so
+    /// preparing without rendering, for example while the window is occluded, would accumulate
+    /// them without bound.
+    ///
+    /// Each step does nothing when no changes were applied since the previous call, because this
+    /// runs for every frame, and fullscreen renders a frame on every vblank.
     fn prepare(&mut self) -> Result<()> {
-        self.prepare_batches()?;
-
-        self.prepare_index_buffer();
-
-        {
-            let transaction = self.transaction_manager.current_transaction();
-            self.prepare_matrices(&transaction);
+        if self.prepare_batches()? {
+            self.prepare_index_buffer();
         }
+        self.prepare_matrices();
 
         Ok(())
     }
@@ -291,44 +262,39 @@ impl Renderer {
         self.max_quads_in_use = max_quads;
     }
 
-    fn prepare_matrices(&mut self, transaction: &Transaction) {
-        let location_ids = self
-            .batches
-            .render_visuals()
-            .map(|v| v.location_id)
-            .unique();
-        self.visual_locations.resolve_locations_and_matrices(
-            &self.scene,
-            transaction,
-            location_ids,
-        );
+    fn prepare_matrices(&mut self) {
+        // Detail: Visuals share locations. Repeats are cheap, because the resolver skips a
+        // location that is already validated at the current version.
+        let location_ids = self.batches.render_visuals().map(|v| v.location_id);
+        self.scene_state.resolve_locations(location_ids);
     }
 
-    fn prepare_batches(&mut self) -> Result<()> {
-        let visuals = self.scene.visuals();
+    /// Returns whether any visual changed.
+    fn prepare_batches(&mut self) -> Result<bool> {
         let context = &PreparationContext {
             device: &self.device.device,
             queue: &self.device.queue,
         };
-        for id in self.changed_visuals.take_all() {
-            if let Some(v) = &visuals[id] {
-                Self::visual_updated(
+        let mut any_changed = false;
+        for (id, visual) in self.scene_state.take_changed_visuals() {
+            any_changed = true;
+            match visual {
+                Some(visual) => Self::visual_updated(
                     id,
-                    v,
+                    visual,
                     &mut self.config,
                     &self.pipelines,
                     context,
                     &mut self.batches,
-                )?;
-            } else {
-                self.batches.remove(id);
+                )?,
+                None => self.batches.remove(id),
             }
         }
 
-        Ok(())
+        Ok(any_changed)
     }
 
-    pub fn visual_updated(
+    fn visual_updated(
         id: Id,
         visual: &VisualRenderObj,
         config: &mut RendererConfig,
@@ -399,9 +365,7 @@ impl Renderer {
         view_projections: &ViewProjections,
         surface_texture: SurfaceTexture,
     ) -> Result<()> {
-        if mem::take(&mut self.prepare_due) {
-            self.prepare()?;
-        }
+        self.prepare()?;
 
         let surface_view = surface_texture
             .texture
@@ -511,14 +475,14 @@ impl Renderer {
     }
 
     /// Pick up one specific pipeline batch from every visual and render it.
-    pub fn render_pipeline_batches<'a>(
+    fn render_pipeline_batches<'a>(
         &self,
         visuals: impl Iterator<Item = &'a RenderVisual>,
         pipeline: &wgpu::RenderPipeline,
         select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
         context: &mut RenderContext,
     ) {
-        let locations = &self.visual_locations;
+        let locations = self.scene_state.locations();
         let mut pipeline_set = false;
 
         for visual in visuals {

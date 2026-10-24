@@ -5,9 +5,11 @@ use crate::{Transaction, Version, tools::Versioned};
 mod dependency_resolver;
 mod id_table;
 mod location_matrices;
+mod scene_state;
 
 pub use id_table::IdTable;
 pub use location_matrices::LocationTransforms;
+pub use scene_state::SceneState;
 
 #[derive(Debug, Default)]
 pub struct Scene {
