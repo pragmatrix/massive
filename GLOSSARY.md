@@ -224,6 +224,38 @@ _Avoid_: special case, edge case, quirk
 The one place that holds the desktop's choices that could reasonably have been made differently. In code it is the desktop's `policy` module. Its rules decide every exceptional behavior (ADR 0029). For a command, a rule allows it, refuses it with a reason, or redirects it to another command. For a lifecycle default or a route, a rule chooses the outcome. Its tuning values are the sizes, durations, thresholds, easing curves, and colors that were picked by taste and usability experience.
 _Avoid_: policy (alone in prose, it collides with font policy), rules, guards
 
+**MCP root**:
+A project on which the user enabled MCP. It covers its whole subtree, and agents reach everything it covers with the access scopes it grants. MCP roots never nest (ADR 0036).
+_Avoid_: MCP project (in code), MCP scope, enabled subtree
+
+**Access scope**:
+A named permission an MCP root grants, such as `organize` or `act`. Every tool declares exactly one. The name follows OAuth 2's access token scope.
+_Avoid_: scope (alone), level, tag, grant, capability (MCP uses it for negotiated features)
+
+**MCP id**:
+A validated name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*`. A tool's name joins the provider's MCP id and the tool's MCP id with `_`, as in `notes_read_page`. An application without an MCP id offers no tools. The desktop's MCP id is `desktop`.
+_Avoid_: application id, short name
+
+**MCP bridge**:
+The process an agent runs as its MCP server, an application's `mcp` subcommand. It is the only process that speaks MCP, and it reaches the desktop through a control connection.
+_Avoid_: MCP server (for the desktop), proxy
+
+**Focus intent**:
+Whether a configuration command moves the keyboard focus as its operation decides (`Follow`, issued by the keyboard and the CLI) or leaves the focus, the selection and the camera where they are (`Keep`, issued through MCP). A command that removes the focused target moves the focus either way (ADR 0036).
+_Avoid_: focus mode, focus policy
+
+**Tool provider**:
+The desktop, or an application with an MCP id, as the owner of MCP tools. It declares its tools as Rust types through the typed tool API and decodes their arguments itself (ADR 0036).
+_Avoid_: tool server, MCP server
+
+**Control host**:
+The part of the desktop that serves control connections. It decodes and checks everything that arrives on the control socket, so it is the MCP security boundary (ADR 0036).
+_Avoid_: control server, MCP server
+
+**Control connection**:
+The connection between an MCP bridge and the desktop over the control socket. It is bound to one MCP root for its whole life and speaks the typed `control` protocol.
+_Avoid_: session (collides with the desktop session), bind, MCP connection
+
 **Shaping engine**:
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.
 _Avoid_: font system, shaper backend, text layout engine
