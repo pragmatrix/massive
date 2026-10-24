@@ -21,7 +21,6 @@ bitflags = { workspace = true }
 bytemuck = { workspace = true }
 derive_more = { workspace = true }
 glam = { workspace = true }
-itertools = { workspace = true }
 log = { workspace = true }
 parley = { workspace = true }
 parking_lot.workspace = true
