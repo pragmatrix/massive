@@ -38,6 +38,10 @@ violation, so the desktop rejects every change that would create one. It rejects
 that has an MCP root above or below it. It also rejects a move, push or group that would place one
 MCP root inside another one's subtree.
 
+**The root project is never an MCP root.** It would cover every instance on the desktop, so the
+CLI could not disable it again from anywhere, because a process inside an MCP root cannot configure
+MCP.
+
 **Ungrouping an MCP root is refused for now.** Ungrouping dissolves the project, and with it the
 setting the user made deliberately. The desktop policy (ADR 0029) refuses it with the reason
 "disable MCP for `<name>` first". Removing the project stays allowed, because it explicitly deletes
@@ -53,7 +57,7 @@ The vocabulary is deliberately broad for now:
 
 | Access scope | Allows |
 |---|---|
-| `observe` | Describing the covered subtree. Every MCP root grants it implicitly, and it is never listed. |
+| `observe` | Describing the covered subtree. |
 | `organize` | Every configuration command inside the subtree. |
 | `read` | Application tools that only read an instance's content. |
 | `act` | Starting and stopping instances, and application tools that change something, such as sending input to an instance. |
@@ -66,14 +70,17 @@ The format leaves room for refinement. A later version may add application-quali
 `act:term`, where `act` grants every `act:<mcp id>`. Nothing of that is built now.
 
 **The access scopes are part of the desktop configuration.** The project node in `desktop.json`
-stores them as `"mcp": { "access_scopes": ["organize", "act"] }`. The presence of the `mcp` object
-makes the project an MCP root, and an empty list grants `observe` alone. Changing them is a new
-configuration command, `ConfigurationCommand::SetMcpAccessScopes`. Enabling and disabling MCP and
-changing the scopes are all the same command. The CLI issues it as `mcp enable [PATH]
-[--access-scopes organize,act]` and `mcp disable [PATH]`. MCP itself has no way to issue it.
+stores them as `"mcp": { "access_scopes": ["observe", "act"] }`. The presence of the `mcp` object
+makes the project an MCP root, and an empty list grants nothing, so agents see no tools. Every
+scope, `observe` included, is granted explicitly. In the desktop, an MCP root carries an
+`McpConfiguration` that holds its access scopes, and every other project carries none. Changing
+it is a new configuration command, `ConfigurationCommand::ConfigureMcp { project, mcp }`, whose
+`mcp` is `None` to disable MCP. Enabling and disabling MCP and changing the scopes are all the
+same command. The CLI issues it as `mcp enable [PATH] [--access-scopes observe,act]` and
+`mcp disable [PATH]`. MCP itself has no way to issue it.
 
-**A process inside an MCP root cannot change any access scopes.** The desktop refuses
-`SetMcpAccessScopes` whenever it comes from an instance that any MCP root covers. That includes
+**A process inside an MCP root cannot configure MCP.** The desktop refuses
+`ConfigureMcp` whenever it comes from an instance that any MCP root covers. That includes
 widening, narrowing and disabling, and it applies to every MCP root, not only to the one covering
 the instance. The desktop knows which instance a CLI request comes from by the file descriptor that
 instance inherited, so a process cannot claim to be elsewhere by changing its environment. The
@@ -155,8 +162,7 @@ call that names a stale id fails.
 serves control connections. It decodes every frame at its entry, before anything else runs. It caps
 the size of every frame and of every `arguments` string, keeps the JSON decoder's nesting limit,
 and answers malformed input with an error, never with a panic. massive's release profile aborts on a
-panic, so a panic in the control host would end the desktop with every instance. A fuzz test drives the decoder with
-arbitrary frames.
+panic, so a panic in the control host would end the desktop with every instance.
 
 **The desktop checks every call.** Every call needs an access scope the MCP root grants. For a
 desktop tool, every slot, launcher and instance the decoded call names, as source and as
@@ -241,19 +247,19 @@ instance. Detecting an application that hangs belongs to the out-of-process appl
 
 ### MCP roots are visible
 
-**An MCP root's header names its access scopes.** It reads `home · MCP organize act`, or
-`home · MCP` when the MCP root grants only `observe`.
+**The MCP access indicator names an MCP root's access scopes in its header.** It reads
+`home · MCP observe organize`, or `home · MCP` when the MCP root grants nothing.
 
-**Everything an MCP root covers is colored differently.** The MCP root's header, the headers of the
-projects below it, its launchers, and the title bars of its instances take their colors from a
-`policy::colors::mcp` module. That module has a counterpart for every color it replaces, so primary
+**The MCP activation indicator colors everything an MCP root covers.** The MCP root's header, the
+headers of the projects below it, its launchers, and the title bars of its instances take their
+colors from a `policy::colors::mcp` module. That module has a counterpart for every color it replaces, so primary
 and assistant title bars stay distinguishable inside an MCP root.
 
 ### Security checks live in one module
 
 **Every security-relevant check of the desktop lives in the `security` module
 (`desktop/src/security/`).** This covers bounding control input, resolving a root selector,
-checking that a call's targets are covered, checking access scopes, refusing `SetMcpAccessScopes`
+checking that a call's targets are covered, checking access scopes, refusing `ConfigureMcp`
 from a covered instance, and rejecting nested MCP roots. Each check is a pure function that takes
 the facts it needs and returns an allowance or a refusal with a reason, like the rules of the
 desktop policy (ADR 0029). The code that handles a call gathers the facts, asks the `security`

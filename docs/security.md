@@ -36,12 +36,12 @@ with a reason. A new check is added to the module and to this table in the same 
 
 | Check | Enforces | Status |
 |---|---|---|
-| Control input | Every frame and every tool's arguments are decoded at the control host's entry, within size caps and the JSON nesting limit, and malformed input returns an error, never a panic. A fuzz test drives the decoder. | Planned (ADR 0036) |
+| Control input | Every frame and every tool's arguments are decoded at the control host's entry, within size caps and the JSON nesting limit, and malformed input returns an error, never a panic. | Planned (ADR 0036) |
 | Root selection | A control connection is bound to the one MCP root at or above its selector, or to none. | Planned (ADR 0036) |
 | Coverage | Every slot, launcher and instance a tool call names lies inside its MCP root's subtree, as source and as destination. An instance outside is reported as unknown. | Planned (ADR 0036) |
 | Access scope | Every tool call needs an access scope the MCP root grants. A removal that stops instances also needs `act`. | Planned (ADR 0036) |
-| No scope changes from inside | `SetMcpAccessScopes` is refused when it comes from an instance that any MCP root covers. | Planned (ADR 0036) |
-| No nested MCP roots | No change may place an MCP root inside another MCP root's subtree. | Planned (ADR 0036) |
+| No MCP configuration from inside | `ConfigureMcp` is refused when it comes from an instance that any MCP root covers. | Implemented: `security::configuring_mcp` |
+| No nested MCP roots | No change may place an MCP root inside another MCP root's subtree, and the root project is never an MCP root. A loaded file's nested roots lose their `mcp` object. | Enabling is checked by `security::making_mcp_root`. Moves are planned with `desktop_move_slot` (ADR 0036). |
 | No desktop-wide control | A control connection cannot change the focus, the camera or the startup launcher. | Planned (ADR 0036) |
 | Tool ownership | A call to an application tool targets an instance whose application declared that tool. | Planned (ADR 0036) |
 

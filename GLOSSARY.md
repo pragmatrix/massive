@@ -229,8 +229,16 @@ A project on which the user enabled MCP. It covers its whole subtree, and agents
 _Avoid_: MCP project (in code), MCP scope, enabled subtree
 
 **Access scope**:
-A named permission an MCP root grants, such as `organize` or `act`. Every tool declares exactly one. The name follows OAuth 2's access token scope.
+A named permission an MCP root grants, such as `observe` or `act`. Every tool declares exactly one. Every scope is granted explicitly, so an MCP root without any grants nothing. The name follows OAuth 2's access token scope.
 _Avoid_: scope (alone), level, tag, grant, capability (MCP uses it for negotiated features)
+
+**MCP activation indicator**:
+The colors that show where MCP is active. Every header, launcher and instance title bar an MCP root covers takes its color from `policy::colors::mcp` (ADR 0036).
+_Avoid_: MCP marking, MCP highlight, MCP tint, exposure
+
+**MCP access indicator**:
+The list of access scopes in an MCP root's header, as in `home · MCP observe organize`. It reads `home · MCP` when the MCP root grants nothing (ADR 0036).
+_Avoid_: MCP badge, MCP label
 
 **MCP id**:
 A validated name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*`. A tool's name joins the provider's MCP id and the tool's MCP id with `_`, as in `notes_read_page`. An application without an MCP id offers no tools. The desktop's MCP id is `desktop`.
