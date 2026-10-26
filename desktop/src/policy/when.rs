@@ -4,6 +4,7 @@
 
 use crate::DirectionBias;
 use crate::desktop_system::{Direction, KeyFocus};
+use crate::projects::Project;
 
 /// What Cmd+Shift+W does to a launcher or a nested project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,11 +55,18 @@ pub enum UngroupingProject {
     MoveSlotsOut,
     /// An empty project has no slots to move.
     RemoveProject,
+    /// Ungrouping would dissolve the MCP settings the user made deliberately, so MCP has to be
+    /// disabled first (ADR 0036). Removing the project stays allowed, because it deletes the
+    /// project and its settings explicitly.
+    RefuseWhileMcpRoot,
 }
 
 #[must_use]
-pub fn ungrouping_project(is_empty: bool) -> UngroupingProject {
-    if is_empty {
+pub fn ungrouping_project(project: &Project) -> UngroupingProject {
+    if project.mcp.is_some() {
+        return UngroupingProject::RefuseWhileMcpRoot;
+    }
+    if project.slots().is_empty() {
         return UngroupingProject::RemoveProject;
     }
     UngroupingProject::MoveSlotsOut

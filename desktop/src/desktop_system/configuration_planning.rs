@@ -242,8 +242,15 @@ impl ConfigurationPlanning<'_> {
             "the root project has no parent matrix to take its slots"
         );
         let configuration = self.configuration;
-        match when::ungrouping_project(configuration.first_slot(project).is_none()) {
+        match when::ungrouping_project(&configuration[project]) {
             UngroupingProject::MoveSlotsOut => Ok(grouping::plan_ungroup(project, configuration)),
+            refusal @ UngroupingProject::RefuseWhileMcpRoot => {
+                warn!(
+                    "Refused to ungroup '{}': {refusal:?}, disable MCP for it first",
+                    configuration[project].name
+                );
+                Ok(Changes::Empty)
+            }
             UngroupingProject::RemoveProject => {
                 let (parent, slot) = configuration
                     .slot_of_content(project)
