@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 use log::warn;
 
-use massive_applications::{Direction, SlotShift};
+use massive_applications::{Direction, McpConfiguration, SlotShift};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::grouping;
@@ -23,6 +23,7 @@ use crate::projects::{
     LaunchProfileId, MatrixRect, ProjectId, RuntimeConfiguration, SharedColumnCounts,
     SlotAssignment, SlotContent, SlotPosition, move_landings,
 };
+use crate::security::{self, MakingMcpRoot};
 
 impl DesktopSystem {
     /// The configuration planner over the desktop state it reads.
@@ -108,6 +109,9 @@ impl ConfigurationPlanning<'_> {
             }
             ConfigurationCommand::SetStartupPath(path) => {
                 changes <<= ConfigurationChange::SetStartupPath(path)
+            }
+            ConfigurationCommand::ConfigureMcp { project, mcp } => {
+                changes += self.plan_configure_mcp(project, mcp);
             }
         }
 
@@ -247,6 +251,35 @@ impl ConfigurationPlanning<'_> {
                 self.plan_clear_slot(parent, slot, SlotShift::Keep)
             }
         }
+    }
+
+    /// Disabling an MCP root is always allowed. Enabling one, or changing its access scopes, asks
+    /// the `security` module whether the project may be an MCP root.
+    fn plan_configure_mcp(&self, project: ProjectId, mcp: Option<McpConfiguration>) -> Changes {
+        let configuration = self.configuration;
+        if mcp.is_some() {
+            let mcp_root_above = configuration
+                .slot_of_content(project)
+                .and_then(|(parent, _)| configuration.mcp_root_of(parent))
+                .is_some();
+            match security::making_mcp_root(
+                project == ProjectId::ROOT,
+                mcp_root_above,
+                configuration.has_mcp_root_below(project),
+            ) {
+                MakingMcpRoot::Allow => {}
+                refusal => {
+                    warn!(
+                        "Refused to make '{}' an MCP root: {refusal:?}",
+                        configuration[project].name
+                    );
+                    return Changes::Empty;
+                }
+            }
+        }
+        let mut changes = Changes::Empty;
+        changes <<= ConfigurationChange::ConfigureMcp { project, mcp };
+        changes
     }
 
     fn plan_assign_slot(

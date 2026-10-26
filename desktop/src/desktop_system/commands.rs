@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, SlotShift};
+use massive_applications::{InstanceId, InstanceParameters, McpConfiguration, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
@@ -141,4 +141,11 @@ pub enum ConfigurationCommand {
         project: ProjectId,
     },
     SetStartupPath(Option<String>),
+    /// Makes `project` an MCP root configured by `mcp`, or no MCP root when it is `None`
+    /// (ADR 0036). Enabling, disabling, and changing the access scopes are all this command. It is
+    /// refused when it would make the root project an MCP root or nest MCP roots.
+    ConfigureMcp {
+        project: ProjectId,
+        mcp: Option<McpConfiguration>,
+    },
 }

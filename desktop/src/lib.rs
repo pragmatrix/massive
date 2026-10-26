@@ -12,6 +12,7 @@ mod instance_manager;
 mod instance_presenter;
 mod policy;
 mod projects;
+mod security;
 mod targeted_event;
 mod view_presenter;
 mod window_state;

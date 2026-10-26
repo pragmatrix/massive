@@ -1,4 +1,4 @@
-use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
+use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission, McpConfiguration};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::{CollectingSet, CollectingVec};
 
@@ -159,6 +159,10 @@ pub enum ConfigurationChange {
         landings: Vec<(SlotPosition, SlotPosition)>,
     },
     SetStartupPath(Option<String>),
+    ConfigureMcp {
+        project: ProjectId,
+        mcp: Option<McpConfiguration>,
+    },
 }
 
 impl ConfigurationChange {
@@ -178,7 +182,7 @@ impl ConfigurationChange {
             // moved block.
             Self::RelocateSlots { .. } => true,
             // No matrix changes.
-            Self::SetStartupPath(_) => true,
+            Self::SetStartupPath(_) | Self::ConfigureMcp { .. } => true,
         }
     }
 
@@ -215,7 +219,7 @@ impl ConfigurationChange {
             Self::Group {
                 parent, project, ..
             } => [*parent, *project].into_iter().collect(),
-            Self::SetStartupPath(_) => CollectingSet::default(),
+            Self::SetStartupPath(_) | Self::ConfigureMcp { .. } => CollectingSet::default(),
         }
     }
 }

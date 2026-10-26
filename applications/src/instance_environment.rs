@@ -8,7 +8,7 @@ use massive_renderer::RenderPacing;
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
 
-use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
+use crate::{InstanceId, McpConfiguration, ViewChange, ViewCreationInfo, ViewId, ViewRole};
 
 /// Shared instance configuration cloned into each spawned instance.
 #[derive(Debug, Clone)]
@@ -126,6 +126,12 @@ pub enum ConfigurationRequest {
     },
     SetStartup {
         path: Option<String>,
+    },
+    /// Makes the project at `path`, or else the current project, an MCP root configured by `mcp`,
+    /// or no MCP root when it is `None` (ADR 0036).
+    ConfigureMcp {
+        path: Option<String>,
+        mcp: Option<McpConfiguration>,
     },
     Resize {
         size_px: (u32, u32),

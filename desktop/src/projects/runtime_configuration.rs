@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use massive_applications::Direction;
+use massive_applications::{Direction, McpConfiguration};
 use massive_util::CollectingVec;
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
@@ -198,6 +198,14 @@ impl RuntimeConfiguration {
         }
     }
 
+    /// Makes `project` an MCP root configured by `mcp`, or no MCP root when it is `None`.
+    /// The planner has already refused a change that would nest MCP roots (ADR 0036).
+    pub fn configure_mcp(&mut self, project: ProjectId, mcp: Option<McpConfiguration>) {
+        self.project_mut(project)
+            .expect("the project whose access scopes change exists")
+            .mcp = mcp;
+    }
+
     /// Adds a project with no slots. A duplicate id never reaches here: the
     /// caller ignores it as re-application. Insertion keeps the document order
     /// the IndexMap records.
@@ -207,6 +215,7 @@ impl RuntimeConfiguration {
             Project {
                 id,
                 name,
+                mcp: None,
                 slots: Vec::new(),
             },
         );
@@ -947,6 +956,23 @@ impl RuntimeConfiguration {
         self.projects.get(&id)
     }
 
+    /// The MCP root at or above `project`, which covers it. MCP roots never nest, so at most one
+    /// exists (ADR 0036).
+    pub fn mcp_root_of(&self, project: ProjectId) -> Option<ProjectId> {
+        iter::successors(Some(project), |&project| {
+            self.slot_of_content(project).map(|(parent, _)| parent)
+        })
+        .find(|&project| self[project].mcp.is_some())
+    }
+
+    /// Whether an MCP root lies anywhere below `project`, not counting `project` itself.
+    pub fn has_mcp_root_below(&self, project: ProjectId) -> bool {
+        self[project]
+            .nested_projects()
+            .into_iter()
+            .any(|nested| self[nested].mcp.is_some() || self.has_mcp_root_below(nested))
+    }
+
     pub fn project_mut(&mut self, id: ProjectId) -> Option<&mut Project> {
         self.projects.get_mut(&id)
     }
@@ -1044,6 +1070,9 @@ fn indexed_default_name(name: &str, existing: &[&str]) -> String {
 pub struct Project {
     pub id: ProjectId,
     pub name: String,
+    /// What the user configured on the project as an MCP root, or `None` when it is no MCP root
+    /// (ADR 0036).
+    pub mcp: Option<McpConfiguration>,
     slots: Vec<Slot>,
 }
 
@@ -1056,6 +1085,7 @@ impl Project {
         Self {
             id: ProjectId::new(),
             name,
+            mcp: None,
             slots,
         }
     }

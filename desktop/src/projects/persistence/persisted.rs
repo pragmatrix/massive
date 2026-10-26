@@ -30,9 +30,15 @@
 //! carries the launcher's spawn parameters and is omitted when empty. `startup`
 //! is the target path of the launcher the session boots into, omitted when none
 //! is set.
+//!
+//! A project node with an `mcp` object is an MCP root (ADR 0036), such as
+//! `"mcp": { "access_scopes": ["observe", "act"] }`. The object is omitted for
+//! every other project.
 
 use log::warn;
 use serde::{Deserialize, Serialize};
+
+use massive_applications::{AccessScopes, McpConfiguration};
 
 use crate::policy::when::{self, LoadingWithoutLauncher};
 use crate::projects::{
@@ -95,7 +101,15 @@ fn full_screen_mode_is_regular(mode: &FullScreenMode) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedProject {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<PersistedMcp>,
     pub slots: Vec<PersistedSlot>,
+}
+
+/// The MCP settings of a project node, present exactly when the project is an MCP root.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedMcp {
+    pub access_scopes: AccessScopes,
 }
 
 impl PersistedConfiguration {
@@ -117,7 +131,7 @@ impl PersistedConfiguration {
     /// second one.
     pub fn into_configuration(self) -> RuntimeConfiguration {
         let mut projects = Vec::new();
-        let root_slots = persisted_slots(&self.slots, &mut projects);
+        let root_slots = persisted_slots(&self.slots, false, &mut projects);
 
         let mut root = Project::new(ROOT_PROJECT_NAME.into(), root_slots);
         root.id = ProjectId::ROOT;
@@ -168,7 +182,15 @@ const DEFAULT_CONFIG: &str = r#"{
 /// Parses a project node's slots, pushing every nested project into `projects`
 /// before the project hosting it — the order the old parse produced, so
 /// document-order lookups keep their semantics.
-fn persisted_slots(slots: &[PersistedSlot], projects: &mut Vec<Project>) -> Vec<Slot> {
+///
+/// `mcp_root_above` tells whether an MCP root lies above the node. A hand-edited file
+/// may nest MCP roots, which the desktop never allows (ADR 0036), so the
+/// outermost root stays and every root below it loses its `mcp` object.
+fn persisted_slots(
+    slots: &[PersistedSlot],
+    mcp_root_above: bool,
+    projects: &mut Vec<Project>,
+) -> Vec<Slot> {
     let mut parsed: Vec<Slot> = Vec::new();
     for slot in slots {
         let position = SlotPosition::from(slot.at);
@@ -182,9 +204,21 @@ fn persisted_slots(slots: &[PersistedSlot], projects: &mut Vec<Project>) -> Vec<
                 )
                 .with_full_screen_mode(launcher.full_screen_mode),
             )),
-            PersistedSlotContent::Project(project) => {
-                let nested = persisted_slots(&project.slots, projects);
-                let project = Project::new(project.name.clone(), nested);
+            PersistedSlotContent::Project(persisted) => {
+                let mut mcp = persisted.mcp.as_ref().map(|mcp| McpConfiguration {
+                    access_scopes: mcp.access_scopes.clone(),
+                });
+                if mcp_root_above && mcp.is_some() {
+                    warn!(
+                        "Project '{}' lies inside another MCP root, ignoring its MCP settings",
+                        persisted.name
+                    );
+                    mcp = None;
+                }
+                let nested =
+                    persisted_slots(&persisted.slots, mcp_root_above || mcp.is_some(), projects);
+                let mut project = Project::new(persisted.name.clone(), nested);
+                project.mcp = mcp;
                 let id = project.id;
                 projects.push(project);
                 parsed.push(Slot::project(position, id));
@@ -251,6 +285,9 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
                 }
                 SlotPayload::Project(child) => PersistedSlotContent::Project(PersistedProject {
                     name: configuration[*child].name.clone(),
+                    mcp: configuration[*child].mcp.as_ref().map(|mcp| PersistedMcp {
+                        access_scopes: mcp.access_scopes.clone(),
+                    }),
                     slots: project_slots(configuration, *child),
                 }),
             },
@@ -263,6 +300,7 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
+    use massive_applications::AccessScope;
     use serde_json::Value;
 
     #[test]
@@ -283,6 +321,7 @@ mod tests {
                     at: (1, 0),
                     content: PersistedSlotContent::Project(PersistedProject {
                         name: "labs".into(),
+                        mcp: None,
                         slots: vec![PersistedSlot {
                             at: (0, 0),
                             content: PersistedSlotContent::Launcher(PersistedLauncher {
@@ -319,14 +358,14 @@ mod tests {
     }
 
     /// The document is derived from the aggregate and back without loss: the
-    /// nesting, positions, launcher profiles, and the startup path survive.
+    /// nesting, positions, launcher profiles, MCP settings, and the startup path survive.
     #[test]
     fn the_aggregate_round_trips_through_the_document() -> Result<()> {
         let text = r#"{
             "startup": "/labs/build",
             "slots": [
                 { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } },
-                { "at": [1, 0], "project": { "name": "labs", "slots": [
+                { "at": [1, 0], "project": { "name": "labs", "mcp": { "access_scopes": ["act", "organize"] }, "slots": [
                     { "at": [0, 0], "launcher": { "name": "build", "mode": "band", "params": { "command": "just" } } }
                 ] } }
             ]
@@ -349,6 +388,40 @@ mod tests {
             reloaded.project(labs).map(|project| project.name.as_str()),
             Some("labs")
         );
+        assert_eq!(
+            reloaded[labs].mcp,
+            Some(McpConfiguration {
+                access_scopes: [AccessScope::Organize, AccessScope::Act].into()
+            })
+        );
+        Ok(())
+    }
+
+    /// A hand-edited file can nest MCP roots, which the desktop never allows (ADR 0036). The load
+    /// keeps the outermost one.
+    #[test]
+    fn a_nested_mcp_root_loses_its_mcp_settings_at_load() -> Result<()> {
+        let text = r#"{ "slots": [
+            { "at": [0, 0], "project": { "name": "outer", "mcp": { "access_scopes": ["act"] }, "slots": [
+                { "at": [0, 0], "project": { "name": "inner", "mcp": { "access_scopes": [] }, "slots": [] } }
+            ] } }
+        ] }"#;
+        let configuration =
+            serde_json::from_str::<PersistedConfiguration>(text)?.into_configuration();
+
+        let outer = configuration
+            .child_project_at(ProjectId::ROOT, SlotPosition { column: 0, row: 0 })
+            .expect("outer is a root slot");
+        let inner = configuration
+            .child_project_at(outer, SlotPosition { column: 0, row: 0 })
+            .expect("inner is a slot of outer");
+        assert_eq!(
+            configuration[outer].mcp,
+            Some(McpConfiguration {
+                access_scopes: [AccessScope::Act].into()
+            })
+        );
+        assert_eq!(configuration[inner].mcp, None);
         Ok(())
     }
 }

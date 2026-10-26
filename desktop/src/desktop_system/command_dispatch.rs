@@ -23,6 +23,7 @@ use crate::projects::{
     LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
     SlotPosition,
 };
+use crate::security::{self, ConfiguringMcp};
 
 use massive_applications::prelude::*;
 use massive_applications::{
@@ -703,6 +704,9 @@ impl DesktopSystem {
             ConfigurationChange::SetStartupPath(path) => {
                 self.aggregates.configuration.set_startup_path(path);
             }
+            ConfigurationChange::ConfigureMcp { project, mcp } => {
+                self.aggregates.configuration.configure_mcp(project, mcp);
+            }
         }
 
         Ok(ChangeOutput::default())
@@ -1036,6 +1040,30 @@ impl DesktopSystem {
                     None => None,
                 };
                 ConfigurationCommand::SetStartupPath(path)
+            }
+            ConfigurationRequest::ConfigureMcp { path, mcp } => {
+                let configuration = &self.aggregates.configuration;
+                match security::configuring_mcp(
+                    configuration.mcp_root_of(current_project).is_some(),
+                ) {
+                    ConfiguringMcp::Allow => {}
+                    refusal => {
+                        warn!("Refused to configure MCP: {refusal:?}");
+                        return Ok(ChangeOutput::default());
+                    }
+                }
+                let project = match path {
+                    Some(path) => configuration.resolve_project_path(current_project, path),
+                    None => Some(current_project),
+                };
+                let Some(project) = project else {
+                    warn!("Project path '{path:?}' does not resolve");
+                    return Ok(ChangeOutput::default());
+                };
+                ConfigurationCommand::ConfigureMcp {
+                    project,
+                    mcp: mcp.clone(),
+                }
             }
             ConfigurationRequest::Resize { size_px } => {
                 let changes = DesktopChange::ResizeAll((*size_px).into()).into();

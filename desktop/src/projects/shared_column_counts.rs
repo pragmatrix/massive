@@ -371,6 +371,9 @@ mod tests {
                 configuration.relocate_slots(parent, &landings);
             }
             ConfigurationChange::SetStartupPath(path) => configuration.set_startup_path(path),
+            ConfigurationChange::ConfigureMcp { project, mcp } => {
+                configuration.configure_mcp(project, mcp)
+            }
         }
         Vec::new()
     }
