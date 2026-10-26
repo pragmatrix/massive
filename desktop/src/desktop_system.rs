@@ -28,6 +28,7 @@ mod keyboard_shortcuts;
 mod layout_algorithm;
 mod layout_effects;
 mod layout_state;
+mod mcp_indicator;
 mod navigation;
 mod presentation;
 mod reparenting;
@@ -78,6 +79,7 @@ pub use layout_algorithm::{
     place_container_children,
 };
 pub use massive_applications::{Direction, SlotShift};
+pub use mcp_indicator::McpActivation;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
@@ -654,9 +656,17 @@ fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
         .column_counts_invalid
         .into_iter()
         .map(DesktopEffect::RefreshColumnCount);
+    let mcp_indicators = surface
+        .mcp_indicators_invalid
+        .into_iter()
+        .map(DesktopEffect::RefreshMcpIndicators);
     let measures = surface.size_invalid.into_iter().map(DesktopEffect::Measure);
     let reparents = surface.reparented.into_iter().map(DesktopEffect::Reparent);
-    refreshes.chain(measures).chain(reparents).collect()
+    refreshes
+        .chain(mcp_indicators)
+        .chain(measures)
+        .chain(reparents)
+        .collect()
 }
 
 #[cfg(test)]

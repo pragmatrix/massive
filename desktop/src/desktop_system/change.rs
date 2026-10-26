@@ -222,6 +222,28 @@ impl ConfigurationChange {
             Self::SetStartupPath(_) | Self::ConfigureMcp { .. } => CollectingSet::default(),
         }
     }
+
+    /// The projects whose subtrees may show different MCP indicators after this change
+    /// (ADR 0036). Configuring MCP changes the project's own indicators and those of everything it
+    /// covers, and a move into another project can take content into or out of an MCP root. Every
+    /// other change keeps its content inside the same MCP root, or outside every MCP root.
+    pub fn mcp_indicator_projects(&self) -> CollectingSet<ProjectId> {
+        match self {
+            Self::ConfigureMcp { project, .. } => (*project).into(),
+            Self::MoveSlot {
+                source: (source, _),
+                dest: (dest, _),
+            } if source != dest => (*dest).into(),
+            Self::AssignSlot { .. }
+            | Self::ClearSlot { .. }
+            | Self::MoveSlot { .. }
+            | Self::Group { .. }
+            | Self::Ungroup { .. }
+            | Self::SwapSlots { .. }
+            | Self::RelocateSlots { .. }
+            | Self::SetStartupPath(_) => CollectingSet::default(),
+        }
+    }
 }
 
 /// Constructs the change(s) for a focus transition.

@@ -619,8 +619,10 @@ impl DesktopSystem {
     /// column counts are refreshed once the transaction's changes have all run (ADR 0035).
     fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
         let touched = change.touched_projects();
+        let mcp_indicators = change.mcp_indicator_projects();
         let mut output = self.apply_configuration_change(change)?;
         output.surface.column_counts_invalid += touched;
+        output.surface.mcp_indicators_invalid += mcp_indicators;
         Ok(output)
     }
 
@@ -731,10 +733,7 @@ impl DesktopSystem {
                 let name = self.aggregates.configuration[id].name.clone();
                 self.insert_launcher_presenter(parent, id, name)
             }
-            SlotContent::Project(id) => {
-                let name = self.aggregates.configuration[id].name.clone();
-                self.insert_project_presenter(host, id, name)
-            }
+            SlotContent::Project(id) => self.insert_project_presenter(host, id),
         }
     }
 
@@ -743,12 +742,7 @@ impl DesktopSystem {
     /// `AssignSlot`, and every nested project arrives via `AssignSlot` with a
     /// fresh id — so an existing presenter is an invariant violation and fails
     /// loudly here.
-    fn insert_project_presenter(
-        &mut self,
-        host: Option<ProjectId>,
-        id: ProjectId,
-        name: String,
-    ) -> Result<()> {
+    fn insert_project_presenter(&mut self, host: Option<ProjectId>, id: ProjectId) -> Result<()> {
         // A nested project's scene node hangs under the matrix that hosts its slot:
         // its layout transform is relative to that matrix. The root project — with
         // no host — is placed in the desktop's own space.
@@ -756,7 +750,12 @@ impl DesktopSystem {
             Some(location) => location,
             None => self.desktop_presenter.location.clone(),
         };
-        let presenter = ProjectPresenter::new(id, name, location);
+        let presenter = ProjectPresenter::new(
+            id,
+            &self.project_header_text(id),
+            self.mcp_activation(id),
+            location,
+        );
         self.aggregates.projects.insert(id, presenter)
     }
 
@@ -770,8 +769,13 @@ impl DesktopSystem {
         name: String,
     ) -> Result<()> {
         let matrix_location = self.aggregates.project_matrix_location(parent);
-        let presenter =
-            LauncherPresenter::new(matrix_location, id, name, massive_geometry::Size::default());
+        let presenter = LauncherPresenter::new(
+            matrix_location,
+            id,
+            name,
+            self.mcp_activation(parent),
+            massive_geometry::Size::default(),
+        );
         self.aggregates.launchers.insert(id, presenter)
     }
 

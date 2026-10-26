@@ -50,6 +50,19 @@ pub mod project {
     pub const HEADER_BACKGROUND: Color = Color::rgb_u32(0x1f4d3d);
 }
 
+/// The counterparts of the colors above for everything an MCP root covers: its header, the headers
+/// of the projects below it, its launchers, and its instances' title bars (ADR 0036). They are
+/// amber tones, so a user sees at a glance where agents may act. Primary and assistant title bars
+/// stay distinguishable.
+pub mod mcp {
+    use massive_geometry::Color;
+
+    pub const PROJECT_HEADER_BACKGROUND: Color = Color::rgb_u32(0x6b4a1a);
+    pub const LAUNCHER_BACKGROUND: Color = Color::rgb_u32(0x4a2a10);
+    pub const PRIMARY_TITLE_BAR_BACKGROUND: Color = Color::rgb_u32(0x8f5a1f);
+    pub const ASSISTANT_TITLE_BAR_BACKGROUND: Color = Color::rgb_u32(0x8f3d4f);
+}
+
 /// A launcher's background and name.
 pub mod launcher {
     use massive_geometry::Color;

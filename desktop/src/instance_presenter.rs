@@ -18,6 +18,7 @@ use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
+use crate::desktop_system::McpActivation;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, InstancePart, KeyContext, KeyHandler, KeyInput, KeyOutcome,
@@ -187,6 +188,7 @@ impl InstancePresenter {
         parent: Handle<Location>,
         kind: InstanceKind,
         launcher_name: &str,
+        mcp_activation: McpActivation,
         title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
@@ -230,6 +232,7 @@ impl InstancePresenter {
         let launcher_title = launcher_title(launcher_name, kind);
         let title_bar = new_title_bar(
             kind,
+            mcp_activation,
             title_bar_metrics,
             &launcher_title,
             root.content_location.clone(),
@@ -253,6 +256,12 @@ impl InstancePresenter {
 
     pub fn parameters(&self) -> &InstanceParameters {
         &self.parameters
+    }
+
+    /// Shows a changed MCP activation (ADR 0036).
+    pub fn set_mcp_activation(&mut self, mcp_activation: McpActivation) {
+        self.title_bar
+            .set_background_color(mcp_activation.instance_title_bar_background(self.kind()));
     }
 
     /// The instance's kind (ADR 0014): an assistant carries its own temporary
@@ -727,16 +736,13 @@ fn background_shape(rect: Rect) -> Shape {
 /// the launcher's title. Assistant instances are set apart by their background color.
 fn new_title_bar(
     kind: InstanceKind,
+    mcp_activation: McpActivation,
     metrics: InstanceTitleBarMetrics,
     launcher_title: &str,
     parent_location: Handle<Location>,
 ) -> TitleBarPresenter {
-    let background_color = match kind {
-        InstanceKind::Primary => colors::instance::PRIMARY_TITLE_BAR_BACKGROUND,
-        InstanceKind::Assistant => colors::instance::ASSISTANT_TITLE_BAR_BACKGROUND,
-    };
     let style = TitleBarStyle {
-        background_color,
+        background_color: mcp_activation.instance_title_bar_background(kind),
         font_size: metrics.font_size,
         indent: metrics.indent,
     };

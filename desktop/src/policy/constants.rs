@@ -15,6 +15,17 @@ pub mod structural_animation {
     pub const INTERPOLATION: Interpolation = Interpolation::CubicOut;
 }
 
+/// The MCP activation indicator's color change when an MCP root starts or stops covering content
+/// (ADR 0036).
+pub mod mcp_indicator {
+    use std::time::Duration;
+
+    use massive_animation::Interpolation;
+
+    pub const COLOR_DURATION: Duration = Duration::from_millis(300);
+    pub const COLOR_INTERPOLATION: Interpolation = Interpolation::CubicOut;
+}
+
 /// The outline drawn around the hovered or focused target.
 pub mod hover_outline {
     use std::time::Duration;
