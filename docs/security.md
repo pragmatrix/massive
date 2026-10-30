@@ -16,15 +16,15 @@ be readable by the same processes it is meant to keep out. Massive's checks ther
 process can do **through a channel massive controls**, such as MCP. They cannot limit what a process
 does on its own.
 
-The MCP bridge is no security boundary. Any same-user process can open the control
-socket and send control messages without it. The boundary is the desktop's control host, which
-decodes and checks everything that arrives on the socket.
+The MCP bridge is no security boundary. Any same-user process can open the desktop
+socket and speak the tool protocol without it. The boundary is the desktop's tool host, which
+decodes and checks everything that arrives on a tool connection.
 
 ## Surfaces
 
 | Surface | Who uses it | Decided in |
 |---|---|---|
-| The control socket in `~/.massive/run/` | The MCP bridge | [ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md) |
+| The desktop socket in `~/.massive/run/` | The MCP bridge, and any tool client | [ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md) |
 | The file descriptor an instance inherits | The CLI | [ADR 0011](adr/0011-desktop-is-a-fractal-of-projects-in-slots.md), [ADR 0024](adr/0024-configuration-operations-are-one-command-vocabulary.md) |
 | `~/.massive/desktop.json` | The user, any same-user process | [ADR 0013](adr/0013-desktop-configuration-is-json-derived-from-the-aggregate.md) |
 
@@ -36,13 +36,13 @@ with a reason. A new check is added to the module and to this table in the same 
 
 | Check | Enforces | Status |
 |---|---|---|
-| Control input | Every frame and every tool's arguments are decoded at the control host's entry, within size caps and the JSON nesting limit, and malformed input returns an error, never a panic. | Planned (ADR 0036) |
-| Root selection | A control connection is bound to the one MCP root at or above its selector, or to none. | Planned (ADR 0036) |
-| Coverage | Every slot, launcher and instance a tool call names lies inside its MCP root's subtree, as source and as destination. An instance outside is reported as unknown. | Planned (ADR 0036) |
-| Access scope | Every tool call needs an access scope the MCP root grants. A removal that stops instances also needs `act`. | Planned (ADR 0036) |
+| Tool protocol input | Every frame is decoded at the tool host's entry. A frame over 1 MiB is rejected before it is read, JSON keeps the decoder's default nesting limit, and malformed input returns an error, never a panic. | Implemented: the limit by `massive_protocol::frames`, the decoding in the tool host (`desktop/src/tool_host/connection.rs`) |
+| Connection target | A tool connection is bound to the one MCP root that covers its target, or declined. A target outside every MCP root is declined like one that does not exist. A call is carried out only while its binding lives, so a call queued before its MCP root changed fails. | Implemented: `security::connecting_to_target`, the bindings in the tool host |
+| Coverage | Every slot, launcher and instance a tool call names lies inside its MCP root's subtree, as source and as destination. An instance outside is reported as unknown, and no reply names a project above the MCP root, not even through its target path. | Planned (ADR 0036). The replies name nothing above the MCP root already. |
+| Access scope | Every tool call needs an access scope the MCP root grants. A removal that stops instances also needs `act`. | Implemented for the tool's scope: `security::calling_tool`. Removals arrive with the organizing tools. |
 | No MCP configuration from inside | `ConfigureMcp` is refused when it comes from an instance that any MCP root covers. | Implemented: `security::configuring_mcp` |
 | No nested MCP roots | No change may place an MCP root inside another MCP root's subtree, and the root project is never an MCP root. A loaded file's nested roots lose their `mcp` object. | Enabling is checked by `security::making_mcp_root`. Moves are planned with `desktop_move_slot` (ADR 0036). |
-| No desktop-wide control | A control connection cannot change the focus, the camera or the startup launcher. | Planned (ADR 0036) |
+| No desktop-wide changes | A tool connection cannot change the focus, the camera or the startup launcher. | Planned (ADR 0036) |
 | Tool ownership | A call to an application tool targets an instance whose application declared that tool. | Planned (ADR 0036) |
 
 ## Known gaps
@@ -55,8 +55,8 @@ until it is closed.
 2. **Any same-user process can edit `~/.massive/desktop.json`.** The edited access scopes apply at
    the next desktop start. The project header shows them, but nothing announces them until the
    desktop has transient notifications.
-3. **Any same-user process can open the control socket and select any MCP root.** It can pass
-   `--project` with another MCP root's path. Binding a connection to one MCP root keeps an agent's
+3. **Any same-user process can open the desktop socket and connect to any MCP root.** It can pass
+   `--target` with a path inside another MCP root. Binding a connection to one MCP root keeps an agent's
    view focused, but it does not isolate MCP roots from each other.
 4. **An agent with a shell does not need MCP at all.** It can run commands and read files on its own,
    with the user's full rights.

@@ -5,8 +5,8 @@
 Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md) (projects and slots),
 [ADR 0024](./0024-configuration-operations-are-one-command-vocabulary.md) (one command vocabulary),
 and [ADR 0029](./0029-exceptional-desktop-behaviors-are-decided-by-the-desktop-policy.md) (the
-desktop policy). The connection reuses the `session` layer that
-[the out-of-process applications plan](../out-of-process-applications-plan.md) designs.
+desktop policy). The desktop socket is shared later with
+[the out-of-process applications plan](../out-of-process-applications-plan.md).
 Security-relevant consequences are tracked in [the security document](../security.md).
 
 ## Problem
@@ -88,92 +88,119 @@ keyboard and processes outside every MCP root are unaffected.
 
 ### Agents connect through the MCP bridge
 
-**The MCP bridge is the only process that speaks MCP.** An application offers it as an `mcp`
-subcommand of its binary, and an agent configures that as a stdio MCP server. The bridge's code lives in a massive crate, `massive-mcp`,
-built on `rmcp`, the official Rust MCP SDK. Any massive-based application can offer it as a
-subcommand. The desktop does not depend on `massive-mcp` or on MCP.
+**The MCP bridge is the only process that speaks MCP.** An application offers it as the
+`mcp serve` subcommand of its binary, and an agent configures that as a stdio MCP server. The
+bridge's code lives in a massive crate, `massive-mcp`, built on `rmcp`, the official Rust MCP SDK.
+Any massive-based application can offer it as a subcommand. The desktop does not depend on
+`massive-mcp` or on MCP.
 
-**The bridge is generic.** It turns MCP's tool calls into control messages and their results back
-into MCP results. It knows no tool and never looks inside a tool's arguments.
+**The bridge is generic.** It turns MCP's tool calls into tool protocol messages and their results
+back into MCP results. It knows no tool and no access scope, and never looks inside a tool's
+arguments or results. It passes error codes on as names, without interpreting them.
 
-**The bridge is no security boundary.** Any same-user process can open the control socket and send
-control messages without going through the bridge. The boundary is the desktop's control host,
+**The bridge is no security boundary.** Any same-user process can open the desktop socket and
+speak the tool protocol without going through the bridge. The boundary is the desktop's tool host,
 described below.
 
-**The bridge reaches the desktop through the control connection.** The control connection is a Unix
-socket connection that speaks the `control` protocol described below. The socket lives in
-`~/.massive/run/`, a directory the desktop creates with mode `0700`. `$TMPDIR` is not used, because
-macOS purges files there that go unused for a few days, and the desktop runs for long periods.
+**The bridge is a tool client, and it reaches the desktop through a tool connection.** A tool
+client is any process that connects to the desktop to call tools. A tool connection is its Unix
+socket connection to the desktop socket, which speaks the tool protocol described below. The
+desktop socket is `~/.massive/run/desktop.sock`, in a directory the desktop creates with mode
+`0700`. `$TMPDIR` is not used, because macOS purges files there that go unused for a few days, and
+the desktop runs for long periods.
 
-**The socket exists if and only if at least one MCP root exists.** The desktop creates it when the
-first MCP root appears and removes it when the last one goes.
+**The desktop socket exists while the desktop runs.** Only the user can reach it, because its
+directory has mode `0700`, and the user is the trust boundary (see the security document). Without
+an MCP root, every tool connection is declined, so no tool is reachable. A missing socket therefore
+always means that no desktop runs.
 
-**The desktop tells every process it spawns where to connect.** It sets `MASSIVE_SOCKET` to the
-socket's path and `MASSIVE_ORIGIN` to an opaque token that names the spawning instance. An application
-that starts processes of its own passes both on to them. This takes the discovery step of the out-of-process applications plan
-forward, unchanged.
+**The tool host learns about changed MCP roots from the changes that change them.** Only
+`ConfigureMcp` and the removal of a project that is an MCP root configure, reconfigure, disable or
+remove one. They say so in the transaction's change surface, and the tool host closes the tool
+connections bound to those MCP roots.
 
-### The handshake selects the MCP root
+**The desktop tells every process it starts where to connect.** Every application learns the
+desktop socket's path and the id of its instance from its instance context. It passes both to the
+processes it starts, as `MASSIVE_SOCKET` and `MASSIVE_INSTANCE`.
 
-The control connection opens with the `session` handshake of the out-of-process applications plan.
-The bridge declares the role `control`, offers one version of each protocol it speaks, and attaches
-a role payload that the `control` protocol's version decodes. The payload names a root selector. A
-root selector is either the origin token, or an absolute target path from `--project PATH`.
+### A tool connection is bound to the MCP root that covers its target
 
-The desktop walks up from the selected project to the MCP root at or above it. Because MCP roots
-never nest, at most one exists, so the selection involves no choice. The handshake reply carries the
-MCP root's id, its target path, its access scopes, and the tool catalog. The catalog lists every
-tool the access scopes grant, the desktop's and the applications' alike. Otherwise the reply
-declines with a reason.
+**A tool client connects to a target.** The target is a desktop target, either an instance, named
+by its id from `MASSIVE_INSTANCE`, or a target path from `mcp serve --target PATH`. The target path
+may name a project or a launcher. The desktop walks up from the target's project to the MCP root at
+or above it. Because MCP roots never nest, at most one exists, so the binding involves no choice.
 
-**A bridge that no MCP root covers still starts.** This happens when the socket is missing, when
-the selector lies outside every MCP root, or when there is neither an origin nor `--project`. The
-bridge then answers MCP's `initialize` without the `tools` capability, which is MCP's way to say
-that a server offers no tools. The reply's `instructions` field explains why, for example "this
-process is not inside an MCP project". It does not name other MCP roots. A user can therefore
-register the bridge once in their agent's user configuration, and it stays harmless in every
-instance no MCP root covers.
+The reply names only the tools, every tool the MCP root's access scopes grant, the desktop's and
+the applications' alike, in the form of MCP's tool list. The bridge answers MCP's `tools/list` from them without asking the desktop again.
+Otherwise the reply declines with a reason. An instance or a target path that no MCP root covers is
+declined the same way as one that does not exist, so a connection learns nothing about what lies
+outside every MCP root.
 
-**A control connection lives as long as its MCP root stays unchanged.** Removing the MCP root,
-changing its access scopes, or quitting the desktop closes the connection, and the bridge exits.
-The bridge does not reconnect, and the protocol has no events. A changed MCP root is picked up by
-starting a new agent session or reconnecting the MCP server in the agent.
+**A bridge that no MCP root covers still starts.** This happens when the desktop is not running,
+when the target lies outside every MCP root, or when there is neither `MASSIVE_INSTANCE` nor
+`--target`. The bridge then answers MCP's `initialize` without the `tools` capability, which is
+MCP's way to say that a server offers no tools. The reply's `instructions` field explains why, for
+example "this process is not inside an MCP project". It does not name other MCP roots. A user can
+therefore register the bridge once in their agent's user configuration, and it stays harmless in
+every instance no MCP root covers.
 
-### The `control` protocol
+**A tool connection lives as long as its MCP root stays unchanged.** Removing the MCP root,
+changing its access scopes, or quitting the desktop ends the connection. The desktop first sends
+the reason, and the bridge answers every call still pending with the tool error `connection_closed`
+and exits. The bridge does not reconnect, and the protocol has no events. A changed MCP root is
+picked up by starting a new agent session or reconnecting the MCP server in the agent.
 
-`control::v1` is a frozen version module, like every protocol of the out-of-process applications
-plan. Frames are postcard-encoded. A tool's arguments and its result travel as JSON in UTF-8
-strings inside them. The protocol carries tool calls only, so tools can change without a new
-version of it.
+### The tool protocol
+
+**The tool protocol is the only protocol a tool connection speaks.** It has one version for the whole
+connection, and its messages live in the frozen module `tools::v1` of the crate `massive-protocol`,
+which the desktop and `massive-mcp` share. There is no separate session layer. The first frame on
+the desktop socket is a `Connect` enum whose variant names the protocol, today only
+`Connect::Tools { version, target }`. A later protocol, such as the one of the out-of-process
+applications plan, adds a variant at the end. Postcard encodes a variant by its index, so an older
+desktop cannot decode a newer variant and closes the connection.
+
+**Frames are length-prefixed postcard.** Every frame is a 4-byte big-endian length followed by the
+postcard encoding of one message. A frame may be at most 1 MiB in either direction, which is the
+protocol's only size limit. A tool's arguments and its result travel as JSON text inside the
+messages, so tools can change without a new version of the protocol. Error codes travel as names, so a
+new error code needs no new version either. Access scopes never travel. The desktop checks them,
+and the tool list contains only the tools they grant.
 
 | Message | Direction | Meaning |
 |---|---|---|
-| `Open { selector }` | handshake payload | Names the root selector. |
-| `Opened { root_id, path, access_scopes, catalog }` | handshake reply | The selected MCP root and the tools its access scopes grant. |
-| `Declined { reason }` | handshake reply | No MCP root covers the selector. |
-| `CallTool { call_id, tool, arguments }` | bridge to desktop | Calls a tool by its name. |
-| `ToolResult { call_id, outcome }` | desktop to bridge | The tool's result, or a tool error. |
-| `CancelTool { call_id }` | bridge to desktop | The agent cancelled the call. |
+| `Connect::Tools { version, target }` | client to desktop, first | Names the protocol version and the target. |
+| `Connected { tools }` | desktop to client, reply | The connection is bound to the MCP root that covers the target. `tools` are the tools its access scopes grant. |
+| `Declined { reason }` | desktop to client, reply | No MCP root covers the target. |
+| `Unsupported { supported_versions }` | desktop to client, reply | The desktop does not speak the requested version. |
+| `CallTool { call_id, tool, arguments }` | client to desktop | Calls a tool by its name. The client chooses the call id. |
+| `CancelTool { call_id }` | client to desktop | The agent cancelled the call. |
+| `ToolResult { call_id, outcome }` | desktop to client | The tool's result as JSON text, or an error code and a sentence. |
+| `Closing { reason }` | desktop to client, last | The desktop ends the connection, for example because the MCP root's access scopes changed. |
 
-Ids inside arguments and results are session ids. They are valid only while the desktop runs. A
-call that names a stale id fails.
+Several calls may be in flight on one connection. Ids inside arguments and results are session ids.
+They are valid only while the desktop runs, and a call that names a stale id fails.
 
-**The control host is the security boundary.** The control host is the part of the desktop that
-serves control connections. It decodes every frame at its entry, before anything else runs. It caps
-the size of every frame and of every `arguments` string, keeps the JSON decoder's nesting limit,
-and answers malformed input with an error, never with a panic. massive's release profile aborts on a
-panic, so a panic in the control host would end the desktop with every instance.
+**The tool host is the security boundary.** The tool host is the part of the desktop that serves
+tool connections. It decodes every frame at its entry, before anything else runs. It rejects every
+frame over 1 MiB before reading it, keeps the JSON decoder's default nesting limit, and answers
+malformed input with an error, never with a panic. The nesting limit matters even below the size
+limit, because 1 MiB of nested arrays would otherwise exhaust the stack of a recursive decoder.
+massive's release profile aborts on a panic, so a panic in the tool host would end the desktop with
+every instance.
 
 **The desktop checks every call.** Every call needs an access scope the MCP root grants. For a
 desktop tool, every slot, launcher and instance the decoded call names, as source and as
 destination, must lie inside the MCP root's subtree. For an application tool, the instance must lie
 inside the subtree, and its application must provide the tool. A call cannot change the focus or
-the camera on its own, and it cannot set the startup launcher, which belongs to the whole desktop. An instance
-outside the subtree is reported as unknown, so a connection learns nothing about what lies outside
-its MCP root.
+the camera on its own, and it cannot set the startup launcher, which belongs to the whole desktop.
+**A tool connection learns nothing about what lies outside its MCP root.** That covers instances,
+which a call reports as unknown when they lie outside, and the names of the projects above the MCP
+root, which no reply contains. A connection therefore never sees the MCP root's target path, only
+its name.
 
-Several control connections may be open on one MCP root. Their commands go through the desktop's
-command queue in order, as keyboard commands do.
+Several tool connections may be open on one MCP root. Their calls go through the desktop's
+event loop in order, together with keyboard and CLI commands.
 
 ### Tools are named by MCP ids
 
@@ -190,7 +217,7 @@ id is `desktop`, which no application may use.
 **A tool's name joins the provider's MCP id and the tool's MCP id with `_`.** An application with the MCP id
 `notes` and a tool `read_page` offers `notes_read_page`, for example. The provider of an MCP id decides
 whether it uses `_` or `-` inside it. That makes a name unparseable in general, so the bridge and
-the desktop never split names. They look names up in the catalog instead. The application registry
+the desktop never split names. They look names up in the tool list instead. The application registry
 rejects a duplicate MCP id and any two tools whose joined names collide.
 
 ### Tools are declared as Rust types
@@ -200,17 +227,17 @@ rejects a duplicate MCP id and any two tools whose joined names collide.
 traits and `schemars`' `JsonSchema`, together with the tool's MCP id, its access scope and a
 description. A declaration reads like
 `Tool::new::<ReadPage, ReadPageResult>("read_page", AccessScope::Read, "…")`. A provider's tools are
-fixed for the life of the desktop, so they cannot change during a control connection.
+fixed for the life of the desktop, so they cannot change during a tool connection.
 
 **The tool API does all the JSON work.** It derives each tool's input and output schemas from the
 types, so a schema cannot drift from the code. It decodes the arguments into the parameter type
-with the control host's limits. It encodes the result as MCP's `structuredContent` and repeats the
+within the tool host's limits. It encodes the result as MCP's `structuredContent` and repeats the
 same JSON as text, as the MCP specification recommends. A provider fails a call with a typed error
 code, which the API turns into a tool result with MCP's `isError` set and the text
 `<code>: <sentence>`. A provider never handles JSON itself.
 
 **Each provider decodes its own tools' arguments.** The desktop decodes the arguments of its own
-tools in the control host. For an application tool, the control host reads only `instance_id`,
+tools in the tool host. For an application tool, the tool host reads only `instance_id`,
 removes it from the arguments, checks the call, and forwards the rest. The application side of the
 tool API decodes them inside the instance, today in the desktop's process and later in the
 out-of-process client library. Every argument is therefore decoded once, by the code that owns it.
@@ -239,7 +266,7 @@ tool API decodes it before the application sees it. The application answers thro
 which submits `InstanceChange::ToolResult { call_id, outcome }` immediately.
 
 **A tool call may take as long as it needs.** The desktop sets no deadline. A call ends when the
-application answers, when the agent cancels it, or when the control connection closes. The desktop
+application answers, when the agent cancels it, or when the tool connection closes. The desktop
 sends `ApplicationMessage::CancelToolCall { call_id }` in the last two cases. A tool that waits takes
 its own `timeout_ms` argument, and the application enforces a maximum. An application keeps a
 waiting call pending without blocking its event loop, and several calls may be in flight per
@@ -258,7 +285,7 @@ and assistant title bars stay distinguishable inside an MCP root.
 ### Security checks live in one module
 
 **Every security-relevant check of the desktop lives in the `security` module
-(`desktop/src/security/`).** This covers bounding control input, resolving a root selector,
+(`desktop/src/security/`).** This covers bounding tool protocol input, binding a tool connection to the MCP root of its target,
 checking that a call's targets are covered, checking access scopes, refusing `ConfigureMcp`
 from a covered instance, and rejecting nested MCP roots. Each check is a pure function that takes
 the facts it needs and returns an allowance or a refusal with a reason, like the rules of the
@@ -286,8 +313,10 @@ and the known ways around it.
 - `desktop.json` gains the optional `mcp` object on project nodes.
 - Configuration commands and `StartInstance` gain a focus intent, so the planner can carry out a
   command without moving the focus.
-- The `session` handshake and the `~/.massive/run/` socket are built before the rest of the
-  out-of-process applications plan, as its first slice.
+- The desktop socket in `~/.massive/run/` and `massive-protocol` are built before the
+  out-of-process applications plan, which adds its own protocol as another `Connect` variant.
+- Applications gain `MASSIVE_SOCKET` and `MASSIVE_INSTANCE` from their instance context, and pass
+  them to the processes they start.
 - **Access scopes are not a sandbox.** They are a hard limit for agents whose only reach is MCP. For
   agents that also have a shell they state the user's intent, and the known ways around them are
   listed in [`docs/security.md`](../security.md).
@@ -299,8 +328,8 @@ and the known ways around it.
   Every MCP client supports stdio.
 - **The desktop speaks MCP directly, and the bridge only copies bytes.** Rejected. It puts `rmcp`
   into the desktop, and the desktop would speak a protocol whose versions it does not control.
-- **Typed control messages for the desktop's tools.** Rejected. Each desktop tool lived in three
-  places, as a schema in the bridge, a control message, and a handler in the desktop. The bridge
+- **A tool protocol message per desktop tool.** Rejected. Each desktop tool lived in three
+  places, as a schema in the bridge, a tool protocol message, and a handler in the desktop. The bridge
   parsed values that the desktop had to check again anyway, because any process can skip the
   bridge.
 - **Each provider handles JSON itself.** Rejected. Every application would repeat decoding,
@@ -318,7 +347,19 @@ and the known ways around it.
 - **One connection that reaches every MCP root.** Rejected. An agent would have to pick a root for
   every call.
 - **A separate bind message after the handshake.** Rejected. Because MCP roots never nest, the
-  selector determines the MCP root without a choice, so it belongs in the handshake.
+  target determines the MCP root without a choice, so it belongs in the first message.
+- **A session layer shared by every protocol, with roles, per-protocol versions, a byte order and a
+  role payload.** Rejected for now. It would carry fields that only the out-of-process
+  applications need, and its role payload would be decoded twice. A `Connect` variant per protocol
+  identifies the protocol with one decode.
+- **WebSocket framing.** Rejected. It adds an HTTP upgrade, masks every byte the client sends, and
+  brings features the tool protocol does not need. A length prefix gives the same message
+  boundaries.
+- **A desktop socket that exists only while an MCP root exists.** Rejected. Without an MCP root,
+  no tool is reachable anyway, and only the user can reach the socket. The rule would cost a socket
+  lifecycle, and a missing socket would not tell whether a desktop runs.
+- **One socket per protocol.** Rejected. `MASSIVE_SOCKET` would name only one of them, and each
+  socket would need its own lifecycle.
 
 ## Follow-ups
 
@@ -326,5 +367,3 @@ and the known ways around it.
   notifications ([`docs/desktop-notifications-plan.md`](../desktop-notifications-plan.md)).
 - Enabling MCP and changing access scopes from the keyboard.
 - Application-qualified access scopes such as `act:term`.
-- Keeping the socket while applications attach through it, once the out-of-process applications plan
-  needs that.

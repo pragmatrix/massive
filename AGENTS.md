@@ -16,7 +16,7 @@ A guard, redirect, or fallback that users could expect to work differently is de
 
 `docs/security.md` tracks the trust model, every security check, and the known gaps. A check that
 guards what a process outside the desktop may do lives in `desktop/src/security/`, never in the
-desktop policy. Read the document before touching the control socket, the CLI's inherited file
+desktop policy. Read the document before touching the desktop socket, the CLI's inherited file
 descriptor, or MCP, and update it in the same change.
 
 ## Tuning values

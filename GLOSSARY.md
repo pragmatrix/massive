@@ -245,7 +245,7 @@ A validated name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*`. A
 _Avoid_: application id, short name
 
 **MCP bridge**:
-The process an agent runs as its MCP server, an application's `mcp` subcommand. It is the only process that speaks MCP, and it reaches the desktop through a control connection.
+The process an agent runs as its MCP server, an application's `mcp serve` subcommand. It is the only process that speaks MCP. It is a tool client and reaches the desktop through a tool connection.
 _Avoid_: MCP server (for the desktop), proxy
 
 **Focus intent**:
@@ -256,13 +256,25 @@ _Avoid_: focus mode, focus policy
 The desktop, or an application with an MCP id, as the owner of MCP tools. It declares its tools as Rust types through the typed tool API and decodes their arguments itself (ADR 0036).
 _Avoid_: tool server, MCP server
 
-**Control host**:
-The part of the desktop that serves control connections. It decodes and checks everything that arrives on the control socket, so it is the MCP security boundary (ADR 0036).
-_Avoid_: control server, MCP server
+**Tool protocol**:
+The messages a tool client exchanges with the desktop over a tool connection: connecting to a target, tool calls, their results, cancellations, and the desktop's reason for closing. It carries tool calls only, so tools can change without a new version of it. Its messages live in `massive-protocol` (ADR 0036).
+_Avoid_: control protocol, MCP protocol, session
 
-**Control connection**:
-The connection between an MCP bridge and the desktop over the control socket. It is bound to one MCP root for its whole life and speaks the typed `control` protocol.
-_Avoid_: session (collides with the desktop session), bind, MCP connection
+**Tool client**:
+A process that connects to the desktop to call tools on the MCP root that covers its target. The MCP bridge is the only one today (ADR 0036).
+_Avoid_: control client, agent (any process can connect), MCP client
+
+**Tool host**:
+The part of the desktop that serves tool connections. It decodes and checks everything that arrives on them, so it is the MCP security boundary (ADR 0036).
+_Avoid_: control host, tool server, MCP server
+
+**Tool connection**:
+The connection between a tool client and the desktop over the desktop socket. It is bound to the MCP root that covers its target for its whole life and speaks the tool protocol (ADR 0036).
+_Avoid_: control connection, session (collides with the desktop session), MCP connection
+
+**Desktop socket**:
+The Unix socket `~/.massive/run/desktop.sock` through which processes connect to the desktop. Its path reaches processes as `MASSIVE_SOCKET`. It exists while the desktop runs, and only the user can reach it (ADR 0036).
+_Avoid_: control socket, MCP socket
 
 **Shaping engine**:
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.

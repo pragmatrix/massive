@@ -59,6 +59,8 @@ with an error code, a colon and a space, followed by a sentence for the agent. T
 | `scope_not_granted` | The MCP root does not grant the tool's access scope, or the command would stop running instances without `act`. |
 | `invalid_argument` | An argument breaks the schema's rules, such as a slot position outside the matrix. |
 | `refused` | The desktop refused the command, and the text gives the reason. Examples are a move onto an assigned slot, a move into the content's own subtree, nesting one MCP root inside another, and ungrouping an MCP root. |
+| `too_large` | The call's arguments or its result exceed the tool protocol's frame limit of 1 MiB. Only this call fails. |
+| `connection_closed` | The tool connection ended before the desktop answered the call, for example because the MCP root's configuration changed. |
 
 ## Shared types
 
@@ -162,27 +164,18 @@ set none.
 
 ### `desktop_describe`
 
-Access scope `observe`. Returns the MCP root and everything it covers.
+Access scope `observe`. Returns the MCP root and everything it covers. It names nothing above the MCP
+root, not even its target path, because a connection learns nothing about what lies outside it.
 
 **Issues:** nothing. It reads the desktop's state. **Keyboard:** none.
 
 ```text
 desktop_describe {}
-→ {
-  path: string,   // the MCP root's target path [M]
-  root: Project   // the MCP root and its subtree [A F]
-}
+→ Project   // the MCP root and its subtree [A F]
 ```
 
-| Result field | Type | Meaning |
-|---|---|---|
-| `path` | string | The MCP root's target path, such as `/Work/home`. |
-| `root` | `Project` | The MCP root with all its slots, nested projects, launchers and running instances. |
-
-**Why the desktop adds its own fields:**
-
-- `path`: It tells the agent where it works, in the form the user sees in project headers and
-  writes in the CLI. The agent can name the project when it talks to the user.
+The result is the MCP root as a `Project`, with all its slots, nested projects, launchers and
+running instances. The agent can name the project by its `name` when it talks to the user.
 
 ### `desktop_assign_slot`
 
