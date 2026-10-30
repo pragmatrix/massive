@@ -13,7 +13,7 @@ use tokio_util::bytes::{Bytes, BytesMut};
 use massive_protocol::tools::v1::{self, ClientMessage, ConnectReply, HostMessage, ToolOutcome};
 use massive_protocol::{Connect, Frames, MAX_FRAME_LENGTH, decode, encode, frames};
 
-use super::{BindingId, ConnectAnswer, ToolRequest};
+use super::{BindingId, ConnectOutcome, ToolRequest};
 
 /// Serves one tool connection until either side ends it. Malformed input ends the connection with a
 /// log line, never with a panic.
@@ -37,10 +37,10 @@ async fn run(frames: &mut Frames, requests: &UnboundedSender<ToolRequest>) -> Re
         bail!("unsupported tool protocol version {version}");
     }
 
-    let (reply, answer) = oneshot::channel();
+    let (reply, outcome) = oneshot::channel();
     requests.send(ToolRequest::Connect { target, reply })?;
-    let (binding, closing) = match answer.await? {
-        ConnectAnswer::Bound {
+    let (binding, closing) = match outcome.await? {
+        ConnectOutcome::Bound {
             binding,
             tools,
             closing,
@@ -49,7 +49,7 @@ async fn run(frames: &mut Frames, requests: &UnboundedSender<ToolRequest>) -> Re
             send(frames, &connected).await?;
             (binding, closing)
         }
-        ConnectAnswer::Declined { reason } => {
+        ConnectOutcome::Declined { reason } => {
             send(frames, &ConnectReply::Declined { reason }).await?;
             return Ok(());
         }

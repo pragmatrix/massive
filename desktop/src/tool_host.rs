@@ -36,7 +36,7 @@ use crate::security;
 pub enum ToolRequest {
     Connect {
         target: Target,
-        reply: oneshot::Sender<ConnectAnswer>,
+        reply: oneshot::Sender<ConnectOutcome>,
     },
     CallTool {
         binding: BindingId,
@@ -46,9 +46,10 @@ pub enum ToolRequest {
     },
 }
 
-/// The desktop loop's answer to [`ToolRequest::Connect`].
+/// What the desktop loop does with a [`ToolRequest::Connect`]. It binds the connection to an MCP
+/// root or declines it.
 #[derive(Debug)]
-pub enum ConnectAnswer {
+pub enum ConnectOutcome {
     /// The connection is bound to an MCP root, whose access scopes grant `tools`. It names its calls
     /// by `binding`, and `closing` fires with a reason when the desktop ends it.
     Bound {
@@ -121,20 +122,20 @@ impl ToolHost {
     pub fn answer(&mut self, request: ToolRequest, system: &DesktopSystem) {
         match request {
             ToolRequest::Connect { target, reply } => {
-                let answer = match system.bind_tool_connection(&target) {
+                let outcome = match system.bind_tool_connection(&target) {
                     Some(bound) => {
                         let (binding, closing) = self.bind(bound.root);
-                        ConnectAnswer::Bound {
+                        ConnectOutcome::Bound {
                             binding,
                             tools: bound.tools,
                             closing,
                         }
                     }
-                    None => ConnectAnswer::Declined {
+                    None => ConnectOutcome::Declined {
                         reason: security::DECLINED_TARGET.into(),
                     },
                 };
-                let _ = reply.send(answer);
+                let _ = reply.send(outcome);
             }
             ToolRequest::CallTool {
                 binding,

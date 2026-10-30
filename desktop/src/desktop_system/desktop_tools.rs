@@ -154,24 +154,24 @@ impl DesktopSystem {
         }
     }
 
-    fn describe_launcher(&self, launcher: LaunchProfileId) -> LauncherDescription {
-        let record = &self.aggregates.configuration[launcher];
+    fn describe_launcher(&self, id: LaunchProfileId) -> LauncherDescription {
+        let launcher = &self.aggregates.configuration[id];
         LauncherDescription {
-            id: uuid::Uuid::from(launcher).to_string(),
-            name: record.name.clone(),
-            mode: match record.mode {
+            id: uuid::Uuid::from(id).to_string(),
+            name: launcher.name.clone(),
+            mode: match launcher.mode {
                 LauncherMode::Visor => LauncherModeDescription::Visor,
                 LauncherMode::Band => LauncherModeDescription::Band,
             },
-            params: record.params.clone(),
-            full_screen_mode: match record.full_screen_mode {
+            params: launcher.params.clone(),
+            full_screen_mode: match launcher.full_screen_mode {
                 FullScreenMode::Regular => FullScreenModeDescription::Regular,
                 FullScreenMode::FullScreen => FullScreenModeDescription::Fullscreen,
             },
             instances: self
                 .aggregates
                 .hierarchy
-                .launcher_instances(launcher)
+                .launcher_instances(id)
                 .map(|instance| self.describe_instance(instance))
                 .collect(),
         }
