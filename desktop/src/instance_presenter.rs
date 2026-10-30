@@ -21,8 +21,9 @@ use massive_shapes::{self as shapes, Shape};
 use crate::desktop_system::McpActivation;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, DesktopCommand, InstancePart, KeyContext, KeyHandler, KeyInput, KeyOutcome,
-    LayoutContext, Shortcut, TargetLayout, fullscreen_scale, place_container_children, view_size,
+    AppliedLayout, DesktopCommand, FocusIntent, InstancePart, KeyContext, KeyHandler, KeyInput,
+    KeyOutcome, LayoutContext, Shortcut, TargetLayout, fullscreen_scale, place_container_children,
+    view_size,
 };
 use crate::policy::colors;
 use crate::policy::constants::{instance_title_bar, structural_animation};
@@ -636,6 +637,7 @@ impl InstancePresenter {
             root: None,
             parameters,
             kind,
+            focus: FocusIntent::Follow,
         }
     }
 

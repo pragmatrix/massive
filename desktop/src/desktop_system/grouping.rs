@@ -10,13 +10,14 @@ use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange,
 use super::configuration_planning::plan_add_project_topology;
 use super::reparenting::Reparenting;
 use super::selection::Selection;
-use super::{DesktopTarget, FocusableTarget, KeyboardFocusReason, ProjectPart};
+use super::{DesktopTarget, FocusIntent, FocusableTarget, KeyboardFocusReason, ProjectPart};
+use crate::policy::when::UngroupingFocus;
 use crate::projects::{
-    ProjectId, RuntimeConfiguration, SlotPosition, group_landings, matrix_bounding_box,
+    ProjectId, RuntimeConfiguration, SlotContent, SlotPosition, group_landings, matrix_bounding_box,
 };
 
-/// Plans grouping the `selected_slots` of `parent` into a new project named `name` and focusing
-/// it.
+/// Plans grouping the `selected_slots` of `parent` into a new project named `name`, and focusing it
+/// when `focus` follows.
 ///
 /// The changes run in this order, because each one needs what the one before it creates. The
 /// `Group` change creates the project and its presenter. The topology change adds the project's
@@ -26,6 +27,7 @@ pub fn plan(
     parent: ProjectId,
     selected_slots: Vec<SlotPosition>,
     name: String,
+    focus: FocusIntent,
     configuration: &RuntimeConfiguration,
 ) -> Changes {
     let project = ProjectId::new();
@@ -42,34 +44,83 @@ pub fn plan(
     for (outer, inner) in landings {
         changes += Reparenting::plan((parent, outer), (project, inner), configuration);
     }
-    changes += set_focus(
-        Some(FocusableTarget::Project(project)),
-        KeyboardFocusReason::AddSlotContent,
-    );
+    if focus == FocusIntent::Follow {
+        changes += set_focus(
+            Some(FocusableTarget::Project(project)),
+            KeyboardFocusReason::AddSlotContent,
+        );
+    }
     changes
 }
 
-/// Plans ungrouping the non-empty `project` and selecting its ungrouped slots.
+/// Plans ungrouping the non-empty `project`, and selecting its ungrouped slots when the focus moves
+/// to them.
 ///
 /// The changes run in this order, because each one needs the state the one before it leaves:
 ///
-/// 1. The focus moves to a slot at a corner of the ungrouped slots (see [`ungrouped_selection`]).
-///    The project's removal would otherwise move the focus to the parent project.
+/// 1. When the focus moves, it moves to a slot at a corner of the ungrouped slots (see
+///    [`ungrouped_selection`]). The project's removal would otherwise move the focus to the parent
+///    project.
 /// 2. Slots of the parent that are in the way are pushed aside.
 /// 3. Each of the project's slots is re-parented under the parent's matrix. This happens while the
 ///    project is still placed, so the slots slide from where they are.
 /// 4. The project's topology node is removed. Its slots are no longer below it.
 /// 5. The `Ungroup` change moves the slots into the parent's configuration and removes the
 ///    project there.
-/// 6. The selection reaches from the focused slot to the opposite corner. It comes last, so that
-///    it survives the focus and configuration changes before it.
-pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) -> Changes {
+/// 6. When the focus moved, the selection reaches from the focused slot to the opposite corner. It
+///    comes last, so that it survives the focus and configuration changes before it.
+pub fn plan_ungroup(
+    project: ProjectId,
+    focus: UngroupingFocus,
+    configuration: &RuntimeConfiguration,
+) -> Changes {
     let (parent, slot) = configuration
         .slot_of_content(project)
         .expect("an ungrouped project sits in a slot");
     let landings = configuration.ungroup_landings(project, slot);
     let landing_slots: Vec<_> = landings.iter().map(|(_, landing)| *landing).collect();
-    let selection = ungrouped_selection(&landing_slots);
+
+    let mut changes = Changes::Empty;
+    let selection = match focus {
+        UngroupingFocus::MoveToUngroupedSlots => {
+            let (focused, selection) =
+                ungrouped_focus(project, slot, &landings, &landing_slots, configuration);
+            changes += set_focus(
+                Some(focused.focusable_target()),
+                KeyboardFocusReason::Ungroup,
+            );
+            selection
+        }
+        UngroupingFocus::Keep => None,
+    };
+    for (from, to) in configuration.ungroup_pushes(parent, slot, &landing_slots) {
+        changes <<= ConfigurationChange::MoveSlot {
+            source: (parent, from),
+            dest: (parent, to),
+        };
+    }
+    for (inner, landing) in landings {
+        changes += Reparenting::plan((project, inner), (parent, landing), configuration);
+    }
+    changes <<= TopologyChange::Remove(DesktopTarget::Project(project, ProjectPart::Project));
+    changes <<= ConfigurationChange::Ungroup { parent, slot };
+    if let Some(ungrouped) = selection {
+        changes <<= DesktopChange::SetSelection(ungrouped);
+    }
+    changes
+}
+
+/// The ungrouped slot content that takes the focus, and the selection that covers the ungrouped
+/// slots from there. `project` sits at `slot`, and `landings` pairs each of its slots with where it
+/// lands in the parent.
+fn ungrouped_focus(
+    project: ProjectId,
+    slot: SlotPosition,
+    landings: &[(SlotPosition, SlotPosition)],
+    landing_slots: &[SlotPosition],
+    configuration: &RuntimeConfiguration,
+) -> (SlotContent, Option<Selection>) {
+    let selection = ungrouped_selection(landing_slots);
     // Without an assigned corner, the slot that lands on the project's own slot takes the focus, or
     // else the first slot.
     let focused_landing = selection.map(|(corner, _)| corner).unwrap_or_else(|| {
@@ -87,26 +138,7 @@ pub fn plan_ungroup(project: ProjectId, configuration: &RuntimeConfiguration) ->
     let focused = configuration
         .content_at(project, *focused_inner)
         .expect("a landing belongs to a slot");
-
-    let mut changes = set_focus(
-        Some(focused.focusable_target()),
-        KeyboardFocusReason::Ungroup,
-    );
-    for (from, to) in configuration.ungroup_pushes(parent, slot, &landing_slots) {
-        changes <<= ConfigurationChange::MoveSlot {
-            source: (parent, from),
-            dest: (parent, to),
-        };
-    }
-    for (inner, landing) in landings {
-        changes += Reparenting::plan((project, inner), (parent, landing), configuration);
-    }
-    changes <<= TopologyChange::Remove(DesktopTarget::Project(project, ProjectPart::Project));
-    changes <<= ConfigurationChange::Ungroup { parent, slot };
-    if let Some((_, ungrouped)) = selection {
-        changes <<= DesktopChange::SetSelection(ungrouped);
-    }
-    changes
+    (focused, selection.map(|(_, ungrouped)| ungrouped))
 }
 
 /// The selection that covers all ungrouped slots at `landings` (ADR 0026): the landing at a corner

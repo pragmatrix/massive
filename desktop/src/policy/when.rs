@@ -3,7 +3,7 @@
 //! Each rule is named after its situation and is a pure function of the facts its caller passes in.
 
 use crate::DirectionBias;
-use crate::desktop_system::{Direction, KeyFocus};
+use crate::desktop_system::{Direction, FocusIntent, KeyFocus};
 use crate::projects::Project;
 
 /// What Cmd+Shift+W does to a launcher or a nested project.
@@ -70,6 +70,24 @@ pub fn ungrouping_project(project: &Project) -> UngroupingProject {
         return UngroupingProject::RemoveProject;
     }
     UngroupingProject::MoveSlotsOut
+}
+
+/// Where the focus goes when a project's slots move out of it (ADR 0026, ADR 0036).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UngroupingFocus {
+    /// The focus moves to a corner of the ungrouped slots, and the selection covers them.
+    MoveToUngroupedSlots,
+    Keep,
+}
+
+/// The focus cannot stay on the project that ungrouping removes, so it moves even when the command
+/// keeps the focus.
+#[must_use]
+pub fn ungrouping_focus(intent: FocusIntent, focus_on_project: bool) -> UngroupingFocus {
+    match intent {
+        FocusIntent::Keep if !focus_on_project => UngroupingFocus::Keep,
+        FocusIntent::Keep | FocusIntent::Follow => UngroupingFocus::MoveToUngroupedSlots,
+    }
 }
 
 /// What Esc and Cmd+Esc do (ADR 0030, ADR 0031).

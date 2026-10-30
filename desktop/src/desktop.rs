@@ -21,7 +21,7 @@ use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
-use crate::desktop_system::{DesktopCommand, DesktopSystem, TransactionEffectsMode};
+use crate::desktop_system::{DesktopCommand, DesktopSystem, FocusIntent, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{
     InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
@@ -158,6 +158,7 @@ impl Desktop {
             root: Some(primary_root),
             parameters: boot_parameters,
             kind: InstanceKind::Primary,
+            focus: FocusIntent::Follow,
         };
 
         let initial_submission_changes: Changes =

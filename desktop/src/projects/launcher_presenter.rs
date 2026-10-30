@@ -20,8 +20,8 @@ use super::slot_layout::SlotLayout;
 use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput,
-    KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut, TargetLayout,
+    AppliedLayout, Commands, DesktopCommand, DesktopTarget, FocusIntent, KeyContext, KeyHandler,
+    KeyInput, KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut, TargetLayout,
     measure_container, place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
@@ -203,6 +203,7 @@ impl LauncherPresenter {
             root: None,
             parameters,
             kind,
+            focus: FocusIntent::Follow,
         }
     }
 

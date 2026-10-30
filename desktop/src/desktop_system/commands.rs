@@ -29,6 +29,8 @@ pub enum DesktopCommand {
         /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T` or `Shift+Cmd+Enter`)
         /// carries its own temporary Full Screen Mode.
         kind: InstanceKind,
+        /// With [`FocusIntent::Follow`], the instance takes the focus and the camera zooms to it.
+        focus: FocusIntent,
     },
     StopInstance(InstanceId),
 
@@ -67,6 +69,23 @@ pub enum SelectionOperation {
     /// Moves the selected slots one slot in the direction, and the selection with them
     /// (Ctrl+Shift+Cmd+arrow, ADR 0033).
     Move(Direction),
+}
+
+/// Whether a command that creates or moves content takes the keyboard focus there (ADR 0036). The
+/// keyboard and the CLI follow, so the user lands on what they made. MCP keeps the focus, the
+/// selection and the camera where they are, so an agent never pulls the user away. A focused target
+/// that a command removes hands its focus on either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusIntent {
+    Follow,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the MCP tools that issue it come with the next step"
+        )
+    )]
+    Keep,
 }
 
 /// Every operation a user can perform on the configuration (ADR 0024). A command names its slots
@@ -122,23 +141,28 @@ pub enum ConfigurationCommand {
         slot: SlotPosition,
         direction: Direction,
     },
-    /// Assigns `content` right of the slot that `anchor` sits in, shifting the row, and focuses it,
-    /// so that new content appears where the user works.
+    /// Assigns `content` right of the slot that `anchor` sits in, shifting the row. With
+    /// [`FocusIntent::Follow`], it focuses the content, so that new content appears where the user
+    /// works.
     AddNextTo {
         anchor: SlotContent,
         content: SlotAssignment,
+        focus: FocusIntent,
     },
-    /// Wraps `parent`'s `slots` into a new project named `name`, which takes their place and
-    /// receives the focus (ADR 0026).
+    /// Wraps `parent`'s `slots` into a new project named `name`, which takes their place (ADR 0026).
+    /// With [`FocusIntent::Follow`], the project receives the focus.
     Group {
         parent: ProjectId,
         slots: Vec<SlotPosition>,
         name: String,
+        focus: FocusIntent,
     },
-    /// Moves the slots of a nested project into its parent's matrix, removes the project, and
-    /// selects the ungrouped slots (ADR 0026). An empty project is removed instead (ADR 0029).
+    /// Moves the slots of a nested project into its parent's matrix and removes the project
+    /// (ADR 0026). With [`FocusIntent::Follow`], it selects the ungrouped slots. An empty project is
+    /// removed instead (ADR 0029).
     Ungroup {
         project: ProjectId,
+        focus: FocusIntent,
     },
     SetStartupPath(Option<String>),
     /// Makes `project` an MCP root configured by `mcp`, or no MCP root when it is `None`

@@ -11,7 +11,7 @@ use super::change::{
 };
 use super::selection::Selection;
 use super::{
-    ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
+    ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
     FocusableTarget, KeyboardFocusReason, SelectionOperation, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
@@ -103,6 +103,7 @@ impl DesktopSystem {
                 root,
                 parameters,
                 kind,
+                focus,
             } => {
                 let originator_instance = self.focused_path().instance();
                 let originating_details = originator_instance
@@ -169,11 +170,13 @@ impl DesktopSystem {
                         after: None,
                     }),
                 ];
-                changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
-                changes += set_focus(
-                    Some(FocusableTarget::Instance(instance)),
-                    KeyboardFocusReason::PresentInstance,
-                );
+                if focus == FocusIntent::Follow {
+                    changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
+                    changes += set_focus(
+                        Some(FocusableTarget::Instance(instance)),
+                        KeyboardFocusReason::PresentInstance,
+                    );
+                }
 
                 Ok(changes)
             }
@@ -247,6 +250,7 @@ impl DesktopSystem {
                 Some(ConfigurationCommand::AddNextTo {
                     anchor,
                     content: new_slot_assignment(ConfigurationTarget::Launcher, None),
+                    focus: FocusIntent::Follow,
                 })
             }
             SelectionOperation::Remove => self.removal_command_for_focus(),
@@ -262,6 +266,7 @@ impl DesktopSystem {
                     parent,
                     slots,
                     name: DEFAULT_NEW_PROJECT_NAME.into(),
+                    focus: FocusIntent::Follow,
                 })
             }
             SelectionOperation::Ungroup => self.ungroup_command_for_selection(),
@@ -339,7 +344,10 @@ impl DesktopSystem {
                 return refused(refusal);
             }
         };
-        (project != ProjectId::ROOT).then_some(ConfigurationCommand::Ungroup { project })
+        (project != ProjectId::ROOT).then_some(ConfigurationCommand::Ungroup {
+            project,
+            focus: FocusIntent::Follow,
+        })
     }
 
     /// Plans `ToggleFullScreenMode` (ADR 0014): a primary instance resolves to its
@@ -899,6 +907,7 @@ impl DesktopSystem {
                 ConfigurationCommand::AddNextTo {
                     anchor,
                     content: new_slot_assignment(*target, name.clone()),
+                    focus: FocusIntent::Follow,
                 }
             }
             ConfigurationRequest::Assign {

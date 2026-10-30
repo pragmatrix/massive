@@ -14,8 +14,8 @@ use super::navigation::{FocusTargets, MatrixNavigation};
 use super::reparenting::Reparenting;
 use super::topology::DesktopTopology;
 use super::{
-    ConfigurationCommand, DesktopSystem, DesktopTarget, FocusableTarget, KeyboardFocusReason,
-    ProjectPart,
+    ConfigurationCommand, DesktopSystem, DesktopTarget, FocusIntent, FocusableTarget,
+    KeyboardFocusReason, ProjectPart,
 };
 use crate::focus_path::PathResolver;
 use crate::policy::when::{self, SlotSuccessor, UngroupingProject};
@@ -94,18 +94,23 @@ impl ConfigurationPlanning<'_> {
             } => {
                 changes += self.plan_push_slot(parent, slot, direction);
             }
-            ConfigurationCommand::AddNextTo { anchor, content } => {
-                changes += self.plan_add_next_to(anchor, content)?;
+            ConfigurationCommand::AddNextTo {
+                anchor,
+                content,
+                focus,
+            } => {
+                changes += self.plan_add_next_to(anchor, content, focus)?;
             }
             ConfigurationCommand::Group {
                 parent,
                 slots,
                 name,
+                focus,
             } => {
-                changes += grouping::plan(parent, slots, name, self.configuration);
+                changes += grouping::plan(parent, slots, name, focus, self.configuration);
             }
-            ConfigurationCommand::Ungroup { project } => {
-                changes += self.plan_ungroup(project)?;
+            ConfigurationCommand::Ungroup { project, focus } => {
+                changes += self.plan_ungroup(project, focus)?;
             }
             ConfigurationCommand::SetStartupPath(path) => {
                 changes <<= ConfigurationChange::SetStartupPath(path)
@@ -215,13 +220,18 @@ impl ConfigurationPlanning<'_> {
         }
     }
 
-    fn plan_add_next_to(&self, anchor: SlotContent, content: SlotAssignment) -> Result<Changes> {
+    fn plan_add_next_to(
+        &self,
+        anchor: SlotContent,
+        content: SlotAssignment,
+        focus: FocusIntent,
+    ) -> Result<Changes> {
         let (parent, slot) = self
             .configuration
             .slot_of_content(anchor)
             .expect("the anchor of an addition sits in a slot");
 
-        let focus = content.content().focusable_target();
+        let added = content.content().focusable_target();
         let mut changes = self.plan_assign_slot(
             parent,
             SlotPosition {
@@ -231,11 +241,13 @@ impl ConfigurationPlanning<'_> {
             content,
             SlotShift::default(),
         )?;
-        changes += set_focus(Some(focus), KeyboardFocusReason::AddSlotContent);
+        if focus == FocusIntent::Follow {
+            changes += set_focus(Some(added), KeyboardFocusReason::AddSlotContent);
+        }
         Ok(changes)
     }
 
-    fn plan_ungroup(&self, project: ProjectId) -> Result<Changes> {
+    fn plan_ungroup(&self, project: ProjectId, focus: FocusIntent) -> Result<Changes> {
         assert_ne!(
             project,
             ProjectId::ROOT,
@@ -243,7 +255,11 @@ impl ConfigurationPlanning<'_> {
         );
         let configuration = self.configuration;
         match when::ungrouping_project(&configuration[project]) {
-            UngroupingProject::MoveSlotsOut => Ok(grouping::plan_ungroup(project, configuration)),
+            UngroupingProject::MoveSlotsOut => {
+                let focus_on_project = self.focused == Some(FocusableTarget::Project(project));
+                let focus = when::ungrouping_focus(focus, focus_on_project);
+                Ok(grouping::plan_ungroup(project, focus, configuration))
+            }
             refusal @ UngroupingProject::RefuseWhileMcpRoot => {
                 warn!(
                     "Refused to ungroup '{}': {refusal:?}, disable MCP for it first",
