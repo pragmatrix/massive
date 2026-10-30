@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use derive_more::From;
+use derive_more::{Display, From};
 use uuid::Uuid;
 
 mod ambient;
@@ -13,6 +13,7 @@ mod mcp;
 pub mod prelude;
 mod project;
 pub mod task_context;
+mod tool;
 mod view;
 mod view_builder;
 mod view_event;
@@ -25,10 +26,11 @@ pub use instance_environment::*;
 pub use key_event::*;
 pub use mcp::*;
 pub use project::*;
+pub use tool::*;
 pub use view::*;
 pub use view_event::*;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From, Display)]
 pub struct InstanceId(Uuid);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
