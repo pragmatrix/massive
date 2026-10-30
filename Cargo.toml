@@ -8,6 +8,7 @@ members = [
     "geometry",
     "input",
     "layout",
+    "protocol",
     "renderer",
     "scene",
     "shapes",
@@ -51,6 +52,7 @@ massive-geometry = { path = "geometry" }
 massive-input = { path = "input" }
 massive-layout = { path = "layout" }
 massive-modules = { path = "modules" }
+massive-protocol = { path = "protocol" }
 massive-renderer = { path = "renderer" }
 massive-scene = { path = "scene" }
 massive-shapes = { path = "shapes" }
@@ -107,6 +109,7 @@ winit = { version = "0.30.12", features = ["rwh_06"] }
 
 # rt-multi-thread is not supported on wasm
 tokio = { version = "1.36.0", features = ["macros", "sync"] }
+tokio-util = "0.7.20"
 
 # wasm
 
