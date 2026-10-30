@@ -409,7 +409,7 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
                 .slot_of_content(idle_project)
                 .is_none()
         );
-        // No record or presenter of the removed project or its launcher stays behind.
+        // The removed project and its launcher leave the configuration, and their presenters go too.
         assert!(
             system
                 .aggregates

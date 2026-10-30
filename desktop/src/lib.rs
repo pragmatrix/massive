@@ -14,6 +14,7 @@ mod policy;
 mod projects;
 mod security;
 mod targeted_event;
+mod tool_host;
 mod view_presenter;
 mod window_state;
 

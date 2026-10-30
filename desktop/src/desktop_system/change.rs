@@ -18,6 +18,9 @@ pub enum DesktopSystemEffect {
     ToggleWindowFullScreen,
     /// Persist the live configuration after a transaction.
     PersistConfiguration,
+    /// MCP roots were configured, reconfigured, disabled, or removed (ADR 0036). The tool host
+    /// closes the tool connections bound to them.
+    McpRootsChanged(CollectingSet<ProjectId>),
 }
 
 #[derive(Debug)]

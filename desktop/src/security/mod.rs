@@ -6,6 +6,10 @@
 //! desktop policy (ADR 0029), because they enforce a boundary that holds regardless of taste.
 //! `docs/security.md` lists every check, the trust model, and the known ways around the checks.
 
+use massive_applications::{AccessScope, AccessScopes};
+
+use crate::projects::ProjectId;
+
 /// Whether a configuration request may configure MCP on any project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfiguringMcp {
@@ -53,4 +57,42 @@ pub fn making_mcp_root(
         return MakingMcpRoot::RefuseNested;
     }
     MakingMcpRoot::Allow
+}
+
+/// What the desktop answers a tool client that connects to a target (ADR 0036).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectingToTarget {
+    Bind(ProjectId),
+    /// A target that does not exist is declined like one outside every MCP root, so a tool client
+    /// learns nothing about what lies outside every MCP root.
+    Decline,
+}
+
+/// `covering_mcp_root` is the MCP root that covers the target, or `None` when the target does not
+/// exist or no MCP root covers it.
+#[must_use]
+pub fn connecting_to_target(covering_mcp_root: Option<ProjectId>) -> ConnectingToTarget {
+    match covering_mcp_root {
+        Some(root) => ConnectingToTarget::Bind(root),
+        None => ConnectingToTarget::Decline,
+    }
+}
+
+/// The reason every declined tool connection gets, whatever the target was.
+pub const DECLINED_TARGET: &str = "this process is not inside an MCP project";
+
+/// Whether a tool connection may call a tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallingTool {
+    Allow,
+    /// The MCP root does not grant the tool's access scope.
+    RefuseScopeNotGranted,
+}
+
+#[must_use]
+pub fn calling_tool(granted: &AccessScopes, needed: AccessScope) -> CallingTool {
+    if granted.contains(&needed) {
+        return CallingTool::Allow;
+    }
+    CallingTool::RefuseScopeNotGranted
 }

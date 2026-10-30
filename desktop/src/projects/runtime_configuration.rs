@@ -18,7 +18,6 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use massive_applications::{Direction, McpConfiguration};
-use massive_util::CollectingVec;
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
 use crate::policy::when::{self, Booting};
@@ -228,31 +227,35 @@ impl RuntimeConfiguration {
     ///
     /// Returns the content that left the configuration: the slot's content and, for a nested
     /// project, everything below it. The caller removes their presenters.
-    pub fn clear_slot(&mut self, project: ProjectId, slot: SlotPosition) -> Vec<SlotContent> {
+    pub fn clear_slot(&mut self, project: ProjectId, slot: SlotPosition) -> RemovedContent {
+        let mut removed = RemovedContent::default();
         let Some(content) = self.content_at(project, slot) else {
-            return Vec::new();
+            return removed;
         };
         self.project_mut(project)
             .expect("the project hosting the slot exists")
             .remove_slot(slot);
-        let mut removed = vec![content];
+        removed.content.push(content);
         if let SlotContent::Project(nested) = content {
-            self.remove_project_records(nested, &mut removed);
+            self.remove_project_subtree(nested, &mut removed);
         }
         removed
     }
 
-    /// Removes the record of `project` and of every project nested below it, and appends the
-    /// content of their slots to `removed`. The slot hosting `project` is already unassigned.
-    fn remove_project_records(&mut self, project: ProjectId, removed: &mut Vec<SlotContent>) {
-        let record = self
+    /// Removes `project` and every project nested below it from the configuration, and adds
+    /// what they held to `removed`. The slot hosting `project` is already unassigned.
+    fn remove_project_subtree(&mut self, project: ProjectId, removed: &mut RemovedContent) {
+        let removed_project = self
             .projects
             .shift_remove(&project)
-            .expect("a nested project has a record");
-        for (_, content) in record.slot_contents() {
-            removed.push(content);
+            .expect("a nested project is in the configuration");
+        if removed_project.mcp.is_some() {
+            removed.mcp_roots.push(project);
+        }
+        for (_, content) in removed_project.slot_contents() {
+            removed.content.push(content);
             if let SlotContent::Project(nested) = content {
-                self.remove_project_records(nested, removed);
+                self.remove_project_subtree(nested, removed);
             }
         }
     }
@@ -985,8 +988,8 @@ impl RuntimeConfiguration {
 /// The walk starts with the root project's own `AssignSlot { parent: None }`,
 /// which parents the root project under the `Desktop` target; every other
 /// project's creation is its slot assignment.
-pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<ConfigurationCommand> {
-    let mut commands = CollectingVec::Empty;
+pub fn to_commands(configuration: &RuntimeConfiguration) -> Vec<ConfigurationCommand> {
+    let mut commands = Vec::new();
 
     commands.push(ConfigurationCommand::SetStartupPath(
         configuration.startup_path.clone(),
@@ -1018,7 +1021,7 @@ pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<Config
 fn subtree_commands(
     configuration: &RuntimeConfiguration,
     project: ProjectId,
-    commands: &mut CollectingVec<ConfigurationCommand>,
+    commands: &mut Vec<ConfigurationCommand>,
 ) {
     for slot in configuration[project].slots() {
         let content = match &slot.content {
@@ -1348,6 +1351,16 @@ pub enum SlotPayload {
 }
 
 impl SlotPayload {}
+
+/// What clearing a slot removed from the configuration (see [`RuntimeConfiguration::clear_slot`]).
+#[derive(Debug, Default)]
+pub struct RemovedContent {
+    /// The slot's content and, for a nested project, everything below it.
+    pub content: Vec<SlotContent>,
+    /// The MCP roots among the removed projects. Removing an MCP root ends its tool connections
+    /// (ADR 0036).
+    pub mcp_roots: Vec<ProjectId>,
+}
 
 /// The `Copy` id-level view of a [`SlotPayload`], for readers that only match on
 /// which kind of content a slot holds.
@@ -1844,8 +1857,8 @@ mod tests {
         );
     }
 
-    /// Clearing a slot that hosts a project removes the project's whole subtree, so no record of
-    /// it stays behind, and reports everything that left.
+    /// Clearing a slot that hosts a project removes the project's whole subtree from the
+    /// configuration, and reports everything that left.
     #[test]
     fn clearing_a_project_slot_removes_its_subtree_and_reports_it() {
         let slot = SlotPosition { column: 0, row: 0 };
@@ -1858,7 +1871,7 @@ mod tests {
         let launcher = LaunchProfileId::new();
         configuration.assign_slot(Some(inner), slot, launcher_assignment_for(launcher));
 
-        let removed = configuration.clear_slot(root, slot);
+        let removed = configuration.clear_slot(root, slot).content;
 
         assert_eq!(
             removed,

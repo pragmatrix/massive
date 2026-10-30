@@ -14,6 +14,7 @@ mod change_surface;
 mod command_dispatch;
 mod commands;
 mod configuration_planning;
+mod desktop_tools;
 mod effects;
 mod event_forwarding;
 mod focus_input;
@@ -375,7 +376,6 @@ impl DesktopSystem {
         // Run changes to completion and combine everything into a `ChangeSurface`.
 
         let mut change_surface = ChangeSurface::default();
-        let mut system_effects = Vec::new();
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
@@ -391,17 +391,6 @@ impl DesktopSystem {
                 }
                 change_surface.combine(output.surface);
             }
-        }
-
-        if change_surface.window_fullscreen_changed {
-            system_effects.push(DesktopSystemEffect::ToggleWindowFullScreen);
-        }
-
-        // A setup transaction replays configuration already on disk and never persists it (ADR 0013).
-        if change_surface.configuration_impact != ConfigurationImpact::Unchanged
-            && effects_mode != TransactionEffectsMode::Setup
-        {
-            system_effects.push(DesktopSystemEffect::PersistConfiguration);
         }
 
         // Collect deferred measures if the camera can be moved.
@@ -448,10 +437,10 @@ impl DesktopSystem {
             self.selection.collapse();
         }
         let update_zoom_level_indicator = zoom_level_changed || change_surface.window_size_changed;
-        let update_camera = change_surface.camera_invalid();
+        let update_camera = change_surface.camera_needs_update();
 
-        // Convert the change surface to effects.
-        let effects = convert_change_surface_to_effects(change_surface);
+        let (effects, system_effects) =
+            split_change_surface_into_effects(change_surface, effects_mode);
 
         // Layout and camera focus for presenters that must fit into the window
         // read the size from the system's window state.
@@ -651,22 +640,52 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
     }
 }
 
-fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
-    let refreshes = surface
-        .column_counts_invalid
+/// Splits the change surface, once all of the transaction's changes have run, into the desktop
+/// effects the transaction runs itself and the system effects the desktop shell carries out after
+/// it. Every field is moved into exactly one effect.
+fn split_change_surface_into_effects(
+    surface: ChangeSurface,
+    effects_mode: TransactionEffectsMode,
+) -> (Effects, Vec<DesktopSystemEffect>) {
+    let ChangeSurface {
+        size_invalid,
+        column_counts_invalid,
+        mcp_indicators_invalid,
+        mcp_roots_changed,
+        reparented,
+        window_size_changed: _,
+        configuration_impact,
+        selection_set: _,
+        window_fullscreen_changed,
+    } = surface;
+
+    let effects = column_counts_invalid
         .into_iter()
-        .map(DesktopEffect::RefreshColumnCount);
-    let mcp_indicators = surface
-        .mcp_indicators_invalid
-        .into_iter()
-        .map(DesktopEffect::RefreshMcpIndicators);
-    let measures = surface.size_invalid.into_iter().map(DesktopEffect::Measure);
-    let reparents = surface.reparented.into_iter().map(DesktopEffect::Reparent);
-    refreshes
-        .chain(mcp_indicators)
-        .chain(measures)
-        .chain(reparents)
-        .collect()
+        .map(DesktopEffect::RefreshColumnCount)
+        .chain(
+            mcp_indicators_invalid
+                .into_iter()
+                .map(DesktopEffect::RefreshMcpIndicators),
+        )
+        .chain(size_invalid.into_iter().map(DesktopEffect::Measure))
+        .chain(reparented.into_iter().map(DesktopEffect::Reparent))
+        .collect();
+
+    let mut system_effects = Vec::new();
+    if window_fullscreen_changed {
+        system_effects.push(DesktopSystemEffect::ToggleWindowFullScreen);
+    }
+    if !mcp_roots_changed.is_empty() {
+        system_effects.push(DesktopSystemEffect::McpRootsChanged(mcp_roots_changed));
+    }
+    // A setup transaction replays configuration already on disk and never persists it (ADR 0013).
+    if configuration_impact != ConfigurationImpact::Unchanged
+        && effects_mode != TransactionEffectsMode::Setup
+    {
+        system_effects.push(DesktopSystemEffect::PersistConfiguration);
+    }
+
+    (effects, system_effects)
 }
 
 #[cfg(test)]

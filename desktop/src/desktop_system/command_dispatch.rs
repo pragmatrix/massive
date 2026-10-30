@@ -648,7 +648,8 @@ impl DesktopSystem {
                 // A cleared project takes its whole subtree along, so every presenter below it
                 // goes too. Its counts are dropped by the refresh, which finds it gone.
                 let mut output = ChangeOutput::default();
-                for content in self.aggregates.configuration.clear_slot(parent, slot) {
+                let removed = self.aggregates.configuration.clear_slot(parent, slot);
+                for content in removed.content {
                     match content {
                         SlotContent::Launcher(launcher) => {
                             self.aggregates.launchers.remove(&launcher)?;
@@ -658,6 +659,9 @@ impl DesktopSystem {
                             output.surface.column_counts_invalid += project;
                         }
                     }
+                }
+                for root in removed.mcp_roots {
+                    output.surface.mcp_roots_changed += root;
                 }
                 return Ok(output);
             }
@@ -708,6 +712,9 @@ impl DesktopSystem {
             }
             ConfigurationChange::ConfigureMcp { project, mcp } => {
                 self.aggregates.configuration.configure_mcp(project, mcp);
+                let mut output = ChangeOutput::default();
+                output.surface.mcp_roots_changed += project;
+                return Ok(output);
             }
         }
 

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
 use derive_more::Constructor;
 use serde::{Deserialize, Serialize};
@@ -17,6 +19,9 @@ pub struct InstanceEnvironment {
     // Robustness: This might change on runtime.
     pub primary_monitor_scale_factor: f64,
     pub parameters: Map<String, Value>,
+    /// The path of the desktop socket (ADR 0036). An instance passes it to the processes it starts,
+    /// so that a tool client among them can find the desktop.
+    pub desktop_socket: PathBuf,
 }
 
 pub type InstanceParameters = Map<String, Value>;
@@ -25,11 +30,13 @@ impl InstanceEnvironment {
     pub fn new(
         requests_tx: UnboundedSender<(InstanceId, InstanceSubmission)>,
         primary_monitor_scale_factor: f64,
+        desktop_socket: PathBuf,
     ) -> Self {
         Self {
             submission_sender: requests_tx,
             primary_monitor_scale_factor,
             parameters: Default::default(),
+            desktop_socket,
         }
     }
 

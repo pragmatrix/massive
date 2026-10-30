@@ -21,6 +21,7 @@ massive-geometry.workspace = true
 massive-input.workspace = true
 massive-util.workspace = true
 massive-layout.workspace = true
+massive-protocol.workspace = true
 massive-renderer.workspace = true
 massive-scene.workspace = true
 massive-shell.workspace = true
@@ -31,9 +32,11 @@ derive_more.workspace = true
 euclid.workspace = true
 futures.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["time", "sync"] }
+tokio = { workspace = true, features = ["time", "sync", "net", "fs"] }
+tokio-util = { workspace = true, features = ["codec"] }
 log.workspace = true
 panic-message.workspace = true
+schemars.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 strum.workspace = true

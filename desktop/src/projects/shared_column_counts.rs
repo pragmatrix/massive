@@ -345,6 +345,7 @@ mod tests {
             ConfigurationChange::ClearSlot { parent, slot } => {
                 return configuration
                     .clear_slot(parent, slot)
+                    .content
                     .into_iter()
                     .filter_map(|content| match content {
                         SlotContent::Project(project) => Some(project),
