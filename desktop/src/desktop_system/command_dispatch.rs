@@ -12,7 +12,8 @@ use super::change::{
 use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
-    FocusableTarget, KeyboardFocusReason, Planned, SelectionOperation, ZoomLevel, view_size,
+    FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation, ZoomLevel,
+    view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -320,6 +321,7 @@ impl DesktopSystem {
             parent,
             slot,
             shift: SlotShift::default(),
+            instances: RunningInstances::Refuse,
         })
     }
 
@@ -1005,6 +1007,7 @@ impl DesktopSystem {
                     parent,
                     slot,
                     shift: SlotShift::default(),
+                    instances: RunningInstances::Stop,
                 }
             }
             ConfigurationRequest::MoveLauncher { direction } => {

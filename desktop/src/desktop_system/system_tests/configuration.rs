@@ -433,10 +433,10 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
     .await
 }
 
-/// The CLI's `remove` keeps a project while an instance runs below it, like Cmd+Shift+W and the
-/// tools do. A removal never quits running processes.
+/// Cmd+Shift+W and the tools keep a project while an instance runs below it, but the CLI's `remove`
+/// stops the instance first and then removes the project (ADR 0024).
 #[tokio::test]
-async fn a_removal_request_keeps_content_while_instances_run_below() -> Result<()> {
+async fn a_removal_request_stops_the_instances_below() -> Result<()> {
     task_context::with_context(task_context(), async {
         let NestedSiblings {
             mut system,
@@ -460,8 +460,8 @@ async fn a_removal_request_keeps_content_while_instances_run_below() -> Result<(
             },
         )?;
 
-        assert!(system.aggregates.configuration.project(project_a).is_some());
-        assert!(system.aggregates.hierarchy.exists(&instance_a.into()));
+        assert!(system.aggregates.configuration.project(project_a).is_none());
+        assert!(!system.aggregates.hierarchy.exists(&instance_a.into()));
 
         Ok(())
     })

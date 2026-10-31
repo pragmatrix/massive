@@ -238,6 +238,7 @@ async fn clearing_a_slot_that_holds_an_mcp_root_reports_the_root_as_changed() ->
                 parent,
                 slot,
                 shift: SlotShift::Keep,
+                instances: RunningInstances::Refuse,
             },
         ))?;
         let effects = system

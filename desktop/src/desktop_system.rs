@@ -68,7 +68,9 @@ use reparenting::Reparenting;
 use selection::Selection;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
-pub use commands::{ConfigurationCommand, DesktopCommand, FocusIntent, SelectionOperation};
+pub use commands::{
+    ConfigurationCommand, DesktopCommand, FocusIntent, RunningInstances, SelectionOperation,
+};
 pub use configuration_planning::{Planned, Refusal};
 pub use desktop_tools::ToolCallPlan;
 pub use effects::Effects;

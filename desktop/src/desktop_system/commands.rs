@@ -77,6 +77,15 @@ impl From<ConfigurationCommand> for DesktopCommand {
     }
 }
 
+/// What a removal does when instances run below the removed content. The keyboard and the tools
+/// refuse it, so an agent stops the instances first (ADR 0036). The CLI's `remove` stops them,
+/// because the user names what to remove (ADR 0024).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunningInstances {
+    Refuse,
+    Stop,
+}
+
 /// Whether a command that creates or moves content takes the keyboard focus there (ADR 0036). The
 /// keyboard and the CLI follow, so the user lands on what they made. MCP keeps the focus and the
 /// camera where they are, so an agent never pulls the user away. A focused target that a command
@@ -106,13 +115,15 @@ pub enum ConfigurationCommand {
         content: SlotAssignment,
         shift: SlotShift,
     },
-    /// Unassigns a slot. The instances that run below its content are stopped. When the focus was
-    /// inside the content, it moves to the nearest assigned slot, or else to the hosting project
+    /// Unassigns a slot. With [`RunningInstances::Refuse`], it is refused while instances run below
+    /// the content, and with [`RunningInstances::Stop`], it stops them. When the focus was inside
+    /// the content, it moves to the nearest assigned slot, or else to the hosting project
     /// (ADR 0029).
     ClearSlot {
         parent: ProjectId,
         slot: SlotPosition,
         shift: SlotShift,
+        instances: RunningInstances,
     },
     /// Moves a slot's content to another slot, possibly in another project. Onto an assigned slot of
     /// the same project, it exchanges the two contents, so an issuer only names where the content

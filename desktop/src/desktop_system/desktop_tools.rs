@@ -17,7 +17,8 @@ use massive_protocol::Target;
 use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
 
 use super::{
-    ConfigurationCommand, DesktopCommand, DesktopSystem, Direction, FocusIntent, SlotShift,
+    ConfigurationCommand, DesktopCommand, DesktopSystem, Direction, FocusIntent, RunningInstances,
+    SlotShift,
 };
 use crate::instance_presenter::InstanceKind;
 use crate::policy::constants;
@@ -167,6 +168,7 @@ impl DesktopSystem {
             parent,
             slot,
             shift: params.shift.into(),
+            instances: RunningInstances::Refuse,
         };
         Ok(issue(command, &NoResult {}))
     }

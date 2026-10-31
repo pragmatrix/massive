@@ -17,7 +17,7 @@ use super::reparenting::Reparenting;
 use super::topology::DesktopTopology;
 use super::{
     ConfigurationCommand, DesktopSystem, DesktopTarget, FocusIntent, FocusableTarget,
-    KeyboardFocusReason, ProjectPart,
+    KeyboardFocusReason, ProjectPart, RunningInstances,
 };
 use crate::focus_path::PathResolver;
 use crate::policy::constants;
@@ -169,7 +169,8 @@ impl ConfigurationPlanning<'_> {
                 parent,
                 slot,
                 shift,
-            } => self.plan_clear_slot(parent, slot, shift)?,
+                instances,
+            } => self.plan_clear_slot(parent, slot, shift, instances)?,
             ConfigurationCommand::MoveSlot { source, dest } => self.plan_move_slot(source, dest),
             ConfigurationCommand::MoveSlots {
                 parent,
@@ -385,7 +386,7 @@ impl ConfigurationPlanning<'_> {
                 let (parent, slot) = configuration
                     .slot_of_content(project)
                     .expect("a nested project sits in a slot");
-                self.plan_clear_slot(parent, slot, SlotShift::Keep)
+                self.plan_clear_slot(parent, slot, SlotShift::Keep, RunningInstances::Refuse)
             }
         }
     }
@@ -435,7 +436,12 @@ impl ConfigurationPlanning<'_> {
                 SlotShift::Shift => {
                     changes += self.slot_shift_sequence(parent, slot, Direction::Right)?;
                 }
-                SlotShift::Keep => match self.plan_clear_slot(parent, slot, SlotShift::Keep)? {
+                SlotShift::Keep => match self.plan_clear_slot(
+                    parent,
+                    slot,
+                    SlotShift::Keep,
+                    RunningInstances::Refuse,
+                )? {
                     Planned::Changes(cleared) => changes += cleared,
                     refused => return Ok(refused),
                 },
@@ -462,19 +468,21 @@ impl ConfigurationPlanning<'_> {
     }
 
     /// Clearing an unassigned slot is refused, and so is removing content while instances run
-    /// below it (see `when::removing_slot_content`).
+    /// below it, unless the issuer asks to stop them (see `when::removing_slot_content`).
     fn plan_clear_slot(
         &self,
         parent: ProjectId,
         slot: SlotPosition,
         shift: SlotShift,
+        instances: RunningInstances,
     ) -> Result<Planned> {
         let Some(content) = self.configuration.content_at(parent, slot) else {
             return Ok(Refusal::SlotUnassigned.into());
         };
         let instances_run_below = self.hierarchy.has_instances_below(&content.target());
-        if when::removing_slot_content(instances_run_below)
-            == RemovingSlotContent::KeepWhileInstancesRun
+        if instances == RunningInstances::Refuse
+            && when::removing_slot_content(instances_run_below)
+                == RemovingSlotContent::KeepWhileInstancesRun
         {
             return Ok(Refusal::InstancesRunBelow.into());
         }

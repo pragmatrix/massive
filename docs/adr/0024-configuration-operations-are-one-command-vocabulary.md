@@ -44,8 +44,10 @@ the focused slot, so that a key press never quits running processes. A removal t
 always stops the instances below it, which is what the CLI's `remove` does.
 
 *Update:* the planner now refuses every removal while instances run below the content, whoever
-issues it (ADR 0036). The CLI's `remove` keeps such content as Cmd+Shift+W does, and an agent stops
-the instances first. A command that its planner refuses plans nothing and names the reason.
+issues it, and names the reason (ADR 0036). Cmd+Shift+W and the tools therefore keep such content,
+and an agent stops the instances first. The CLI's `remove` stays the exception: its removal carries the
+intent `RunningInstances::Stop`, so the planner stops the instances below the content and removes
+it in one plan, while every other removal carries `RunningInstances::Refuse`.
 
 The operation decides where the focus goes afterwards. A grouping therefore ends the same way
 whether it came from Cmd+G or from `mt`.
