@@ -1,6 +1,6 @@
 # Desktop MCP tools
 
-Status: **decided, not implemented** (2026-10-24).
+Status: **decided** (2026-10-24). `desktop_describe` and the slot tools are implemented (2026-10-31).
 
 This document specifies the MCP tools the desktop offers to agents through an MCP root
 ([ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)). The desktop is a tool
@@ -57,7 +57,7 @@ with an error code, a colon and a space, followed by a sentence for the agent. T
 |---|---|
 | `unknown_id` | An id names no project, launcher or instance that the MCP root covers. It may be stale, or it may lie outside the root, which the error does not reveal. The text names the id. |
 | `scope_not_granted` | The MCP root does not grant the tool's access scope, or the command would stop running instances without `act`. |
-| `invalid_argument` | An argument breaks the schema's rules, such as a slot position outside the matrix. |
+| `invalid_argument` | An argument breaks the schema's rules, such as a slot position outside the matrix. A slot lies at most one column right of and one row below the matrix's assigned slots. |
 | `refused` | The desktop refused the command, and the text gives the reason. Examples are a move onto an assigned slot, a move into the content's own subtree, nesting one MCP root inside another, and ungrouping an MCP root. |
 | `too_large` | The call's arguments or its result exceed the tool protocol's frame limit of 1 MiB. Only this call fails. |
 | `connection_closed` | The tool connection ended before the desktop answered the call, for example because the MCP root's configuration changed. |
@@ -95,7 +95,7 @@ LauncherSpec = {
 
 | Field | Type | Meaning |
 |---|---|---|
-| `name` | string, 1 to 200 characters | The launcher's name. Names may repeat. |
+| `name` | string, 1 to 1000 characters | The launcher's name. Names may repeat. |
 | `mode` | `"visor"` or `"band"` | How the launcher presents its instances. The default is `"visor"`. |
 | `params` | object | The parameters the launcher's application receives when an instance starts, such as a command to run. Their meaning belongs to the application. |
 | `full_screen_mode` | `"regular"` or `"fullscreen"` | The Full Screen Mode the launcher's primary instances share (ADR 0014). The default is `"regular"`. |
@@ -105,7 +105,7 @@ LauncherSpec = {
 ```text
 Content = {
   launcher?: LauncherSpec,  // a new launcher [C]
-  project?: string          // the name of a new, empty project [C]
+  project?: string          // the name of a new, empty project, 1 to 1000 characters [C]
 }
 ```
 
@@ -115,8 +115,12 @@ Content = {
 
 | Value | Meaning |
 |---|---|
-| `"shift"` | Assigning pushes the assigned content and its contiguous run one column right. Clearing pulls the rest of the row left. This is the default. |
+| `"shift"` | Assigning pushes the assigned content and its contiguous run one column right. Clearing pulls the rest of the row left. |
 | `"keep"` | Assigning onto an assigned slot replaces its content, and clearing leaves a gap. |
+
+**Defaults do less.** Each tool defaults to the value that removes nothing and moves the least:
+`"shift"` for assigning, because `"keep"` would remove the content in the way, and `"keep"` for
+clearing, because `"shift"` would move the rest of the row and change positions the agent knows.
 
 **`Project`**, **`Slot`**, **`Launcher`** and **`Instance`**: the covered subtree as
 `desktop_describe` returns it.
@@ -181,8 +185,8 @@ running instances. The agent can name the project by its `name` when it talks to
 
 Access scope `organize`. Puts a new launcher or a new, empty project into a slot.
 
-**Issues:** `ConfigurationCommand::AssignSlot`. **Keyboard:** none. Cmd+N adds next to the focused
-slot instead, as `desktop_add_next_to` does.
+**Issues:** `ConfigurationCommand::AssignSlot`. **Keyboard:** none. Cmd+N adds a launcher right of
+the focused slot, which is an assignment one column right of it with `shift: "shift"`.
 
 ```text
 desktop_assign_slot {
@@ -219,7 +223,7 @@ instances run below the content.
 ```text
 desktop_clear_slot {
   slot: SlotRef,   // the slot to clear [C]
-  shift?: Shift    // default "shift" [C]
+  shift?: Shift    // default "keep" [C]
 }
 → {}
 ```
@@ -227,21 +231,23 @@ desktop_clear_slot {
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `slot` | `SlotRef` | yes | The slot to clear. |
-| `shift` | `Shift` | no | Whether the rest of the row closes the gap. The default is `"shift"`. |
+| `shift` | `Shift` | no | Whether the rest of the row closes the gap. The default is `"keep"`. |
 
 Clearing stops every instance that runs below the content. When any run, the call also needs `act`.
 
 ### `desktop_move_slot`
 
-Access scope `organize`. Moves a slot's content to an unassigned slot, possibly in another covered
-project.
+Access scope `organize`. Moves a slot's content to another slot, possibly in another covered
+project. Onto an assigned slot of the same project, it exchanges the two contents, so an agent only
+names where the content goes.
 
-**Issues:** `ConfigurationCommand::MoveSlot`. **Keyboard:** none.
+**Issues:** `ConfigurationCommand::MoveSlot`, or `ConfigurationCommand::SwapSlots` onto an assigned
+slot. **Keyboard:** none.
 
 ```text
 desktop_move_slot {
   from: SlotRef,   // the content's slot [C]
-  to: SlotRef      // an unassigned slot [C]
+  to: SlotRef      // where the content goes [C]
 }
 → {}
 ```
@@ -249,58 +255,7 @@ desktop_move_slot {
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `from` | `SlotRef` | yes | The assigned slot whose content moves. |
-| `to` | `SlotRef` | yes | The destination. It must be unassigned, otherwise the call is refused, and `desktop_swap_slots` exchanges two assigned slots. It must not lie inside the moved content's own subtree. |
-
-### `desktop_swap_slots`
-
-Access scope `organize`. Exchanges the contents of two assigned slots of one project.
-
-**Issues:** `ConfigurationCommand::SwapSlots`. **Keyboard:** none.
-
-```text
-desktop_swap_slots {
-  project_id: string,  // the project whose matrix holds both slots [C]
-  a: SlotPosition,     // one assigned slot [C]
-  b: SlotPosition      // the other assigned slot [C]
-}
-→ {}
-```
-
-| Parameter | Type | Required | Meaning |
-|---|---|---|---|
-| `project_id` | string | yes | The project. |
-| `a`, `b` | `SlotPosition` | yes | Two different assigned slots of the project. |
-
-### `desktop_move_slots`
-
-Access scope `organize`. Moves a rectangle of slots one slot in a direction. The contents in front
-of the rectangle take the place it leaves, and at the matrix's edge nothing moves (ADR 0033).
-
-**Issues:** `ConfigurationCommand::MoveSlots`. **Keyboard:** Ctrl+Shift+Cmd+arrow, on the selected
-slots.
-
-```text
-desktop_move_slots {
-  project_id: string,          // the project whose matrix holds the block [C]
-  top_left: SlotPosition,      // the block's top-left slot [C]
-  bottom_right: SlotPosition,  // the block's bottom-right slot, included [M]
-  direction: Direction         // where the block moves [C]
-}
-→ {}
-```
-
-| Parameter | Type | Required | Meaning |
-|---|---|---|---|
-| `project_id` | string | yes | The project. |
-| `top_left` | `SlotPosition` | yes | The block's top-left slot. |
-| `bottom_right` | `SlotPosition` | yes | The block's bottom-right slot. The block includes it. It lies neither left of nor above `top_left`. |
-| `direction` | `Direction` | yes | The direction of the move. |
-
-**Why the desktop adds its own fields:**
-
-- `bottom_right`: The command's block is a rectangle whose far corner lies outside it. Naming the
-  last slot that belongs to the block instead lets an agent name a single slot by giving the same
-  position twice, and it matches how a selection is described.
+| `to` | `SlotRef` | yes | The destination. An assigned destination in the same project exchanges the two contents, and one in another project is refused. It must not lie inside the moved content's own subtree. |
 
 ### `desktop_push_slot`
 
@@ -321,33 +276,6 @@ desktop_push_slot {
 |---|---|---|---|
 | `slot` | `SlotRef` | yes | The assigned slot to push. |
 | `direction` | `Direction` | yes | The direction of the push. |
-
-### `desktop_add_next_to`
-
-Access scope `organize`. Adds a new launcher or project right of an existing launcher or project,
-and shifts the rest of its row right.
-
-**Issues:** `ConfigurationCommand::AddNextTo`, without its focus change. **Keyboard:** Cmd+N, which
-adds a launcher next to the focused slot.
-
-```text
-desktop_add_next_to {
-  anchor_id: string,   // a launcher's or project's id [C]
-  content: Content     // the new launcher or project [C]
-}
-→ {
-  id: string           // the new launcher's or project's id [M]
-}
-```
-
-| Parameter | Type | Required | Meaning |
-|---|---|---|---|
-| `anchor_id` | string | yes | The launcher or nested project whose right neighbor the content becomes. |
-| `content` | `Content` | yes | What to add. |
-
-**Why the desktop adds its own fields:**
-
-- `id`: As for `desktop_assign_slot`.
 
 ### `desktop_group`
 
@@ -372,7 +300,7 @@ desktop_group {
 |---|---|---|---|
 | `project_id` | string | yes | The project. |
 | `positions` | array of `SlotPosition`, at least one | yes | The slots to wrap. Unassigned slots among them are ignored. |
-| `name` | string, 1 to 200 characters | yes | The new project's name. |
+| `name` | string, 1 to 1000 characters | yes | The new project's name. |
 
 **Why the desktop adds its own fields:**
 
