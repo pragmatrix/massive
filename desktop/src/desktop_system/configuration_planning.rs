@@ -77,9 +77,6 @@ impl ConfigurationPlanning<'_> {
             ConfigurationCommand::MoveSlot { source, dest } => {
                 changes += self.plan_move_slot(source, dest);
             }
-            ConfigurationCommand::SwapSlots { parent, a, b } => {
-                changes <<= ConfigurationChange::SwapSlots { parent, a, b };
-            }
             ConfigurationCommand::MoveSlots {
                 parent,
                 block,
@@ -163,10 +160,20 @@ impl ConfigurationPlanning<'_> {
         dest: (ProjectId, SlotPosition),
     ) -> Changes {
         let configuration = self.configuration;
-        assert!(
-            configuration.content_at(dest.0, dest.1).is_none(),
-            "a move lands on an unassigned slot, a swap exchanges assigned ones"
-        );
+        assert_ne!(source, dest, "a move names two different slots");
+        if configuration.content_at(dest.0, dest.1).is_some() {
+            assert_eq!(
+                source.0, dest.0,
+                "a move exchanges contents only within one project"
+            );
+            let mut changes = Changes::Empty;
+            changes <<= ConfigurationChange::SwapSlots {
+                parent: source.0,
+                a: source.1,
+                b: dest.1,
+            };
+            return changes;
+        }
         assert!(
             configuration.can_move_slot(source, dest),
             "a move starts at an assigned slot and lands in a live project outside its own subtree"

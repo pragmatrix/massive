@@ -170,13 +170,8 @@ impl DesktopSystem {
         }
         self.assigned(source)?;
         let configuration = &self.aggregates.configuration;
-        let command = match configuration.content_at(dest.0, dest.1) {
-            Some(_) if source.0 == dest.0 => ConfigurationCommand::SwapSlots {
-                parent: source.0,
-                a: source.1,
-                b: dest.1,
-            },
-            Some(_) => {
+        match configuration.content_at(dest.0, dest.1) {
+            Some(_) if source.0 != dest.0 => {
                 return Err(refused(
                     "The destination slot is assigned and lies in another project. Contents of \
                      two projects are not exchanged.",
@@ -185,8 +180,9 @@ impl DesktopSystem {
             None if !configuration.can_move_slot(source, dest) => {
                 return Err(refused("A project cannot move into its own subtree."));
             }
-            None => ConfigurationCommand::MoveSlot { source, dest },
-        };
+            _ => {}
+        }
+        let command = ConfigurationCommand::MoveSlot { source, dest };
         Ok(issue(command, &NoResult {}))
     }
 

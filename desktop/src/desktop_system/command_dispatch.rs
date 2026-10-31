@@ -1013,24 +1013,11 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 };
 
-                // Moving next to an assigned neighbor exchanges the two, so the launcher always
+                // Onto an assigned neighbor, the move exchanges the two, so the launcher always
                 // moves by one slot.
-                if self
-                    .aggregates
-                    .configuration
-                    .content_at(parent, next_slot)
-                    .is_some()
-                {
-                    ConfigurationCommand::SwapSlots {
-                        parent,
-                        a: slot,
-                        b: next_slot,
-                    }
-                } else {
-                    ConfigurationCommand::MoveSlot {
-                        source: (parent, slot),
-                        dest: (parent, next_slot),
-                    }
+                ConfigurationCommand::MoveSlot {
+                    source: (parent, slot),
+                    dest: (parent, next_slot),
                 }
             }
             ConfigurationRequest::PushLauncher { direction } => {

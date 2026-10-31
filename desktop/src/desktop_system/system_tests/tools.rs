@@ -390,13 +390,20 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
             system.call_tool(labs_a, "desktop_move_slot", &arguments.to_string())
         };
 
-        assert!(matches!(
-            move_slot(&system, slot(labs_a, 0), slot(labs_a, 1)),
-            ToolCallPlan::Issue {
-                command: DesktopCommand::Configuration(ConfigurationCommand::SwapSlots { .. }),
-                ..
-            }
-        ));
+        let ToolCallPlan::Issue { command, .. } =
+            move_slot(&system, slot(labs_a, 0), slot(labs_a, 1))
+        else {
+            panic!("moving onto an assigned slot of the same project issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+        assert_eq!(
+            system
+                .aggregates
+                .configuration
+                .content_at(labs_a, SlotPosition { column: 0, row: 0 }),
+            Some(SlotContent::Project(inner)),
+            "the two contents are exchanged"
+        );
         let assign_nested =
             serde_json::json!({ "slot": slot(inner, 0), "content": { "project": "nested" } });
         let ToolCallPlan::Issue { command, .. } =

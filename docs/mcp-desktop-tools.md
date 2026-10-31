@@ -241,8 +241,8 @@ Access scope `organize`. Moves a slot's content to another slot, possibly in ano
 project. Onto an assigned slot of the same project, it exchanges the two contents, so an agent only
 names where the content goes.
 
-**Issues:** `ConfigurationCommand::MoveSlot`, or `ConfigurationCommand::SwapSlots` onto an assigned
-slot. **Keyboard:** none.
+**Issues:** `ConfigurationCommand::MoveSlot`, which exchanges the two contents when the
+destination is assigned. **Keyboard:** none.
 
 ```text
 desktop_move_slot {

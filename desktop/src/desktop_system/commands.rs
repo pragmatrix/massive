@@ -115,18 +115,12 @@ pub enum ConfigurationCommand {
         slot: SlotPosition,
         shift: SlotShift,
     },
-    /// Moves a slot's content to an unassigned slot, possibly in another project. Moving onto an
-    /// assigned slot is a [`ConfigurationCommand::SwapSlots`] instead, so a move never displaces
-    /// content.
+    /// Moves a slot's content to another slot, possibly in another project. Onto an assigned slot of
+    /// the same project, it exchanges the two contents, so an issuer only names where the content
+    /// goes. Contents of two projects are never exchanged.
     MoveSlot {
         source: (ProjectId, SlotPosition),
         dest: (ProjectId, SlotPosition),
-    },
-    /// Exchanges the contents of two assigned slots of one project.
-    SwapSlots {
-        parent: ProjectId,
-        a: SlotPosition,
-        b: SlotPosition,
     },
     /// Moves the `block`, a rectangle of `parent`'s matrix, one slot in `direction`. The contents in
     /// front of the block take the place it leaves, and at the matrix's edges nothing moves, so a
