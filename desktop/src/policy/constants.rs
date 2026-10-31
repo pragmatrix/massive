@@ -27,6 +27,14 @@ pub mod mcp_indicator {
 }
 
 /// The outline drawn around the hovered or focused target.
+/// Limits on what an agent's tool call creates (ADR 0036).
+pub mod tools {
+    /// The longest name, in characters, of a launcher or project that a tool creates. It lies far
+    /// beyond any real name, so it never refuses one, and only keeps an agent from storing large
+    /// text in the configuration.
+    pub const MAX_NAME_CHARS: usize = 1000;
+}
+
 pub mod hover_outline {
     use std::time::Duration;
 

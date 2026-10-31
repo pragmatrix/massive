@@ -8,7 +8,7 @@
 
 use massive_applications::{AccessScope, AccessScopes};
 
-use crate::projects::ProjectId;
+use crate::projects::{MatrixPoint, MatrixRect, ProjectId};
 
 /// Whether a configuration request may configure MCP on any project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,4 +95,41 @@ pub fn calling_tool(granted: &AccessScopes, needed: AccessScope) -> CallingTool 
         return CallingTool::Allow;
     }
     CallingTool::RefuseScopeNotGranted
+}
+
+/// Whether a tool call may name a project, a launcher or an instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NamingTarget {
+    Allow,
+    /// The target does not exist, or the connection's MCP root does not cover it. The refusal does
+    /// not say which, so an agent learns nothing about what lies outside its MCP root.
+    RefuseUnknown,
+}
+
+/// `covered` tells whether the target exists and the connection's MCP root covers it.
+#[must_use]
+pub fn naming_target(covered: bool) -> NamingTarget {
+    if covered {
+        return NamingTarget::Allow;
+    }
+    NamingTarget::RefuseUnknown
+}
+
+/// Whether a tool call may name a slot of a covered project's matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NamingSlot {
+    Allow,
+    /// The desktop lays out every column and row up to the slot, so a far slot would make it lay
+    /// out a vast empty matrix.
+    RefuseOutsideMatrix,
+}
+
+/// `matrix` is the rectangle of the project's matrix. A slot one column right of it or one row
+/// below it is allowed, so an agent can grow the matrix.
+#[must_use]
+pub fn naming_slot(slot: MatrixPoint, matrix: MatrixRect) -> NamingSlot {
+    if slot.x <= matrix.max.x && slot.y <= matrix.max.y {
+        return NamingSlot::Allow;
+    }
+    NamingSlot::RefuseOutsideMatrix
 }

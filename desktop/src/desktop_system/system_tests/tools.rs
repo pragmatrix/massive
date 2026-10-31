@@ -66,7 +66,10 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
         );
 
         let refused = system.call_tool(bound.root, "desktop_describe", "{}");
-        assert!(matches!(refused, ToolOutcome::Err { code, .. } if code == "scope_not_granted"));
+        assert!(matches!(
+            refused,
+            ToolCallPlan::Answer(ToolOutcome::Err { code, .. }) if code == "scope_not_granted"
+        ));
 
         configure_mcp(
             &mut system,
@@ -74,7 +77,8 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
             "/labs-a",
             &[AccessScope::Observe],
         )?;
-        let ToolOutcome::Ok(described) = system.call_tool(bound.root, "desktop_describe", "{}")
+        let ToolCallPlan::Answer(ToolOutcome::Ok(described)) =
+            system.call_tool(bound.root, "desktop_describe", "{}")
         else {
             panic!("observe allows describing");
         };
@@ -131,7 +135,10 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
         loop {
             tokio::select! {
                 result = &mut client => return result,
-                Some(request) = tool_host.next_request() => tool_host.answer(request, system),
+                Some(request) = tool_host.next_request() => {
+                    let issued = tool_host.answer(request, system);
+                    assert!(issued.is_none(), "describing issues no command");
+                }
             }
         }
     }
@@ -240,4 +247,184 @@ async fn clearing_a_slot_that_holds_an_mcp_root_reports_the_root_as_changed() ->
         Ok(())
     })
     .await
+}
+
+/// A slot tool acts only inside the connection's MCP root. A project outside it is unknown, and a
+/// slot far outside a covered matrix is an invalid argument. A call inside it changes the
+/// configuration without moving the user's focus (ADR 0036).
+#[tokio::test]
+async fn a_slot_tool_acts_only_inside_its_mcp_root() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let labs_b = project_at(&system, "/labs-b");
+        let assign = |system: &DesktopSystem, project: ProjectId, column: u32| {
+            let arguments = serde_json::json!({
+                "slot": {
+                    "project_id": uuid::Uuid::from(project).to_string(),
+                    "position": { "column": column, "row": 0 }
+                },
+                "content": { "project": "added" }
+            });
+            system.call_tool(labs_a, "desktop_assign_slot", &arguments.to_string())
+        };
+
+        assert_eq!(error_code(assign(&system, labs_b, 1)), "unknown_id");
+        assert_eq!(
+            error_code(assign(&system, labs_a, 1000)),
+            "invalid_argument"
+        );
+        let ToolCallPlan::Issue { command, .. } = assign(&system, labs_a, 1) else {
+            panic!("assigning inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+
+        assert!(
+            system
+                .aggregates
+                .configuration
+                .content_at(labs_a, SlotPosition { column: 1, row: 0 })
+                .is_some()
+        );
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// Clearing content stops the instances that run below it, so a tool needs `act` on top of its
+/// `organize` to do that (ADR 0036).
+#[tokio::test]
+async fn clearing_a_slot_with_running_instances_needs_act() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        let labs_a = project_at(&system, "/labs-a");
+        let clear_shell_a = |system: &DesktopSystem| {
+            let arguments = serde_json::json!({
+                "slot": {
+                    "project_id": uuid::Uuid::from(labs_a).to_string(),
+                    "position": { "column": 0, "row": 0 }
+                }
+            });
+            system.call_tool(labs_a, "desktop_clear_slot", &arguments.to_string())
+        };
+
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        assert_eq!(error_code(clear_shell_a(&system)), "scope_not_granted");
+
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize, AccessScope::Act],
+        )?;
+        assert!(matches!(clear_shell_a(&system), ToolCallPlan::Issue { .. }));
+        Ok(())
+    })
+    .await
+}
+
+/// Moving onto an assigned slot exchanges the two contents when both lie in one project, so an agent
+/// only names where content goes. Contents of two projects are never exchanged (ADR 0036).
+#[tokio::test]
+async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let slot = |project: ProjectId, column: u32| {
+            serde_json::json!({
+                "project_id": uuid::Uuid::from(project).to_string(),
+                "position": { "column": column, "row": 0 }
+            })
+        };
+        let assign =
+            serde_json::json!({ "slot": slot(labs_a, 1), "content": { "project": "inner" } });
+        let ToolCallPlan::Issue { command, .. } =
+            system.call_tool(labs_a, "desktop_assign_slot", &assign.to_string())
+        else {
+            panic!("assigning inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+        let Some(SlotContent::Project(inner)) = system
+            .aggregates
+            .configuration
+            .content_at(labs_a, SlotPosition { column: 1, row: 0 })
+        else {
+            panic!("the assigned project sits in the slot");
+        };
+        let move_slot = |system: &DesktopSystem, from, to| {
+            let arguments = serde_json::json!({ "from": from, "to": to });
+            system.call_tool(labs_a, "desktop_move_slot", &arguments.to_string())
+        };
+
+        assert!(matches!(
+            move_slot(&system, slot(labs_a, 0), slot(labs_a, 1)),
+            ToolCallPlan::Issue {
+                command: DesktopCommand::Configuration(ConfigurationCommand::SwapSlots { .. }),
+                ..
+            }
+        ));
+        let assign_nested =
+            serde_json::json!({ "slot": slot(inner, 0), "content": { "project": "nested" } });
+        let ToolCallPlan::Issue { command, .. } =
+            system.call_tool(labs_a, "desktop_assign_slot", &assign_nested.to_string())
+        else {
+            panic!("assigning inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+        assert_eq!(
+            error_code(move_slot(&system, slot(labs_a, 0), slot(inner, 0))),
+            "refused"
+        );
+        Ok(())
+    })
+    .await
+}
+
+fn project_at(system: &DesktopSystem, path: &str) -> ProjectId {
+    system
+        .aggregates
+        .configuration
+        .resolve_project_path(ProjectId::ROOT, path)
+        .expect("the project resolves")
+}
+
+fn error_code(plan: ToolCallPlan) -> String {
+    match plan {
+        ToolCallPlan::Answer(ToolOutcome::Err { code, .. }) => code,
+        other => panic!("expected a tool error, found {other:?}"),
+    }
 }

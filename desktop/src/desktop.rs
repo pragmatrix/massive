@@ -30,7 +30,7 @@ use crate::policy::colors;
 use crate::policy::constants::lifecycle;
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
-use crate::tool_host::{ToolHost, ToolRequest};
+use crate::tool_host::{IssuedCommand, ToolHost, ToolRequest};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -296,7 +296,15 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
-                DesktopEvent::ToolRequest(request) => self.tool_host.answer(request, &self.system),
+                DesktopEvent::ToolRequest(request) => {
+                    if let Some(IssuedCommand { command, done }) =
+                        self.tool_host.answer(request, &self.system)
+                    {
+                        let changes = self.system.plan(command)?;
+                        self.transact_and_persist(changes)?;
+                        done.answer();
+                    }
+                }
             }
 
             finalize_desktop_frame(

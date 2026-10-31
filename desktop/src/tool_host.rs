@@ -23,11 +23,12 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+use massive_applications::ToolResultJson;
 use massive_protocol::Target;
 use massive_protocol::tools::v1::{self, ToolDescription, ToolOutcome};
 use massive_util::CollectingSet;
 
-use crate::desktop_system::DesktopSystem;
+use crate::desktop_system::{DesktopCommand, DesktopSystem, ToolCallPlan};
 use crate::projects::ProjectId;
 use crate::security;
 
@@ -44,6 +45,29 @@ pub enum ToolRequest {
         arguments: String,
         reply: oneshot::Sender<ToolOutcome>,
     },
+}
+
+/// A tool call whose command the desktop loop carries out like a key press, before it answers the
+/// call through `done`.
+#[derive(Debug)]
+pub struct IssuedCommand {
+    pub command: DesktopCommand,
+    pub done: CallDone,
+}
+
+/// The answer of a call whose command the desktop loop carries out.
+#[derive(Debug)]
+pub struct CallDone {
+    result: ToolResultJson,
+    reply: oneshot::Sender<ToolOutcome>,
+}
+
+impl CallDone {
+    /// Answers the call with its result, once the desktop has carried out its command. A tool
+    /// client that left in the meantime no longer listens.
+    pub fn answer(self) {
+        let _ = self.reply.send(ToolOutcome::Ok(self.result.into()));
+    }
 }
 
 /// What the desktop loop does with a [`ToolRequest::Connect`]. It binds the connection to an MCP
@@ -117,9 +141,14 @@ impl ToolHost {
         self.requests.recv().await
     }
 
-    /// Answers a tool connection's request from the desktop's state. A tool client that left in
-    /// the meantime no longer listens, so its answer is dropped.
-    pub fn answer(&mut self, request: ToolRequest, system: &DesktopSystem) {
+    /// Answers a tool connection's request from the desktop's state, or returns the command a tool
+    /// call issues, which the desktop loop carries out before the call is answered. A tool client
+    /// that left in the meantime no longer listens, so its answer is dropped.
+    pub fn answer(
+        &mut self,
+        request: ToolRequest,
+        system: &DesktopSystem,
+    ) -> Option<IssuedCommand> {
         match request {
             ToolRequest::Connect { target, reply } => {
                 let outcome = match system.bind_tool_connection(&target) {
@@ -136,6 +165,7 @@ impl ToolHost {
                     },
                 };
                 let _ = reply.send(outcome);
+                None
             }
             ToolRequest::CallTool {
                 binding,
@@ -143,15 +173,24 @@ impl ToolHost {
                 arguments,
                 reply,
             } => {
-                let outcome = match self.root_of(binding) {
+                let plan = match self.root_of(binding) {
                     Some(root) => system.call_tool(root, &tool, &arguments),
                     // The MCP root changed after the call was sent, and the connection is ending.
-                    None => ToolOutcome::Err {
+                    None => ToolCallPlan::Answer(ToolOutcome::Err {
                         code: v1::CONNECTION_CLOSED.into(),
                         message: "The MCP project's configuration changed.".into(),
-                    },
+                    }),
                 };
-                let _ = reply.send(outcome);
+                match plan {
+                    ToolCallPlan::Answer(outcome) => {
+                        let _ = reply.send(outcome);
+                        None
+                    }
+                    ToolCallPlan::Issue { command, result } => Some(IssuedCommand {
+                        command,
+                        done: CallDone { result, reply },
+                    }),
+                }
             }
         }
     }

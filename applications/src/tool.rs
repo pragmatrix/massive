@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use derive_more::Into;
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -159,9 +160,15 @@ pub fn decode_arguments<Params: DeserializeOwned>(arguments: &str) -> Result<Par
 }
 
 /// Encodes a tool's result as JSON text.
-pub fn encode_result(output: &impl Serialize) -> String {
-    serde_json::to_string(output).expect("a tool result type serializes to JSON")
+pub fn encode_result(output: &impl Serialize) -> ToolResultJson {
+    ToolResultJson(serde_json::to_string(output).expect("a tool result type serializes to JSON"))
 }
+
+/// A tool's result, encoded as JSON text. Tool results travel as text, because the tool protocol's
+/// binary encoding cannot hold free-form JSON. Only [`encode_result`] creates one, so the text is
+/// always valid JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Into)]
+pub struct ToolResultJson(String);
 
 /// A failed tool call: an error code and a sentence for the agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
