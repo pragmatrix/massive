@@ -26,11 +26,11 @@ use crate::projects::{
 pub fn plan(
     parent: ProjectId,
     selected_slots: Vec<SlotPosition>,
+    project: ProjectId,
     name: String,
     focus: FocusIntent,
     configuration: &RuntimeConfiguration,
 ) -> Changes {
-    let project = ProjectId::new();
     let (_, landings) = group_landings(&selected_slots);
 
     let mut changes = Changes::Empty;

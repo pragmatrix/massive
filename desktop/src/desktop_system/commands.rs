@@ -71,6 +71,12 @@ pub enum SelectionOperation {
     Move(Direction),
 }
 
+impl From<ConfigurationCommand> for DesktopCommand {
+    fn from(command: ConfigurationCommand) -> Self {
+        Self::Configuration(command)
+    }
+}
+
 /// Whether a command that creates or moves content takes the keyboard focus there (ADR 0036). The
 /// keyboard and the CLI follow, so the user lands on what they made. MCP keeps the focus and the
 /// camera where they are, so an agent never pulls the user away. A focused target that a command
@@ -79,13 +85,6 @@ pub enum SelectionOperation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusIntent {
     Follow,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "desktop_group, desktop_ungroup and desktop_start_instance issue it"
-        )
-    )]
     Keep,
 }
 
@@ -144,11 +143,13 @@ pub enum ConfigurationCommand {
         content: SlotAssignment,
         focus: FocusIntent,
     },
-    /// Wraps `parent`'s `slots` into a new project named `name`, which takes their place (ADR 0026).
-    /// With [`FocusIntent::Follow`], the project receives the focus.
+    /// Wraps `parent`'s `slots` into a new project `project` named `name`, which takes their place
+    /// (ADR 0026). The issuer creates the project's id, as for [`ConfigurationCommand::AssignSlot`],
+    /// so a tool can answer with it. With [`FocusIntent::Follow`], the project receives the focus.
     Group {
         parent: ProjectId,
         slots: Vec<SlotPosition>,
+        project: ProjectId,
         name: String,
         focus: FocusIntent,
     },

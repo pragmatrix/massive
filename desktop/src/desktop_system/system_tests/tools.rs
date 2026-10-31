@@ -651,6 +651,160 @@ async fn a_slot_tool_refuses_to_nest_projects_beyond_the_limit() -> Result<()> {
     .await
 }
 
+/// Grouping and starting an instance through a tool leave the user's focus where it is, and each
+/// answers with the id of what it created (ADR 0036).
+#[tokio::test]
+async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize, AccessScope::Act],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let shell_a = system.aggregates.hierarchy.launcher_of_instance(instance_a);
+        let focused = Some(FocusableTarget::Instance(instance_a));
+
+        let start = serde_json::json!({ "launcher_id": uuid::Uuid::from(shell_a).to_string() });
+        let ToolCallPlan::Issue {
+            command:
+                DesktopCommand::StartInstance {
+                    launcher,
+                    instance,
+                    parameters,
+                    kind,
+                    focus,
+                    ..
+                },
+            result,
+        } = system.call_tool(labs_a, "desktop_start_instance", &start.to_string())
+        else {
+            panic!("starting an instance issues StartInstance");
+        };
+        assert_eq!(created_instance(&String::from(result)), instance);
+        // The tests register no application to spawn, so the instance counts as spawned already.
+        let spawned = DesktopCommand::StartInstance {
+            launcher,
+            instance,
+            root: Some(InstanceRoot::new()),
+            parameters,
+            kind,
+            focus,
+        };
+        let Planned::Changes(changes) = system.plan_issued(spawned)? else {
+            panic!("starting an instance is planned");
+        };
+        system.transact(
+            changes,
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        assert!(system.aggregates.instances.contains_key(&instance));
+        assert_eq!(system.keyboard_focus.focused(), focused);
+
+        let group = serde_json::json!({
+            "project_id": uuid::Uuid::from(labs_a).to_string(),
+            "positions": [{ "column": 0, "row": 0 }],
+            "name": "grouped"
+        });
+        let grouped = carry_out(
+            &mut system,
+            &mut instance_manager,
+            labs_a,
+            "desktop_group",
+            group,
+        )?;
+        assert_eq!(
+            system
+                .aggregates
+                .configuration
+                .content_at(labs_a, SlotPosition { column: 0, row: 0 }),
+            Some(SlotContent::Project(created_project(&grouped)))
+        );
+        assert_eq!(system.keyboard_focus.focused(), focused);
+        Ok(())
+    })
+    .await
+}
+
+/// An instance tool reaches only the instances its MCP root covers, and the MCP root itself cannot
+/// be ungrouped, because its slots would leave the covered subtree (ADR 0036).
+#[tokio::test]
+async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            instance_b,
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize, AccessScope::Act],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let stop = |instance: InstanceId| {
+            let arguments = serde_json::json!({ "instance_id": instance.to_string() });
+            system.call_tool(labs_a, "desktop_stop_instance", &arguments.to_string())
+        };
+        let ungroup_root =
+            serde_json::json!({ "project_id": uuid::Uuid::from(labs_a).to_string() });
+
+        assert_eq!(error_code(&system, stop(instance_b)), "unknown_id");
+        assert!(matches!(
+            outcome(&system, stop(instance_a)),
+            ToolOutcome::Ok(_)
+        ));
+        let ungroup = system.call_tool(labs_a, "desktop_ungroup", &ungroup_root.to_string());
+        assert_eq!(error_code(&system, ungroup), "refused");
+        Ok(())
+    })
+    .await
+}
+
+/// Calls `tool` through a connection bound to `root` and carries out its command as the desktop
+/// loop does, and returns the result.
+fn carry_out(
+    system: &mut DesktopSystem,
+    instance_manager: &mut InstanceManager,
+    root: ProjectId,
+    tool: &str,
+    arguments: serde_json::Value,
+) -> Result<String> {
+    let ToolCallPlan::Issue { command, result } =
+        system.call_tool(root, tool, &arguments.to_string())
+    else {
+        panic!("{tool} issues a command");
+    };
+    let Planned::Changes(changes) = system.plan_issued(command)? else {
+        panic!("{tool}'s command is planned");
+    };
+    system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
+    Ok(result.into())
+}
+
+fn created_id(result: &str) -> uuid::Uuid {
+    let created: serde_json::Value = serde_json::from_str(result).unwrap();
+    uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap()
+}
+
+fn created_instance(result: &str) -> InstanceId {
+    created_id(result).into()
+}
+
+fn created_project(result: &str) -> ProjectId {
+    created_id(result).into()
+}
+
 /// Plans assigning a new, empty project into slot (`column`, 0) of `project`, through a connection
 /// bound to `root`.
 fn assign_project(

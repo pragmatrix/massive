@@ -115,7 +115,12 @@ impl DesktopSystem {
                 kind,
                 focus,
             } => {
-                let originator_instance = self.focused_path().instance();
+                // An instance an agent starts does not appear next to, or slide out of, the
+                // instance the user works in, which may lie outside the agent's MCP root.
+                let originator_instance = match focus {
+                    FocusIntent::Follow => self.focused_path().instance(),
+                    FocusIntent::Keep => None,
+                };
                 let originating_details = originator_instance
                     .map(|originator| self.get_origination_details(launcher, originator));
                 let insertion_pos = originating_details
@@ -275,6 +280,7 @@ impl DesktopSystem {
                 Some(ConfigurationCommand::Group {
                     parent,
                     slots,
+                    project: ProjectId::new(),
                     name: DEFAULT_NEW_PROJECT_NAME.into(),
                     focus: FocusIntent::Follow,
                 })

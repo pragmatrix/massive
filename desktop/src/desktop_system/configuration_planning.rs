@@ -197,10 +197,11 @@ impl ConfigurationPlanning<'_> {
             ConfigurationCommand::Group {
                 parent,
                 slots,
+                project,
                 name,
                 focus,
             } => {
-                changes += grouping::plan(parent, slots, name, focus, self.configuration);
+                changes += grouping::plan(parent, slots, project, name, focus, self.configuration);
             }
             ConfigurationCommand::Ungroup { project, focus } => {
                 return self.plan_ungroup(project, focus);
