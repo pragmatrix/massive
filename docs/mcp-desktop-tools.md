@@ -1,6 +1,6 @@
 # Desktop MCP tools
 
-Status: **decided** (2026-10-24). `desktop_describe` and the slot tools are implemented (2026-10-31).
+Status: **decided** (2026-10-24). Every tool is implemented (2026-10-31).
 
 This document specifies the MCP tools the desktop offers to agents through an MCP root
 ([ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)). The desktop is a tool
@@ -299,7 +299,7 @@ desktop_group {
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `project_id` | string | yes | The project. |
-| `positions` | array of `SlotPosition`, at least one | yes | The slots to wrap. Unassigned slots among them are ignored. |
+| `positions` | array of `SlotPosition`, at least one | yes | The slots to wrap. Unassigned slots among them are ignored, and a call with none assigned is refused. |
 | `name` | string, 1 to 1000 characters | yes | The new project's name. |
 
 **Why the desktop adds its own fields:**
