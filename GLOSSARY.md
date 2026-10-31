@@ -249,7 +249,7 @@ The process an agent runs as its MCP server, an application's `mcp serve` subcom
 _Avoid_: MCP server (for the desktop), proxy
 
 **Focus intent**:
-Whether a configuration command moves the keyboard focus as its operation decides (`Follow`, issued by the keyboard and the CLI) or leaves the focus, the selection and the camera where they are (`Keep`, issued through MCP). A command that removes the focused target moves the focus either way (ADR 0036).
+Whether a configuration command moves the keyboard focus as its operation decides (`Follow`, issued by the keyboard and the CLI) or leaves the focus and the camera where they are (`Keep`, issued through MCP). A command that removes the focused target moves the focus either way. The selection survives unless the command changes the slots of the project that holds it (ADR 0036).
 _Avoid_: focus mode, focus policy
 
 **Tool provider**:

@@ -169,10 +169,11 @@ pub enum ConfigurationChange {
 }
 
 impl ConfigurationChange {
-    /// Whether the selection survives this change (ADR 0025, ADR 0033). The selection is stored as
-    /// offsets around the focused slot. A change that adds, removes, or moves slots could make
-    /// those offsets cover other slots, or reach past the matrix's edge when the focused slot
-    /// itself moves, so the transaction collapses the selection after it.
+    /// Whether the selection survives this change, even when the change edits the project that
+    /// holds the selection (ADR 0025, ADR 0033). The selection is stored as offsets around the
+    /// focused slot. A change that adds, removes, or moves slots of that project could make those
+    /// offsets cover other slots, or reach past the matrix's edge when the focused slot itself
+    /// moves, so the transaction collapses the selection after it.
     pub fn keeps_selection(&self) -> bool {
         match self {
             Self::AssignSlot { .. }

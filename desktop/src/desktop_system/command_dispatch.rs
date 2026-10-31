@@ -565,10 +565,16 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                let configuration_impact = if project_change.keeps_selection() {
-                    ConfigurationImpact::Changed
-                } else {
+                // A change elsewhere leaves the selection's slots where they are, so an agent
+                // working in another project does not take the user's selection away (ADR 0036).
+                let under_selection = !project_change.keeps_selection()
+                    && self.project_holding_selection().is_some_and(|holding| {
+                        project_change.touched_projects().contains(&holding)
+                    });
+                let configuration_impact = if under_selection {
                     ConfigurationImpact::ChangedUnderSelection
+                } else {
+                    ConfigurationImpact::Changed
                 };
                 let mut output = self.apply_project_change(project_change)?;
                 output.surface.configuration_impact = configuration_impact;

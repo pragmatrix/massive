@@ -65,8 +65,8 @@ impl ChangeSurface {
 }
 
 /// What the configuration changes of a transaction did. Any change makes the transaction persist
-/// the configuration. A change that adds, removes, or moves slots also collapses the selection
-/// (see `ConfigurationChange::keeps_selection`). The states are ordered by what follows from
+/// the configuration. A change that adds, removes, or moves slots of the project that holds the
+/// selection also collapses the selection (see `ConfigurationChange::keeps_selection`). The states are ordered by what follows from
 /// them, so combining two change surfaces keeps the larger impact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum ConfigurationImpact {

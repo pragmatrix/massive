@@ -72,9 +72,10 @@ pub enum SelectionOperation {
 }
 
 /// Whether a command that creates or moves content takes the keyboard focus there (ADR 0036). The
-/// keyboard and the CLI follow, so the user lands on what they made. MCP keeps the focus, the
-/// selection and the camera where they are, so an agent never pulls the user away. A focused target
-/// that a command removes hands its focus on either way.
+/// keyboard and the CLI follow, so the user lands on what they made. MCP keeps the focus and the
+/// camera where they are, so an agent never pulls the user away. A focused target that a command
+/// removes hands its focus on either way. The selection survives either way, unless the command
+/// changes the slots of the project that holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusIntent {
     Follow,

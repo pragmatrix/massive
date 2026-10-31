@@ -252,10 +252,11 @@ with its parameters, results and errors.
 **A command issued through MCP never moves the user's focus.** When the keyboard issues a
 configuration command, the command decides where the focus goes afterwards (ADR 0024). Commands
 therefore carry a focus intent. The keyboard and the CLI issue `Follow`, which keeps today's
-behavior. MCP issues `Keep`, and the planner then leaves the keyboard focus, the selection and the
-camera where they are. Only a focused target that the command removes still moves the focus,
-because the focus cannot stay on something that no longer exists. An agent can therefore
-reorganize a project next to the user without pulling the user's view away.
+behavior. MCP issues `Keep`, and the planner then leaves the keyboard focus and the camera where
+they are. Only a focused target that the command removes still moves the focus, because the focus
+cannot stay on something that no longer exists. The selection survives every change that leaves
+the slots of its own project alone, so an agent working elsewhere never takes it away. An agent can
+therefore reorganize a project next to the user without pulling the user's view away.
 
 ### Applications answer calls
 
