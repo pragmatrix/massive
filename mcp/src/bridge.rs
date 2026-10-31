@@ -101,7 +101,7 @@ impl ServerHandler for Bridge {
         let (capabilities, instructions) = match self {
             Self::Bound { .. } => (
                 ServerCapabilities::builder().enable_tools().build(),
-                "Tools of the MCP project on the massive desktop that this process works in. Ids \
+                "Tools of the MCP root on the massive desktop that this process works in. Ids \
                  are valid only while the desktop runs."
                     .to_string(),
             ),

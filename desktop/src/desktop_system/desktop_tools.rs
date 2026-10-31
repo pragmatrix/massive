@@ -19,11 +19,15 @@ use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
 use super::{ConfigurationCommand, DesktopCommand, DesktopSystem, Direction, SlotShift};
 use crate::instance_presenter::InstanceKind;
 use crate::policy::constants;
+use crate::policy::when::{self, NestingParams};
 use crate::projects::{
     FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode, Params, ProjectId,
-    SlotAssignment, SlotContent, SlotPosition,
+    SlotAssignment, SlotContent, SlotPosition, params_depth,
 };
-use crate::security::{self, CallingTool, ConnectingToTarget, NamingSlot, NamingTarget};
+use crate::security::{
+    self, CallingTool, ConnectingToTarget, CreatingLauncher, NamingSlot, NamingTarget,
+    RemovingContent,
+};
 
 /// The MCP root a tool connection is bound to, and the tools its access scopes grant.
 #[derive(Debug)]
@@ -32,7 +36,8 @@ pub struct ToolConnectionRoot {
     pub tools: Vec<ToolDescription>,
 }
 
-/// What carrying out a tool call takes.
+/// How the desktop carries out a tool call: answered from its state, or by a command that the
+/// desktop loop runs before it answers.
 #[derive(Debug)]
 pub enum ToolCallPlan {
     /// The call is answered from the desktop's state.
@@ -122,7 +127,22 @@ impl DesktopSystem {
         if shift == SlotShift::Keep
             && let Some(replaced) = self.aggregates.configuration.content_at(parent, slot)
         {
-            self.allow_stopping_instances(root, replaced)?;
+            self.allow_removing(root, replaced)?;
+        }
+        if let ContentSpec::Launcher(spec) = &params.content {
+            let sets_params = spec
+                .params
+                .as_ref()
+                .is_some_and(|params| !params.0.is_empty());
+            match security::creating_launcher(sets_params, self.granted_access_scopes(root)) {
+                CreatingLauncher::Allow => {}
+                CreatingLauncher::RefuseParamsWithoutAct => {
+                    return Err(scope_not_granted(
+                        AccessScope::Act,
+                        "a launcher's params decide what its instances run",
+                    ));
+                }
+            }
         }
         let content = slot_assignment(params.content);
         let id = match content.content() {
@@ -144,9 +164,8 @@ impl DesktopSystem {
         params: ClearSlotParams,
     ) -> Result<ToolCallPlan, ToolError> {
         let (parent, slot) = self.covered_slot(root, &params.slot)?;
-        if let Some(cleared) = self.aggregates.configuration.content_at(parent, slot) {
-            self.allow_stopping_instances(root, cleared)?;
-        }
+        let cleared = self.assigned((parent, slot))?;
+        self.allow_removing(root, cleared)?;
         let command = ConfigurationCommand::ClearSlot {
             parent,
             slot,
@@ -204,16 +223,16 @@ impl DesktopSystem {
     /// The project that `id` names, when the MCP root `root` covers it.
     fn covered_project(&self, root: ProjectId, id: &str) -> Result<ProjectId, ToolError> {
         let configuration = &self.aggregates.configuration;
-        let covered = uuid::Uuid::parse_str(id)
+        let project = uuid::Uuid::parse_str(id)
             .ok()
             .map(ProjectId::from)
-            .filter(|&project| configuration.project(project).is_some())
-            .filter(|&project| configuration.mcp_root_of(project) == Some(root));
-        match security::naming_target(covered.is_some()) {
-            NamingTarget::Allow => Ok(covered.expect("an allowed target is covered")),
+            .filter(|&project| configuration.project(project).is_some());
+        let covering_mcp_root = project.and_then(|project| configuration.mcp_root_of(project));
+        match security::naming_target(covering_mcp_root, root) {
+            NamingTarget::Allow => Ok(project.expect("a covered project exists")),
             NamingTarget::RefuseUnknown => Err(ToolError {
                 code: ToolErrorCode::UnknownId,
-                message: format!("No project of the MCP project has the id '{id}'."),
+                message: format!("No project in the MCP root has the id '{id}'."),
             }),
         }
     }
@@ -249,9 +268,13 @@ impl DesktopSystem {
         }
     }
 
-    fn assigned(&self, (project, slot): (ProjectId, SlotPosition)) -> Result<(), ToolError> {
+    /// The content of a slot that a tool acts on, or a refusal when the slot is unassigned.
+    fn assigned(
+        &self,
+        (project, slot): (ProjectId, SlotPosition),
+    ) -> Result<SlotContent, ToolError> {
         match self.aggregates.configuration.content_at(project, slot) {
-            Some(_) => Ok(()),
+            Some(content) => Ok(content),
             None => Err(refused(&format!(
                 "The slot ({}, {}) is unassigned.",
                 slot.column, slot.row
@@ -261,23 +284,18 @@ impl DesktopSystem {
 
     /// Removing `content` stops the instances that run below it, which needs the access scope
     /// `act`.
-    fn allow_stopping_instances(
-        &self,
-        root: ProjectId,
-        content: SlotContent,
-    ) -> Result<(), ToolError> {
-        if !self
+    fn allow_removing(&self, root: ProjectId, content: SlotContent) -> Result<(), ToolError> {
+        let instances_run_below = self
             .aggregates
             .hierarchy
-            .has_instances_below(&content.target())
-        {
-            return Ok(());
+            .has_instances_below(&content.target());
+        match security::removing_content(instances_run_below, self.granted_access_scopes(root)) {
+            RemovingContent::Allow => Ok(()),
+            RemovingContent::RefuseWithoutAct => Err(scope_not_granted(
+                AccessScope::Act,
+                "instances run below the content, and removing it stops them",
+            )),
         }
-        self.allow_scope(
-            root,
-            AccessScope::Act,
-            "instances run below the content, and removing it stops them",
-        )
     }
 
     fn allow_scope(
@@ -288,13 +306,7 @@ impl DesktopSystem {
     ) -> Result<(), ToolError> {
         match security::calling_tool(self.granted_access_scopes(root), needed) {
             CallingTool::Allow => Ok(()),
-            CallingTool::RefuseScopeNotGranted => Err(ToolError {
-                code: ToolErrorCode::ScopeNotGranted,
-                message: format!(
-                    "The MCP project does not grant the access scope '{}', and {because}.",
-                    needed.name()
-                ),
-            }),
+            CallingTool::RefuseScopeNotGranted => Err(scope_not_granted(needed, because)),
         }
     }
 
@@ -398,7 +410,7 @@ fn slot_assignment(content: ContentSpec) -> SlotAssignment {
             profile: LaunchProfile {
                 name: spec.name.into(),
                 mode: spec.mode.map_or(LauncherMode::Visor, Into::into),
-                params: spec.params.unwrap_or_default(),
+                params: spec.params.map(Into::into).unwrap_or_default(),
                 full_screen_mode: spec
                     .full_screen_mode
                     .map_or(FullScreenMode::Regular, Into::into),
@@ -411,10 +423,22 @@ fn slot_assignment(content: ContentSpec) -> SlotAssignment {
     }
 }
 
+/// Plans a call whose `command` the desktop loop carries out before it answers with `result` (see
+/// `tool_host::IssuedCommand`).
 fn issue(command: ConfigurationCommand, result: &impl Serialize) -> ToolCallPlan {
     ToolCallPlan::Issue {
         command: DesktopCommand::Configuration(command),
         result: encode_result(result),
+    }
+}
+
+fn scope_not_granted(needed: AccessScope, because: &str) -> ToolError {
+    ToolError {
+        code: ToolErrorCode::ScopeNotGranted,
+        message: format!(
+            "The MCP root does not grant the access scope '{}', and {because}.",
+            needed.name()
+        ),
     }
 }
 
@@ -440,7 +464,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
             ToolDeclaration::new::<DescribeParams, ProjectDescription>(
                 tool_name!(McpId::DESKTOP, "describe"),
                 AccessScope::Observe,
-                "Returns the MCP project this connection is bound to and everything it covers: its \
+                "Returns the MCP root this connection is bound to and everything it covers: its \
                  slots, nested projects, launchers, and running instances. Ids are valid only \
                  while the desktop runs.",
             ),
@@ -460,8 +484,8 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
             ToolDeclaration::new::<ClearSlotParams, NoResult>(
                 tool_name!(McpId::DESKTOP, "clear_slot"),
                 AccessScope::Organize,
-                "Removes a slot's content and its subtree, and leaves a gap unless shift is \
-                 \"shift\". It stops every instance that runs below the content, which also needs \
+                "Removes a slot's content and its subtree. The slot stays unassigned unless shift \
+                 is \"shift\". It stops every instance that runs below the content, which also needs \
                  the access scope act.",
             ),
         ),
@@ -517,7 +541,8 @@ struct AssignSlotParams {
 struct ClearSlotParams {
     /// The slot to clear.
     slot: SlotRef,
-    /// Whether the rest of the row closes the gap. The default is "keep", which moves nothing else.
+    /// Whether the rest of the row moves into the cleared slot. The default is "keep", which moves
+    /// nothing else.
     #[serde(default = "ShiftValue::keep")]
     shift: ShiftValue,
 }
@@ -541,7 +566,7 @@ struct PushSlotParams {
     direction: DirectionValue,
 }
 
-/// A slot in a project of the MCP project.
+/// A slot in a project of the MCP root.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SlotRef {
@@ -568,15 +593,15 @@ struct LauncherSpec {
     name: TargetName,
     /// The default is "visor".
     mode: Option<LauncherModeValue>,
-    /// Passed to the application when an instance starts, such as a command to run.
-    params: Option<Params>,
+    params: Option<LauncherParams>,
     /// The default is "regular".
     full_screen_mode: Option<FullScreenModeValue>,
 }
 
 /// The name of a desktop target, such as a launcher or project, that a tool creates. Decoding
 /// refuses an empty name and one longer than [`constants::tools::MAX_NAME_CHARS`], and the schema
-/// states both limits, so the limit has one source. A name may contain `/`.
+/// states both limits, so the limit has one source. A name may contain `/`, because it is a label
+/// the user picks, not a path.
 #[derive(Debug, Deserialize, Into)]
 #[serde(try_from = "String")]
 struct TargetName(String);
@@ -614,6 +639,48 @@ impl TryFrom<String> for TargetName {
     }
 }
 
+/// The params of a launcher that a tool creates. Decoding refuses params nested deeper than
+/// [`constants::configuration::MAX_PARAMS_DEPTH`], and the schema's description states the limit.
+#[derive(Debug, Deserialize, Into)]
+#[serde(try_from = "Params")]
+struct LauncherParams(Params);
+
+impl JsonSchema for LauncherParams {
+    fn schema_name() -> Cow<'static, str> {
+        "LauncherParams".into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        let description = format!(
+            "Passed to the application when an instance starts, such as a command to run. They \
+             nest at most {} levels deep.",
+            constants::configuration::MAX_PARAMS_DEPTH
+        );
+        json_schema!({
+            "type": "object",
+            "description": description,
+        })
+    }
+}
+
+impl TryFrom<Params> for LauncherParams {
+    type Error = String;
+
+    fn try_from(params: Params) -> Result<Self, Self::Error> {
+        if when::nesting_params(params_depth(&params)) == NestingParams::RefuseTooDeep {
+            return Err(format!(
+                "params nest at most {} levels deep",
+                constants::configuration::MAX_PARAMS_DEPTH
+            ));
+        }
+        Ok(Self(params))
+    }
+}
+
 /// How a tool treats the slots next to the one it changes. Each tool defaults to the value that
 /// removes nothing and moves the least, because defaults should do less.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -622,7 +689,8 @@ enum ShiftValue {
     /// Assigning pushes the assigned content and its contiguous run one column right. Clearing
     /// pulls the rest of the row left.
     Shift,
-    /// Assigning onto an assigned slot replaces its content, and clearing leaves a gap.
+    /// Assigning onto an assigned slot replaces its content, and clearing leaves the slot
+    /// unassigned.
     Keep,
 }
 

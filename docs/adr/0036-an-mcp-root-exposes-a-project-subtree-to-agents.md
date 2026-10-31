@@ -140,7 +140,7 @@ outside every MCP root.
 when the target lies outside every MCP root, or when there is neither `MASSIVE_INSTANCE` nor
 `--target`. The bridge then answers MCP's `initialize` without the `tools` capability, which is
 MCP's way to say that a server offers no tools. The reply's `instructions` field explains why, for
-example "this process is not inside an MCP project". It does not name other MCP roots. A user can
+example "this process is not inside an MCP root". It does not name other MCP roots. A user can
 therefore register the bridge once in their agent's user configuration, and it stays harmless in
 every instance no MCP root covers.
 

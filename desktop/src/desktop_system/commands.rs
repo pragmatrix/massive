@@ -83,7 +83,7 @@ pub enum FocusIntent {
         not(test),
         expect(
             dead_code,
-            reason = "the MCP tools that issue it come with the next step"
+            reason = "desktop_group, desktop_ungroup and desktop_start_instance issue it"
         )
     )]
     Keep,

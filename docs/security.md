@@ -40,9 +40,10 @@ with a reason. A new check is added to the module and to this table in the same 
 | Connection target | A tool connection is bound to the one MCP root that covers its target, or declined. A target outside every MCP root is declined like one that does not exist. A call is carried out only while its binding lives, so a call queued before its MCP root changed fails. | Implemented: `security::connecting_to_target`, the bindings in the tool host |
 | Coverage | Every slot, launcher and instance a tool call names lies inside its MCP root's subtree, as source and as destination. An instance outside is reported as unknown, and no reply names a project above the MCP root, not even through its target path. | Implemented for projects and slots: `security::naming_target`, carried out in `desktop/src/desktop_system/desktop_tools.rs`. Launchers and instances arrive with the tools that name them. The replies name nothing above the MCP root. |
 | Slot bounds | A slot a tool call names lies at most one column right of and one row below its matrix's assigned slots. The desktop lays out every column and row up to a slot, so a far slot would make it lay out a vast empty matrix. | Implemented: `security::naming_slot` |
-| Access scope | Every tool call needs an access scope the MCP root grants. A removal that stops instances also needs `act`. | Implemented: `security::calling_tool`, for the tool's scope and for removals by `desktop_assign_slot` and `desktop_clear_slot` |
+| Access scope | Every tool call needs an access scope the MCP root grants. A removal that stops instances also needs `act`, and so does creating a launcher with params, because they decide what the user runs by starting an instance. | Implemented: `security::calling_tool` for the tool's scope, `security::removing_content` for removals, and `security::creating_launcher` for params |
 | No MCP configuration from inside | `ConfigureMcp` is refused when it comes from an instance that any MCP root covers. | Implemented: `security::configuring_mcp` |
 | No nested MCP roots | No change may place an MCP root inside another MCP root's subtree, and the root project is never an MCP root. A loaded file's nested roots lose their `mcp` object. | Enabling is checked by `security::making_mcp_root`. A tool's move stays inside one MCP root, which holds no other, so it cannot nest one. No keyboard or CLI command moves content between projects. |
+| Nesting depth | No change nests a project more than 16 levels below the root project, or a launcher's params more than 4 levels, so every configuration the desktop saves loads again. These limits hold for every issuer, so they are desktop policy, not a check of this module. | Implemented: `when::nesting_projects` in the configuration planner for every command, `when::nesting_params` when a tool's params are decoded, and both when a configuration loads. A file past a limit fails to load with an error that names the depth. |
 | No desktop-wide changes | A tool connection cannot change the focus, the camera or the startup launcher. | Planned (ADR 0036) |
 | Tool ownership | A call to an application tool targets an instance whose application declared that tool. | Planned (ADR 0036) |
 
@@ -66,6 +67,10 @@ until it is closed.
    MCP root grants that for every such instance the root covers. Applications list their own
    security-relevant behavior in their own documentation.
 
+6. **Nothing limits how much an agent stores.** An agent with `organize` can create any number of
+   launchers and projects, and params of up to 1 MiB per call with `act`. Every call rewrites the
+   whole configuration file on the desktop loop, so a loop of calls grows the file and slows the
+   desktop down. Names are limited to 1000 characters.
 Access scopes are therefore a hard limit for agents whose only reach is MCP, and a statement of the
 user's intent for agents that also have a shell. They are not a sandbox.
 

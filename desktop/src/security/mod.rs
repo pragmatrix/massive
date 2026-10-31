@@ -79,7 +79,7 @@ pub fn connecting_to_target(covering_mcp_root: Option<ProjectId>) -> ConnectingT
 }
 
 /// The reason every declined tool connection gets, whatever the target was.
-pub const DECLINED_TARGET: &str = "this process is not inside an MCP project";
+pub const DECLINED_TARGET: &str = "this process is not inside an MCP root";
 
 /// Whether a tool connection may call a tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,10 +106,13 @@ pub enum NamingTarget {
     RefuseUnknown,
 }
 
-/// `covered` tells whether the target exists and the connection's MCP root covers it.
+/// Refuses a target that the connection's MCP root `root` does not cover, with the same answer as
+/// for a target that does not exist, so nothing leaks from outside the root. `covering_mcp_root`
+/// is the MCP root that covers the target, or `None` when the target does not exist or no MCP root
+/// covers it.
 #[must_use]
-pub fn naming_target(covered: bool) -> NamingTarget {
-    if covered {
+pub fn naming_target(covering_mcp_root: Option<ProjectId>, root: ProjectId) -> NamingTarget {
+    if covering_mcp_root == Some(root) {
         return NamingTarget::Allow;
     }
     NamingTarget::RefuseUnknown
@@ -132,4 +135,38 @@ pub fn naming_slot(slot: MatrixPoint, matrix: MatrixRect) -> NamingSlot {
         return NamingSlot::Allow;
     }
     NamingSlot::RefuseOutsideMatrix
+}
+
+/// Whether a tool call may remove slot content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovingContent {
+    Allow,
+    /// Removing the content stops the instances that run below it, and stopping instances needs
+    /// `act`.
+    RefuseWithoutAct,
+}
+
+#[must_use]
+pub fn removing_content(instances_run_below: bool, granted: &AccessScopes) -> RemovingContent {
+    if instances_run_below && !granted.contains(&AccessScope::Act) {
+        return RemovingContent::RefuseWithoutAct;
+    }
+    RemovingContent::Allow
+}
+
+/// Whether a tool call may create a launcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreatingLauncher {
+    Allow,
+    /// A launcher's parameters decide what its instances run, such as a terminal's command. The
+    /// user runs it by starting an instance, so setting them needs `act`, like running it does.
+    RefuseParamsWithoutAct,
+}
+
+#[must_use]
+pub fn creating_launcher(sets_params: bool, granted: &AccessScopes) -> CreatingLauncher {
+    if sets_params && !granted.contains(&AccessScope::Act) {
+        return CreatingLauncher::RefuseParamsWithoutAct;
+    }
+    CreatingLauncher::Allow
 }

@@ -4,6 +4,7 @@ use massive_protocol::tools::v1::ToolOutcome;
 
 use super::*;
 use crate::desktop_system::change::DesktopSystemEffect;
+use crate::desktop_system::selection::Selection;
 
 /// Makes the project `path` an MCP root that grants `access_scopes`, and returns the transaction's
 /// system effects.
@@ -280,9 +281,12 @@ async fn a_slot_tool_acts_only_inside_its_mcp_root() -> Result<()> {
             system.call_tool(labs_a, "desktop_assign_slot", &arguments.to_string())
         };
 
-        assert_eq!(error_code(assign(&system, labs_b, 1)), "unknown_id");
         assert_eq!(
-            error_code(assign(&system, labs_a, 1000)),
+            error_code(&system, assign(&system, labs_b, 1)),
+            "unknown_id"
+        );
+        assert_eq!(
+            error_code(&system, assign(&system, labs_a, 1000)),
             "invalid_argument"
         );
         let ToolCallPlan::Issue { command, .. } = assign(&system, labs_a, 1) else {
@@ -333,7 +337,10 @@ async fn clearing_a_slot_with_running_instances_needs_act() -> Result<()> {
             "/labs-a",
             &[AccessScope::Organize],
         )?;
-        assert_eq!(error_code(clear_shell_a(&system)), "scope_not_granted");
+        assert_eq!(
+            error_code(&system, clear_shell_a(&system)),
+            "scope_not_granted"
+        );
 
         configure_mcp(
             &mut system,
@@ -413,12 +420,253 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         };
         run(&mut system, &mut instance_manager, command)?;
         assert_eq!(
-            error_code(move_slot(&system, slot(labs_a, 0), slot(inner, 0))),
+            error_code(&system, move_slot(&system, slot(labs_a, 0), slot(inner, 0))),
             "refused"
         );
         Ok(())
     })
     .await
+}
+
+/// A slot tool changes nothing outside the projects it edits. The user's selection in another
+/// project survives, because the change leaves its slots where they are (ADR 0036).
+#[tokio::test]
+async fn a_slot_tool_leaves_a_selection_in_another_project_alone() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Project(labs_a)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::ExtendSelection(Direction::Right),
+        )?;
+        let selected = Selection::from_diagonal(euclid::vec2(1, 0));
+        assert_eq!(system.selection, selected, "the selection covers both labs");
+
+        let ToolCallPlan::Issue { command, .. } = assign_project(&system, labs_a, labs_a, 1) else {
+            panic!("assigning inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+
+        assert_eq!(system.selection, selected);
+        Ok(())
+    })
+    .await
+}
+
+/// A slot tool refuses a call that would change nothing, so an agent never takes a no-op for a
+/// success: clearing an unassigned slot, and pushing past the matrix's edge.
+#[tokio::test]
+async fn a_slot_tool_refuses_a_call_that_would_change_nothing() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let slot = |column: u32| {
+            serde_json::json!({
+                "project_id": uuid::Uuid::from(labs_a).to_string(),
+                "position": { "column": column, "row": 0 }
+            })
+        };
+        let call = |tool: &str, arguments: serde_json::Value| {
+            system.call_tool(labs_a, tool, &arguments.to_string())
+        };
+
+        let clear = call("desktop_clear_slot", serde_json::json!({ "slot": slot(1) }));
+        assert_eq!(error_code(&system, clear), "refused");
+        let push = call(
+            "desktop_push_slot",
+            serde_json::json!({ "slot": slot(0), "direction": "left" }),
+        );
+        assert_eq!(error_code(&system, push), "refused");
+        Ok(())
+    })
+    .await
+}
+
+/// A launcher's params decide what its instances run, so creating a launcher with params needs
+/// `act`. A launcher without params needs only `organize` (ADR 0036).
+#[tokio::test]
+async fn creating_a_launcher_with_params_needs_act() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let assign_launcher = |launcher: serde_json::Value| {
+            let arguments = serde_json::json!({
+                "slot": {
+                    "project_id": uuid::Uuid::from(labs_a).to_string(),
+                    "position": { "column": 1, "row": 0 }
+                },
+                "content": { "launcher": launcher }
+            });
+            system.call_tool(labs_a, "desktop_assign_slot", &arguments.to_string())
+        };
+
+        let with_params = assign_launcher(serde_json::json!({
+            "name": "shell",
+            "params": { "command": "true" }
+        }));
+        assert_eq!(error_code(&system, with_params), "scope_not_granted");
+        assert!(matches!(
+            assign_launcher(serde_json::json!({ "name": "shell" })),
+            ToolCallPlan::Issue { .. }
+        ));
+        Ok(())
+    })
+    .await
+}
+
+/// No tool nests projects deeper than the limit, counting what a moved project brings along, so
+/// every configuration the desktop saves loads again.
+#[tokio::test]
+async fn a_slot_tool_refuses_to_nest_projects_beyond_the_limit() -> Result<()> {
+    use crate::policy::constants::configuration::MAX_PROJECT_DEPTH;
+
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let first = SlotPosition { column: 0, row: 0 };
+        let configuration = &mut system.aggregates.configuration;
+        // A chain of nested projects below labs-a, down to the deepest allowed level.
+        let mut chain = vec![labs_a];
+        while configuration.project_depth(*chain.last().unwrap()) < MAX_PROJECT_DEPTH {
+            let nested = ProjectId::new();
+            let host = *chain.last().unwrap();
+            let slot = if host == labs_a {
+                SlotPosition { column: 1, row: 0 }
+            } else {
+                first
+            };
+            configuration.assign_slot(
+                Some(host),
+                slot,
+                SlotAssignment::Project {
+                    id: nested,
+                    name: "nested".into(),
+                },
+            );
+            chain.push(nested);
+        }
+        // A project of height 2 in labs-a, to move into the chain.
+        let (outer, inner) = (ProjectId::new(), ProjectId::new());
+        let free = SlotPosition { column: 2, row: 0 };
+        configuration.assign_slot(
+            Some(labs_a),
+            free,
+            SlotAssignment::Project {
+                id: outer,
+                name: "outer".into(),
+            },
+        );
+        configuration.assign_slot(
+            Some(outer),
+            first,
+            SlotAssignment::Project {
+                id: inner,
+                name: "inner".into(),
+            },
+        );
+        let slot = |project: ProjectId, position: SlotPosition| {
+            serde_json::json!({
+                "project_id": uuid::Uuid::from(project).to_string(),
+                "position": { "column": position.column, "row": position.row }
+            })
+        };
+        let move_outer_into = |project: ProjectId| {
+            let beside = SlotPosition { column: 1, row: 0 };
+            let arguments =
+                serde_json::json!({ "from": slot(labs_a, free), "to": slot(project, beside) });
+            system.call_tool(labs_a, "desktop_move_slot", &arguments.to_string())
+        };
+        let deepest = chain[chain.len() - 1];
+        let below_deepest = chain[chain.len() - 2];
+
+        assert_eq!(
+            error_code(&system, assign_project(&system, labs_a, deepest, 0)),
+            "refused"
+        );
+        assert!(matches!(
+            outcome(&system, assign_project(&system, labs_a, below_deepest, 1)),
+            ToolOutcome::Ok(_)
+        ));
+        // Moved below a project at the limit minus one, `outer` and `inner` would reach one level
+        // past it. One level higher, they fit.
+        assert_eq!(
+            error_code(&system, move_outer_into(below_deepest)),
+            "refused"
+        );
+        assert!(matches!(
+            outcome(&system, move_outer_into(chain[chain.len() - 3])),
+            ToolOutcome::Ok(_)
+        ));
+        Ok(())
+    })
+    .await
+}
+
+/// Plans assigning a new, empty project into slot (`column`, 0) of `project`, through a connection
+/// bound to `root`.
+fn assign_project(
+    system: &DesktopSystem,
+    root: ProjectId,
+    project: ProjectId,
+    column: u32,
+) -> ToolCallPlan {
+    let arguments = serde_json::json!({
+        "slot": {
+            "project_id": uuid::Uuid::from(project).to_string(),
+            "position": { "column": column, "row": 0 }
+        },
+        "content": { "project": "added" }
+    });
+    system.call_tool(root, "desktop_assign_slot", &arguments.to_string())
 }
 
 fn project_at(system: &DesktopSystem, path: &str) -> ProjectId {
@@ -429,9 +677,28 @@ fn project_at(system: &DesktopSystem, path: &str) -> ProjectId {
         .expect("the project resolves")
 }
 
-fn error_code(plan: ToolCallPlan) -> String {
+/// What the desktop loop answers for `plan`, without carrying out an issued command.
+fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> ToolOutcome {
     match plan {
-        ToolCallPlan::Answer(ToolOutcome::Err { code, .. }) => code,
+        ToolCallPlan::Answer(outcome) => outcome,
+        ToolCallPlan::Issue { command, result } => {
+            match system
+                .plan_issued(command)
+                .expect("an issued command plans")
+            {
+                Planned::Changes(_) => ToolOutcome::Ok(result.into()),
+                Planned::Refused(refusal) => ToolOutcome::Err {
+                    code: "refused".into(),
+                    message: refusal.to_string(),
+                },
+            }
+        }
+    }
+}
+
+fn error_code(system: &DesktopSystem, plan: ToolCallPlan) -> String {
+    match outcome(system, plan) {
+        ToolOutcome::Err { code, .. } => code,
         other => panic!("expected a tool error, found {other:?}"),
     }
 }

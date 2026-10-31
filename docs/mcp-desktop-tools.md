@@ -58,7 +58,7 @@ with an error code, a colon and a space, followed by a sentence for the agent. T
 | `unknown_id` | An id names no project, launcher or instance that the MCP root covers. It may be stale, or it may lie outside the root, which the error does not reveal. The text names the id. |
 | `scope_not_granted` | The MCP root does not grant the tool's access scope, or the command would stop running instances without `act`. |
 | `invalid_argument` | An argument breaks the schema's rules, such as a slot position outside the matrix. A slot lies at most one column right of and one row below the matrix's assigned slots. |
-| `refused` | The desktop refused the command, and the text gives the reason. Examples are a move onto an assigned slot, a move into the content's own subtree, nesting one MCP root inside another, and ungrouping an MCP root. |
+| `refused` | The desktop refused the command, and the text gives the reason. Examples are clearing an unassigned slot, a push past the matrix's edge, a move onto an assigned slot of another project, a move into the content's own subtree, nesting a project more than 16 levels below the root project, nesting one MCP root inside another, and ungrouping an MCP root. |
 | `too_large` | The call's arguments or its result exceed the tool protocol's frame limit of 1 MiB. Only this call fails. |
 | `connection_closed` | The tool connection ended before the desktop answered the call, for example because the MCP root's configuration changed. |
 
@@ -97,7 +97,7 @@ LauncherSpec = {
 |---|---|---|
 | `name` | string, 1 to 1000 characters | The launcher's name. Names may repeat. |
 | `mode` | `"visor"` or `"band"` | How the launcher presents its instances. The default is `"visor"`. |
-| `params` | object | The parameters the launcher's application receives when an instance starts, such as a command to run. Their meaning belongs to the application. |
+| `params` | object | The parameters the launcher's application receives when an instance starts, such as a command to run. Their meaning belongs to the application. They nest at most 4 levels deep. Setting them needs `act` on top of the tool's scope, because they decide what the user runs by starting an instance. |
 | `full_screen_mode` | `"regular"` or `"fullscreen"` | The Full Screen Mode the launcher's primary instances share (ADR 0014). The default is `"regular"`. |
 
 **`Content`**: what a tool puts into a slot. Exactly one field is set.
@@ -116,7 +116,7 @@ Content = {
 | Value | Meaning |
 |---|---|
 | `"shift"` | Assigning pushes the assigned content and its contiguous run one column right. Clearing pulls the rest of the row left. |
-| `"keep"` | Assigning onto an assigned slot replaces its content, and clearing leaves a gap. |
+| `"keep"` | Assigning onto an assigned slot replaces its content, and clearing leaves the slot unassigned. |
 
 **Defaults do less.** Each tool defaults to the value that removes nothing and moves the least:
 `"shift"` for assigning, because `"keep"` would remove the content in the way, and `"keep"` for
@@ -230,8 +230,8 @@ desktop_clear_slot {
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
-| `slot` | `SlotRef` | yes | The slot to clear. |
-| `shift` | `Shift` | no | Whether the rest of the row closes the gap. The default is `"keep"`. |
+| `slot` | `SlotRef` | yes | The assigned slot to clear. An unassigned slot is refused. |
+| `shift` | `Shift` | no | Whether the rest of the row moves into the cleared slot. The default is `"keep"`. |
 
 Clearing stops every instance that runs below the content. When any run, the call also needs `act`.
 
@@ -274,7 +274,7 @@ desktop_push_slot {
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
-| `slot` | `SlotRef` | yes | The assigned slot to push. |
+| `slot` | `SlotRef` | yes | The assigned slot to push. A push that would move content past the matrix's left or top edge is refused. |
 | `direction` | `Direction` | yes | The direction of the push. |
 
 ### `desktop_group`
