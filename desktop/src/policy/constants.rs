@@ -26,15 +26,27 @@ pub mod mcp_indicator {
     pub const COLOR_INTERPOLATION: Interpolation = Interpolation::CubicOut;
 }
 
-/// The outline drawn around the hovered or focused target.
+/// Limits on how deeply the desktop configuration nests, for every way it changes.
+pub mod configuration {
+    /// The deepest a project may lie below the root project. Real configurations nest two or three
+    /// levels. The limit keeps every saved configuration within the JSON parser's nesting limit of
+    /// 128 levels: each project level costs three, so with params at their limit the file nests at
+    /// most 56 levels.
+    pub const MAX_PROJECT_DEPTH: usize = 16;
+    /// The deepest a launcher's params may nest. Real params are flat, such as
+    /// `{ "command": "just" }`, which nests one level.
+    pub const MAX_PARAMS_DEPTH: usize = 4;
+}
+
 /// Limits on what an agent's tool call creates (ADR 0036).
 pub mod tools {
-    /// The longest name, in characters, of a launcher or project that a tool creates. It lies far
-    /// beyond any real name, so it never refuses one, and only keeps an agent from storing large
-    /// text in the configuration.
+    /// The longest name, in characters, of a launcher or project that a tool creates. It keeps an
+    /// agent from storing large text in a name, and lies far beyond any real name, so it never
+    /// refuses one.
     pub const MAX_NAME_CHARS: usize = 1000;
 }
 
+/// The outline drawn around the hovered or focused target.
 pub mod hover_outline {
     use std::time::Duration;
 

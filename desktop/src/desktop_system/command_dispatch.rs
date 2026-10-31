@@ -12,7 +12,7 @@ use super::change::{
 use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
-    FocusableTarget, KeyboardFocusReason, SelectionOperation, ZoomLevel, view_size,
+    FocusableTarget, KeyboardFocusReason, Planned, SelectionOperation, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -85,17 +85,27 @@ impl ChangeOutput {
 }
 
 impl DesktopSystem {
-    /// Plan the execution of a command.
+    /// Plans a command that a tool issued (ADR 0036). A refused configuration command comes back
+    /// as [`Planned::Refused`], so the tool answers the agent with the reason instead of a success.
+    pub fn plan_issued(&self, command: DesktopCommand) -> Result<Planned> {
+        match command {
+            DesktopCommand::Configuration(command) => self.configuration_planning().plan(command),
+            command => self.plan(command).map(Planned::Changes),
+        }
+    }
+
+    /// Plan the execution of a command. A refused configuration command plans nothing, and the
+    /// refusal is logged.
     pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
-            DesktopCommand::Configuration(configuration_command) => {
-                self.configuration_planning().plan(configuration_command)
-            }
+            DesktopCommand::Configuration(configuration_command) => Ok(changes_of(
+                self.configuration_planning().plan(configuration_command)?,
+            )),
             DesktopCommand::ConfigureSelection(operation) => {
-                match self.command_for_selection(operation) {
-                    Some(command) => self.configuration_planning().plan(command),
-                    None => Ok(Changes::Empty),
-                }
+                let Some(command) = self.command_for_selection(operation) else {
+                    return Ok(Changes::Empty);
+                };
+                Ok(changes_of(self.configuration_planning().plan(command)?))
             }
             DesktopCommand::StartInstance {
                 launcher,
@@ -1086,9 +1096,9 @@ impl DesktopSystem {
             ConfigurationRequest::Undo => todo!(),
             ConfigurationRequest::Redo => todo!(),
         };
-        Ok(ChangeOutput::changes(
+        Ok(ChangeOutput::changes(changes_of(
             self.configuration_planning().plan(command)?,
-        ))
+        )))
     }
 
     fn focused_project(&self) -> Option<ProjectId> {
@@ -1143,6 +1153,18 @@ fn new_slot_assignment(target: ConfigurationTarget, name: Option<String>) -> Slo
                 full_screen_mode: Default::default(),
             },
         },
+    }
+}
+
+/// The changes of a planned command, or none for a refused one. The user is not told why nothing
+/// happens yet, so the refusal is logged.
+fn changes_of(planned: Planned) -> Changes {
+    match planned {
+        Planned::Changes(changes) => changes,
+        Planned::Refused(refusal) => {
+            warn!("Refused: {refusal}");
+            Changes::Empty
+        }
     }
 }
 

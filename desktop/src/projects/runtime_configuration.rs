@@ -25,6 +25,19 @@ use crate::policy::when::{self, Booting};
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
 
+/// How deeply `params` nest: 1 for an object of plain values, and one more for each object or array
+/// nested inside.
+pub fn params_depth(params: &Params) -> usize {
+    fn depth(value: &Value) -> usize {
+        match value {
+            Value::Object(object) => 1 + object.values().map(depth).max().unwrap_or(0),
+            Value::Array(array) => 1 + array.iter().map(depth).max().unwrap_or(0),
+            _ => 0,
+        }
+    }
+    1 + params.values().map(depth).max().unwrap_or(0)
+}
+
 /// The name the terminal gives the root project it synthesizes.
 pub const ROOT_PROJECT_NAME: &str = "Projects";
 
@@ -957,6 +970,31 @@ impl RuntimeConfiguration {
 
     pub fn project(&self, id: ProjectId) -> Option<&Project> {
         self.projects.get(&id)
+    }
+
+    /// How many projects lie above `project`: 0 for the root project, 1 for a project in one of its
+    /// slots.
+    pub fn project_depth(&self, project: ProjectId) -> usize {
+        iter::successors(Some(project), |&project| {
+            self.slot_of_content(project).map(|(parent, _)| parent)
+        })
+        .count()
+            - 1
+    }
+
+    /// How many levels of projects `content` brings along: 0 for a launcher, 1 for a project
+    /// without nested projects, and one more for each level nested below it.
+    pub fn nesting_height(&self, content: SlotContent) -> usize {
+        match content {
+            SlotContent::Launcher(_) => 0,
+            SlotContent::Project(project) => {
+                1 + self[project]
+                    .slot_contents()
+                    .map(|(_, content)| self.nesting_height(content))
+                    .max()
+                    .unwrap_or(0)
+            }
+        }
     }
 
     /// The MCP root at or above `project`, which covers it. MCP roots never nest, so at most one

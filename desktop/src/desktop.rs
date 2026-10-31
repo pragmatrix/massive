@@ -21,7 +21,9 @@ use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
-use crate::desktop_system::{DesktopCommand, DesktopSystem, FocusIntent, TransactionEffectsMode};
+use crate::desktop_system::{
+    DesktopCommand, DesktopSystem, FocusIntent, Planned, TransactionEffectsMode,
+};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{
     InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
@@ -300,9 +302,13 @@ impl Desktop {
                     if let Some(IssuedCommand { command, done }) =
                         self.tool_host.answer(request, &self.system)
                     {
-                        let changes = self.system.plan(command)?;
-                        self.transact_and_persist(changes)?;
-                        done.answer();
+                        match self.system.plan_issued(command)? {
+                            Planned::Changes(changes) => {
+                                self.transact_and_persist(changes)?;
+                                done.answer();
+                            }
+                            Planned::Refused(refusal) => done.refuse(refusal),
+                        }
                     }
                 }
             }

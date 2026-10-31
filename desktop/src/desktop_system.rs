@@ -69,6 +69,7 @@ use selection::Selection;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub use commands::{ConfigurationCommand, DesktopCommand, FocusIntent, SelectionOperation};
+pub use configuration_planning::{Planned, Refusal};
 pub use desktop_tools::ToolCallPlan;
 pub use effects::Effects;
 pub use fullscreen::{fullscreen_scale, view_size};

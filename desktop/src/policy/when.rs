@@ -4,6 +4,7 @@
 
 use crate::DirectionBias;
 use crate::desktop_system::{Direction, FocusIntent, KeyFocus};
+use crate::policy::constants;
 use crate::projects::Project;
 
 /// What Cmd+Shift+W does to a launcher or a nested project.
@@ -70,6 +71,42 @@ pub fn ungrouping_project(project: &Project) -> UngroupingProject {
         return UngroupingProject::RemoveProject;
     }
     UngroupingProject::MoveSlotsOut
+}
+
+/// Whether a command may nest projects as deep as it would.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NestingProjects {
+    Allow,
+    /// A deeper configuration might not load again (see
+    /// [`constants::configuration::MAX_PROJECT_DEPTH`]).
+    RefuseTooDeep,
+}
+
+/// `deepest_project` is the depth of the deepest project after the command, counted from the root
+/// project, or `None` when the command nests no project deeper.
+#[must_use]
+pub fn nesting_projects(deepest_project: Option<usize>) -> NestingProjects {
+    if deepest_project.is_some_and(|depth| depth > constants::configuration::MAX_PROJECT_DEPTH) {
+        return NestingProjects::RefuseTooDeep;
+    }
+    NestingProjects::Allow
+}
+
+/// Whether a launcher's params may nest as deep as they do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NestingParams {
+    Allow,
+    /// A deeper configuration might not load again (see
+    /// [`constants::configuration::MAX_PARAMS_DEPTH`]).
+    RefuseTooDeep,
+}
+
+#[must_use]
+pub fn nesting_params(params_depth: usize) -> NestingParams {
+    if params_depth > constants::configuration::MAX_PARAMS_DEPTH {
+        return NestingParams::RefuseTooDeep;
+    }
+    NestingParams::Allow
 }
 
 /// Where the focus goes when a project's slots move out of it (ADR 0026, ADR 0036).

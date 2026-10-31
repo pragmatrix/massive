@@ -23,12 +23,12 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-use massive_applications::ToolResultJson;
+use massive_applications::{ToolErrorCode, ToolResultJson};
 use massive_protocol::Target;
 use massive_protocol::tools::v1::{self, ToolDescription, ToolOutcome};
 use massive_util::CollectingSet;
 
-use crate::desktop_system::{DesktopCommand, DesktopSystem, ToolCallPlan};
+use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal, ToolCallPlan};
 use crate::projects::ProjectId;
 use crate::security;
 
@@ -67,6 +67,14 @@ impl CallDone {
     /// client that left in the meantime no longer listens.
     pub fn answer(self) {
         let _ = self.reply.send(ToolOutcome::Ok(self.result.into()));
+    }
+
+    /// Answers the call with the reason the planner refused its command.
+    pub fn refuse(self, refusal: Refusal) {
+        let _ = self.reply.send(ToolOutcome::Err {
+            code: ToolErrorCode::Refused.name().into(),
+            message: refusal.to_string(),
+        });
     }
 }
 
@@ -178,7 +186,7 @@ impl ToolHost {
                     // The MCP root changed after the call was sent, and the connection is ending.
                     None => ToolCallPlan::Answer(ToolOutcome::Err {
                         code: v1::CONNECTION_CLOSED.into(),
-                        message: "The MCP project's configuration changed.".into(),
+                        message: "The MCP root's configuration changed.".into(),
                     }),
                 };
                 match plan {
@@ -208,7 +216,7 @@ impl ToolHost {
             // A connection that ended on its own no longer listens.
             let _ = binding
                 .closing
-                .send("the MCP project's configuration changed".into());
+                .send("the MCP root's configuration changed".into());
         }
     }
 
