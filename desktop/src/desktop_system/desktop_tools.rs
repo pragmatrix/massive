@@ -28,7 +28,6 @@ use crate::projects::{
 };
 use crate::security::{
     self, CallingTool, ConnectingToTarget, CreatingLauncher, NamingSlot, NamingTarget,
-    RemovingContent,
 };
 
 /// The MCP root a tool connection is bound to, and the tools its access scopes grant.
@@ -129,12 +128,6 @@ impl DesktopSystem {
         params: AssignSlotParams,
     ) -> Result<ToolCallPlan, ToolError> {
         let (parent, slot) = self.covered_slot(root, &params.slot)?;
-        let shift = SlotShift::from(params.shift);
-        if shift == SlotShift::Keep
-            && let Some(replaced) = self.aggregates.configuration.content_at(parent, slot)
-        {
-            self.allow_removing(root, replaced)?;
-        }
         if let ContentSpec::Launcher(spec) = &params.content {
             let sets_params = spec
                 .params
@@ -159,7 +152,7 @@ impl DesktopSystem {
             parent: Some(parent),
             slot,
             content,
-            shift,
+            shift: params.shift.into(),
         };
         Ok(issue(command, &CreatedContent { id: id.to_string() }))
     }
@@ -170,8 +163,6 @@ impl DesktopSystem {
         params: ClearSlotParams,
     ) -> Result<ToolCallPlan, ToolError> {
         let (parent, slot) = self.covered_slot(root, &params.slot)?;
-        let cleared = self.assigned((parent, slot))?;
-        self.allow_removing(root, cleared)?;
         let command = ConfigurationCommand::ClearSlot {
             parent,
             slot,
@@ -180,9 +171,8 @@ impl DesktopSystem {
         Ok(issue(command, &NoResult {}))
     }
 
-    /// Moving onto an assigned slot of the same project exchanges the two contents, so an agent only
-    /// names where the content goes. Both slots lie inside one MCP root, and MCP roots never nest,
-    /// so the moved content holds no MCP root, and the move cannot nest one inside another.
+    /// Both slots lie inside one MCP root, and MCP roots never nest, so the moved content holds no
+    /// MCP root, and the move cannot nest one inside another.
     fn move_slot(
         &self,
         root: ProjectId,
@@ -190,23 +180,6 @@ impl DesktopSystem {
     ) -> Result<ToolCallPlan, ToolError> {
         let source = self.covered_slot(root, &params.from)?;
         let dest = self.covered_slot(root, &params.to)?;
-        if source == dest {
-            return Err(invalid_argument("The slots from and to are the same slot."));
-        }
-        self.assigned(source)?;
-        let configuration = &self.aggregates.configuration;
-        match configuration.content_at(dest.0, dest.1) {
-            Some(_) if source.0 != dest.0 => {
-                return Err(refused(
-                    "The destination slot is assigned and lies in another project. Contents of \
-                     two projects are not exchanged.",
-                ));
-            }
-            None if !configuration.can_move_slot(source, dest) => {
-                return Err(refused("A project cannot move into its own subtree."));
-            }
-            _ => {}
-        }
         let command = ConfigurationCommand::MoveSlot { source, dest };
         Ok(issue(command, &NoResult {}))
     }
@@ -217,7 +190,6 @@ impl DesktopSystem {
         params: PushSlotParams,
     ) -> Result<ToolCallPlan, ToolError> {
         let (parent, slot) = self.covered_slot(root, &params.slot)?;
-        self.assigned((parent, slot))?;
         let command = ConfigurationCommand::PushSlot {
             parent,
             slot,
@@ -226,27 +198,14 @@ impl DesktopSystem {
         Ok(issue(command, &NoResult {}))
     }
 
-    /// Unassigned slots among the positions are ignored, and a call with none assigned changes
-    /// nothing, so it is refused.
+    /// The planner groups only the assigned slots among the positions, and refuses when none is.
     fn group(&self, root: ProjectId, params: GroupParams) -> Result<ToolCallPlan, ToolError> {
         let parent = self.covered_project(root, &params.project_id)?;
-        let mut requested = Vec::with_capacity(params.positions.len());
-        for position in params.positions {
-            let slot = self.matrix_slot(parent, position)?;
-            requested.push((slot.row, slot.column));
-        }
-        requested.sort_unstable();
-        requested.dedup();
-        let slots: Vec<SlotPosition> = self
-            .aggregates
-            .configuration
-            .slots_ordered(parent)
-            .map(|(slot, _)| slot)
-            .filter(|slot| requested.binary_search(&(slot.row, slot.column)).is_ok())
-            .collect();
-        if slots.is_empty() {
-            return Err(refused("None of the slots is assigned."));
-        }
+        let slots = params
+            .positions
+            .into_iter()
+            .map(|position| self.matrix_slot(parent, position))
+            .collect::<Result<Vec<_>, _>>()?;
         let project = ProjectId::new();
         let command = ConfigurationCommand::Group {
             parent,
@@ -372,36 +331,6 @@ impl DesktopSystem {
                  column right of and one row below the assigned slots.",
                 slot.column, slot.row
             ))),
-        }
-    }
-
-    /// The content of a slot that a tool acts on, or a refusal when the slot is unassigned.
-    fn assigned(
-        &self,
-        (project, slot): (ProjectId, SlotPosition),
-    ) -> Result<SlotContent, ToolError> {
-        match self.aggregates.configuration.content_at(project, slot) {
-            Some(content) => Ok(content),
-            None => Err(refused(&format!(
-                "The slot ({}, {}) is unassigned.",
-                slot.column, slot.row
-            ))),
-        }
-    }
-
-    /// Removing `content` stops the instances that run below it, which needs the access scope
-    /// `act`.
-    fn allow_removing(&self, root: ProjectId, content: SlotContent) -> Result<(), ToolError> {
-        let instances_run_below = self
-            .aggregates
-            .hierarchy
-            .has_instances_below(&content.target());
-        match security::removing_content(instances_run_below, self.granted_access_scopes(root)) {
-            RemovingContent::Allow => Ok(()),
-            RemovingContent::RefuseWithoutAct => Err(scope_not_granted(
-                AccessScope::Act,
-                "instances run below the content, and removing it stops them",
-            )),
         }
     }
 
@@ -558,13 +487,6 @@ fn scope_not_granted(needed: AccessScope, because: &str) -> ToolError {
     }
 }
 
-fn refused(message: &str) -> ToolError {
-    ToolError {
-        code: ToolErrorCode::Refused,
-        message: message.into(),
-    }
-}
-
 fn invalid_argument(message: &str) -> ToolError {
     ToolError {
         code: ToolErrorCode::InvalidArgument,
@@ -591,8 +513,8 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
                 tool_name!(McpId::DESKTOP, "assign_slot"),
                 AccessScope::Organize,
                 "Puts a new launcher or a new, empty project into a slot, and returns its id. \
-                 Replacing assigned content with shift \"keep\" removes it and its subtree, which \
-                 also needs the access scope act when instances run below it.",
+                 Replacing assigned content with shift \"keep\" removes it and its subtree, and is \
+                 refused while instances run below it.",
             ),
         ),
         (
@@ -601,8 +523,8 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
                 tool_name!(McpId::DESKTOP, "clear_slot"),
                 AccessScope::Organize,
                 "Removes a slot's content and its subtree. The slot stays unassigned unless shift \
-                 is \"shift\". It stops every instance that runs below the content, which also needs \
-                 the access scope act.",
+                 is \"shift\". It is refused while instances run below the content, so stop them \
+                 first with desktop_stop_instance.",
             ),
         ),
         (

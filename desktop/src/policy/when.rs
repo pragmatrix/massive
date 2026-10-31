@@ -7,11 +7,12 @@ use crate::desktop_system::{Direction, FocusIntent, KeyFocus};
 use crate::policy::constants;
 use crate::projects::Project;
 
-/// What Cmd+Shift+W does to a launcher or a nested project.
+/// Whether a launcher or a nested project may be removed, by the keyboard, the CLI or a tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemovingSlotContent {
     Remove,
-    /// A key press never quits running processes.
+    /// A removal never quits running processes. They are stopped first, one by one, so stopping
+    /// work is always a deliberate step.
     KeepWhileInstancesRun,
 }
 

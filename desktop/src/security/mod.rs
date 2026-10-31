@@ -137,23 +137,6 @@ pub fn naming_slot(slot: MatrixPoint, matrix: MatrixRect) -> NamingSlot {
     NamingSlot::RefuseOutsideMatrix
 }
 
-/// Whether a tool call may remove slot content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RemovingContent {
-    Allow,
-    /// Removing the content stops the instances that run below it, and stopping instances needs
-    /// `act`.
-    RefuseWithoutAct,
-}
-
-#[must_use]
-pub fn removing_content(instances_run_below: bool, granted: &AccessScopes) -> RemovingContent {
-    if instances_run_below && !granted.contains(&AccessScope::Act) {
-        return RemovingContent::RefuseWithoutAct;
-    }
-    RemovingContent::Allow
-}
-
 /// Whether a tool call may create a launcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatingLauncher {

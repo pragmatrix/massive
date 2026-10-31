@@ -215,9 +215,16 @@ async fn clearing_a_slot_that_holds_an_mcp_root_reports_the_root_as_changed() ->
         let NestedSiblings {
             mut system,
             mut instance_manager,
+            instance_a,
             ..
         } = nested_siblings()?;
         configure_mcp(&mut system, &mut instance_manager, "/labs-a", &[])?;
+        // A removal never quits running processes, so the instance in labs-a stops first.
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::StopInstance(instance_a),
+        )?;
         let configuration = &system.aggregates.configuration;
         let labs_a = configuration
             .resolve_project_path(ProjectId::ROOT, "/labs-a")
@@ -310,16 +317,23 @@ async fn a_slot_tool_acts_only_inside_its_mcp_root() -> Result<()> {
     .await
 }
 
-/// Clearing content stops the instances that run below it, so a tool needs `act` on top of its
-/// `organize` to do that (ADR 0036).
+/// A removal never quits running processes, not even with `act`. An agent stops the instances
+/// below the content first, and then the removal goes through (ADR 0036).
 #[tokio::test]
-async fn clearing_a_slot_with_running_instances_needs_act() -> Result<()> {
+async fn clearing_a_slot_waits_until_its_instances_are_stopped() -> Result<()> {
     task_context::with_context(task_context(), async {
         let NestedSiblings {
             mut system,
             mut instance_manager,
+            instance_a,
             ..
         } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize, AccessScope::Act],
+        )?;
         let labs_a = project_at(&system, "/labs-a");
         let clear_shell_a = |system: &DesktopSystem| {
             let arguments = serde_json::json!({
@@ -331,24 +345,16 @@ async fn clearing_a_slot_with_running_instances_needs_act() -> Result<()> {
             system.call_tool(labs_a, "desktop_clear_slot", &arguments.to_string())
         };
 
-        configure_mcp(
+        assert_eq!(error_code(&system, clear_shell_a(&system)), "refused");
+        run(
             &mut system,
             &mut instance_manager,
-            "/labs-a",
-            &[AccessScope::Organize],
+            DesktopCommand::StopInstance(instance_a),
         )?;
-        assert_eq!(
-            error_code(&system, clear_shell_a(&system)),
-            "scope_not_granted"
-        );
-
-        configure_mcp(
-            &mut system,
-            &mut instance_manager,
-            "/labs-a",
-            &[AccessScope::Organize, AccessScope::Act],
-        )?;
-        assert!(matches!(clear_shell_a(&system), ToolCallPlan::Issue { .. }));
+        assert!(matches!(
+            outcome(&system, clear_shell_a(&system)),
+            ToolOutcome::Ok(_)
+        ));
         Ok(())
     })
     .await

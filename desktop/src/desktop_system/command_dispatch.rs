@@ -17,7 +17,7 @@ use super::{
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::policy::when::{self, RemovingSlotContent, TogglingFullScreen, Ungrouping};
+use crate::policy::when::{self, TogglingFullScreen, Ungrouping};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
     LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
@@ -303,8 +303,8 @@ impl DesktopSystem {
         }
     }
 
-    /// The removal of the focused slot's content that Cmd+Shift+W issues, unless the desktop
-    /// policy keeps the content while instances run below it.
+    /// The removal of the focused slot's content that Cmd+Shift+W issues. The planner refuses it
+    /// while instances run below the content.
     fn removal_command_for_focus(&self) -> Option<ConfigurationCommand> {
         // The root project sits in no slot, so the focus on it, or on the desktop, removes nothing.
         let content = self
@@ -316,18 +316,11 @@ impl DesktopSystem {
             .configuration
             .slot_of_content(content)
             .expect("slot content of a live target sits in a slot");
-        let instances_run_below = self
-            .aggregates
-            .hierarchy
-            .has_instances_below(&content.target());
-        match when::removing_slot_content(instances_run_below) {
-            RemovingSlotContent::Remove => Some(ConfigurationCommand::ClearSlot {
-                parent,
-                slot,
-                shift: SlotShift::default(),
-            }),
-            refusal @ RemovingSlotContent::KeepWhileInstancesRun => refused(refusal),
-        }
+        Some(ConfigurationCommand::ClearSlot {
+            parent,
+            slot,
+            shift: SlotShift::default(),
+        })
     }
 
     /// The ungrouping Cmd+Shift+G issues: of the focused project, or of the one whose slots are all
