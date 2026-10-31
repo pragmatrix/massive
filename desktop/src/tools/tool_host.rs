@@ -28,7 +28,8 @@ use massive_protocol::Target;
 use massive_protocol::tools::v1::{self, ToolDescription, ToolOutcome};
 use massive_util::CollectingSet;
 
-use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal, ToolCallPlan};
+use super::{DesktopTools, ToolCallPlan};
+use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal};
 use crate::projects::ProjectId;
 use crate::security;
 
@@ -159,7 +160,7 @@ impl ToolHost {
     ) -> Option<IssuedCommand> {
         match request {
             ToolRequest::Connect { target, reply } => {
-                let outcome = match system.bind_tool_connection(&target) {
+                let outcome = match DesktopTools::new(system).bind_connection(&target) {
                     Some(bound) => {
                         let (binding, closing) = self.bind(bound.root);
                         ConnectOutcome::Bound {
@@ -182,7 +183,7 @@ impl ToolHost {
                 reply,
             } => {
                 let plan = match self.root_of(binding) {
-                    Some(root) => system.call_tool(root, &tool, &arguments),
+                    Some(root) => DesktopTools::new(system).call(root, &tool, &arguments),
                     // The MCP root changed after the call was sent, and the connection is ending.
                     None => ToolCallPlan::Answer(ToolOutcome::Err {
                         code: v1::CONNECTION_CLOSED.into(),

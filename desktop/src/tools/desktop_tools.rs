@@ -1,13 +1,12 @@
 //! The desktop as a tool provider (ADR 0036): binding a tool connection to the MCP root that covers
 //! its target, and carrying out the desktop's tools. `docs/mcp-desktop-tools.md` specifies every
-//! tool.
+//! tool, and [`schema`] holds the types an agent sees.
 
-use std::borrow::Cow;
+mod schema;
+
 use std::sync::LazyLock;
 
-use derive_more::Into;
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use massive_applications::{
     AccessScope, AccessScopes, InstanceId, McpId, ToolDeclaration, ToolError, ToolErrorCode,
@@ -16,16 +15,14 @@ use massive_applications::{
 use massive_protocol::Target;
 use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
 
-use super::{
-    ConfigurationCommand, DesktopCommand, DesktopSystem, Direction, FocusIntent, RunningInstances,
-    SlotShift,
+use self::schema::*;
+use crate::desktop_system::{
+    ConfigurationCommand, DesktopCommand, DesktopSystem, FocusIntent, RunningInstances,
 };
 use crate::instance_presenter::InstanceKind;
-use crate::policy::constants;
-use crate::policy::when::{self, NestingParams};
 use crate::projects::{
-    FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode, Params, ProjectId,
-    SlotAssignment, SlotContent, SlotPosition, params_depth,
+    FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode, ProjectId, SlotAssignment,
+    SlotContent, SlotPosition,
 };
 use crate::security::{
     self, CallingTool, ConnectingToTarget, CreatingLauncher, NamingSlot, NamingTarget,
@@ -52,12 +49,23 @@ pub enum ToolCallPlan {
     },
 }
 
-impl DesktopSystem {
+/// The desktop's tools over the desktop state they read. The desktop system plans and carries out
+/// the commands a tool issues, so this view only reads.
+#[derive(Debug)]
+pub struct DesktopTools<'a> {
+    system: &'a DesktopSystem,
+}
+
+impl<'a> DesktopTools<'a> {
+    pub fn new(system: &'a DesktopSystem) -> Self {
+        Self { system }
+    }
+
     /// Binds a tool connection to the MCP root that covers `target`, or `None` to decline it.
-    pub fn bind_tool_connection(&self, target: &Target) -> Option<ToolConnectionRoot> {
+    pub fn bind_connection(&self, target: &Target) -> Option<ToolConnectionRoot> {
         let covering_mcp_root = self
             .target_project(target)
-            .and_then(|project| self.aggregates.configuration.mcp_root_of(project));
+            .and_then(|project| self.system.configuration().mcp_root_of(project));
         let root = match security::connecting_to_target(covering_mcp_root) {
             ConnectingToTarget::Bind(root) => root,
             ConnectingToTarget::Decline => return None,
@@ -80,7 +88,7 @@ impl DesktopSystem {
 
     /// Plans a call of the tool named `tool` on the MCP root `root`. Every id and slot the call
     /// names is checked before anything happens.
-    pub fn call_tool(&self, root: ProjectId, tool: &str, arguments: &str) -> ToolCallPlan {
+    pub fn call(&self, root: ProjectId, tool: &str, arguments: &str) -> ToolCallPlan {
         match self.try_call_tool(root, tool, arguments) {
             Ok(plan) => plan,
             Err(ToolError { code, message }) => ToolCallPlan::Answer(ToolOutcome::Err {
@@ -133,7 +141,7 @@ impl DesktopSystem {
             let sets_params = spec
                 .params
                 .as_ref()
-                .is_some_and(|params| !params.0.is_empty());
+                .is_some_and(|params| !params.is_empty());
             match security::creating_launcher(sets_params, self.granted_access_scopes(root)) {
                 CreatingLauncher::Allow => {}
                 CreatingLauncher::RefuseParamsWithoutAct => {
@@ -242,7 +250,7 @@ impl DesktopSystem {
             launcher,
             instance,
             root: None,
-            parameters: self.aggregates.configuration[launcher].params.clone(),
+            parameters: self.system.configuration()[launcher].params.clone(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Keep,
         };
@@ -261,7 +269,7 @@ impl DesktopSystem {
 
     /// The project that `id` names, when the MCP root `root` covers it.
     fn covered_project(&self, root: ProjectId, id: &str) -> Result<ProjectId, ToolError> {
-        let configuration = &self.aggregates.configuration;
+        let configuration = self.system.configuration();
         let project = uuid::Uuid::parse_str(id)
             .ok()
             .map(ProjectId::from)
@@ -275,7 +283,7 @@ impl DesktopSystem {
 
     /// The launcher that `id` names, when the MCP root `root` covers it.
     fn covered_launcher(&self, root: ProjectId, id: &str) -> Result<LaunchProfileId, ToolError> {
-        let configuration = &self.aggregates.configuration;
+        let configuration = self.system.configuration();
         let launcher = uuid::Uuid::parse_str(id)
             .ok()
             .map(LaunchProfileId::from)
@@ -291,14 +299,10 @@ impl DesktopSystem {
 
     /// The running instance that `id` names, when the MCP root `root` covers it.
     fn covered_instance(&self, root: ProjectId, id: &str) -> Result<InstanceId, ToolError> {
-        let hierarchy = &self.aggregates.hierarchy;
-        let instance = uuid::Uuid::parse_str(id)
-            .ok()
-            .map(InstanceId::from)
-            .filter(|&instance| hierarchy.exists(&instance.into()));
+        let instance = uuid::Uuid::parse_str(id).ok().map(InstanceId::from);
         let covering_mcp_root = instance
-            .map(|instance| hierarchy.project_of_target(&instance.into()))
-            .and_then(|project| self.aggregates.configuration.mcp_root_of(project));
+            .and_then(|instance| self.system.project_of_instance(instance))
+            .and_then(|project| self.system.configuration().mcp_root_of(project));
         match security::naming_target(covering_mcp_root, root) {
             NamingTarget::Allow => Ok(instance.expect("a covered instance exists")),
             NamingTarget::RefuseUnknown => Err(unknown_id("instance", id)),
@@ -325,7 +329,7 @@ impl DesktopSystem {
             column: position.column,
             row: position.row,
         };
-        let matrix = self.aggregates.configuration[project].matrix_bounds();
+        let matrix = self.system.configuration()[project].matrix_bounds();
         match security::naming_slot(slot.into(), matrix) {
             NamingSlot::Allow => Ok(slot),
             NamingSlot::RefuseOutsideMatrix => Err(invalid_argument(&format!(
@@ -350,15 +354,11 @@ impl DesktopSystem {
 
     /// The project that holds `target`, or `None` when it names nothing.
     fn target_project(&self, target: &Target) -> Option<ProjectId> {
-        let configuration = &self.aggregates.configuration;
+        let configuration = self.system.configuration();
         match target {
             Target::Instance(id) => {
                 let instance: InstanceId = uuid::Uuid::parse_str(id).ok()?.into();
-                self.aggregates.hierarchy.exists(&instance.into()).then(|| {
-                    self.aggregates
-                        .hierarchy
-                        .project_of_target(&instance.into())
-                })
+                self.system.project_of_instance(instance)
             }
             Target::Path(path) => configuration
                 .resolve_launcher_path(ProjectId::ROOT, path)
@@ -369,7 +369,7 @@ impl DesktopSystem {
     }
 
     fn granted_access_scopes(&self, root: ProjectId) -> &AccessScopes {
-        &self.aggregates.configuration[root]
+        &self.system.configuration()[root]
             .mcp
             .as_ref()
             .expect("a bound tool connection's root is an MCP root")
@@ -377,7 +377,7 @@ impl DesktopSystem {
     }
 
     fn describe_project(&self, project: ProjectId) -> ProjectDescription {
-        let configuration = &self.aggregates.configuration;
+        let configuration = self.system.configuration();
         ProjectDescription {
             id: uuid::Uuid::from(project).to_string(),
             name: configuration[project].name.clone(),
@@ -402,7 +402,7 @@ impl DesktopSystem {
     }
 
     fn describe_launcher(&self, id: LaunchProfileId) -> LauncherDescription {
-        let launcher = &self.aggregates.configuration[id];
+        let launcher = &self.system.configuration()[id];
         LauncherDescription {
             id: uuid::Uuid::from(id).to_string(),
             name: launcher.name.clone(),
@@ -410,8 +410,7 @@ impl DesktopSystem {
             params: launcher.params.clone(),
             full_screen_mode: launcher.full_screen_mode.into(),
             instances: self
-                .aggregates
-                .hierarchy
+                .system
                 .launcher_instances(id)
                 .map(|instance| self.describe_instance(instance))
                 .collect(),
@@ -419,23 +418,13 @@ impl DesktopSystem {
     }
 
     fn describe_instance(&self, instance: InstanceId) -> InstanceDescription {
-        let presenter = self
-            .aggregates
-            .instances
-            .get(&instance)
-            .expect("a running instance has a presenter");
-        let title = presenter
-            .primary_view_id()
-            .and_then(|view| presenter.view_window_state(view).ok())
-            .map(|state| state.title.clone())
-            .unwrap_or_default();
         InstanceDescription {
             id: instance.to_string(),
-            kind: match presenter.kind() {
+            kind: match self.system.instance_kind(instance) {
                 InstanceKind::Primary => InstanceKindDescription::Primary,
                 InstanceKind::Assistant => InstanceKindDescription::Assistant,
             },
-            title,
+            title: self.system.instance_title(instance),
         }
     }
 }
@@ -598,389 +587,4 @@ enum DesktopTool {
     Ungroup,
     StartInstance,
     StopInstance,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct DescribeParams {}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct AssignSlotParams {
-    /// Where to put the content.
-    slot: SlotRef,
-    /// The new launcher or project.
-    content: ContentSpec,
-    /// What happens to content in the way. The default is "shift", which keeps the content.
-    #[serde(default = "ShiftValue::shift")]
-    shift: ShiftValue,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct ClearSlotParams {
-    /// The slot to clear.
-    slot: SlotRef,
-    /// Whether the rest of the row moves into the cleared slot. The default is "keep", which moves
-    /// nothing else.
-    #[serde(default = "ShiftValue::keep")]
-    shift: ShiftValue,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct MoveSlotParams {
-    /// The assigned slot whose content moves.
-    from: SlotRef,
-    /// Where the content goes, outside its own subtree. An assigned slot of the same project
-    /// exchanges the two contents.
-    to: SlotRef,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct PushSlotParams {
-    /// The assigned slot to push.
-    slot: SlotRef,
-    /// Where it moves.
-    direction: DirectionValue,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct GroupParams {
-    /// The project whose matrix holds the slots.
-    project_id: String,
-    /// The slots to wrap.
-    positions: Vec<SlotPositionValue>,
-    /// The new project's name.
-    name: TargetName,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct UngroupParams {
-    /// A nested project in the MCP root, not the MCP root itself.
-    project_id: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct StartInstanceParams {
-    /// The launcher to start an instance of.
-    launcher_id: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct StopInstanceParams {
-    /// The instance to stop.
-    instance_id: String,
-}
-
-/// A slot in a project of the MCP root.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct SlotRef {
-    /// The project whose matrix holds the slot.
-    project_id: String,
-    position: SlotPositionValue,
-}
-
-/// What a tool puts into a slot. Exactly one field is set.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase", deny_unknown_fields)]
-enum ContentSpec {
-    /// A new launcher.
-    Launcher(LauncherSpec),
-    /// The name of a new, empty project.
-    Project(TargetName),
-}
-
-/// The launcher a tool creates.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct LauncherSpec {
-    /// Shown in the title bar. Names may repeat.
-    name: TargetName,
-    /// The default is "visor".
-    mode: Option<LauncherModeValue>,
-    params: Option<LauncherParams>,
-    /// The default is "regular".
-    full_screen_mode: Option<FullScreenModeValue>,
-}
-
-/// The name of a desktop target, such as a launcher or project, that a tool creates. Decoding
-/// refuses an empty name and one longer than [`constants::tools::MAX_NAME_CHARS`], and the schema
-/// states both limits, so the limit has one source. A name may contain `/`, because it is a label
-/// the user picks, not a path.
-#[derive(Debug, Deserialize, Into)]
-#[serde(try_from = "String")]
-struct TargetName(String);
-
-impl JsonSchema for TargetName {
-    fn schema_name() -> Cow<'static, str> {
-        "TargetName".into()
-    }
-
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "type": "string",
-            "minLength": 1,
-            "maxLength": constants::tools::MAX_NAME_CHARS,
-        })
-    }
-}
-
-impl TryFrom<String> for TargetName {
-    type Error = String;
-
-    fn try_from(name: String) -> Result<Self, Self::Error> {
-        let length = name.chars().count();
-        if length == 0 || length > constants::tools::MAX_NAME_CHARS {
-            return Err(format!(
-                "a name has 1 to {} characters",
-                constants::tools::MAX_NAME_CHARS
-            ));
-        }
-        Ok(Self(name))
-    }
-}
-
-/// The params of a launcher that a tool creates. Decoding refuses params nested deeper than
-/// [`constants::configuration::MAX_PARAMS_DEPTH`], and the schema's description states the limit.
-#[derive(Debug, Deserialize, Into)]
-#[serde(try_from = "Params")]
-struct LauncherParams(Params);
-
-impl JsonSchema for LauncherParams {
-    fn schema_name() -> Cow<'static, str> {
-        "LauncherParams".into()
-    }
-
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        let description = format!(
-            "Passed to the application when an instance starts, such as a command to run. They \
-             nest at most {} levels deep.",
-            constants::configuration::MAX_PARAMS_DEPTH
-        );
-        json_schema!({
-            "type": "object",
-            "description": description,
-        })
-    }
-}
-
-impl TryFrom<Params> for LauncherParams {
-    type Error = String;
-
-    fn try_from(params: Params) -> Result<Self, Self::Error> {
-        if when::nesting_params(params_depth(&params)) == NestingParams::RefuseTooDeep {
-            return Err(format!(
-                "params nest at most {} levels deep",
-                constants::configuration::MAX_PARAMS_DEPTH
-            ));
-        }
-        Ok(Self(params))
-    }
-}
-
-/// How a tool treats the slots next to the one it changes. Each tool defaults to the value that
-/// removes nothing and moves the least, because defaults should do less.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-enum ShiftValue {
-    /// Assigning pushes the assigned content and its contiguous run one column right. Clearing
-    /// pulls the rest of the row left.
-    Shift,
-    /// Assigning onto an assigned slot replaces its content, and clearing leaves the slot
-    /// unassigned.
-    Keep,
-}
-
-impl ShiftValue {
-    fn shift() -> Self {
-        Self::Shift
-    }
-
-    fn keep() -> Self {
-        Self::Keep
-    }
-}
-
-impl From<ShiftValue> for SlotShift {
-    fn from(shift: ShiftValue) -> Self {
-        match shift {
-            ShiftValue::Shift => SlotShift::Shift,
-            ShiftValue::Keep => SlotShift::Keep,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-enum DirectionValue {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-impl From<DirectionValue> for Direction {
-    fn from(direction: DirectionValue) -> Self {
-        match direction {
-            DirectionValue::Left => Direction::Left,
-            DirectionValue::Right => Direction::Right,
-            DirectionValue::Up => Direction::Up,
-            DirectionValue::Down => Direction::Down,
-        }
-    }
-}
-
-/// The result of a tool that creates content.
-#[derive(Debug, Serialize, JsonSchema)]
-struct CreatedContent {
-    /// The id of the new launcher, project, or instance.
-    id: String,
-}
-
-/// The result of a tool that creates nothing.
-#[derive(Debug, Serialize, JsonSchema)]
-struct NoResult {}
-
-#[derive(Debug, Serialize, JsonSchema)]
-struct ProjectDescription {
-    id: String,
-    /// Names may repeat.
-    name: String,
-    /// Assigned slots only.
-    slots: Vec<SlotDescription>,
-}
-
-/// Exactly one of `launcher` and `project` is set.
-#[derive(Debug, Serialize, JsonSchema)]
-struct SlotDescription {
-    position: SlotPositionValue,
-    launcher: Option<LauncherDescription>,
-    project: Option<ProjectDescription>,
-}
-
-/// A slot's position in its project's matrix.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct SlotPositionValue {
-    /// Counted from 0.
-    column: u32,
-    /// Counted from 0.
-    row: u32,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-struct LauncherDescription {
-    id: String,
-    name: String,
-    mode: LauncherModeValue,
-    /// Passed to the application when an instance starts, such as a command to run.
-    params: Params,
-    full_screen_mode: FullScreenModeValue,
-    /// The launcher's running instances.
-    instances: Vec<InstanceDescription>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-struct InstanceDescription {
-    id: String,
-    kind: InstanceKindDescription,
-    /// The title of the instance's primary view, empty while the application has set none.
-    title: String,
-}
-
-/// How a launcher presents its instances.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-enum LauncherModeValue {
-    Visor,
-    Band,
-}
-
-impl From<LauncherMode> for LauncherModeValue {
-    fn from(mode: LauncherMode) -> Self {
-        match mode {
-            LauncherMode::Visor => Self::Visor,
-            LauncherMode::Band => Self::Band,
-        }
-    }
-}
-
-impl From<LauncherModeValue> for LauncherMode {
-    fn from(mode: LauncherModeValue) -> Self {
-        match mode {
-            LauncherModeValue::Visor => Self::Visor,
-            LauncherModeValue::Band => Self::Band,
-        }
-    }
-}
-
-/// Whether a launcher's primary instances fill the window.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-enum FullScreenModeValue {
-    Regular,
-    Fullscreen,
-}
-
-impl From<FullScreenMode> for FullScreenModeValue {
-    fn from(mode: FullScreenMode) -> Self {
-        match mode {
-            FullScreenMode::Regular => Self::Regular,
-            FullScreenMode::FullScreen => Self::Fullscreen,
-        }
-    }
-}
-
-impl From<FullScreenModeValue> for FullScreenMode {
-    fn from(mode: FullScreenModeValue) -> Self {
-        match mode {
-            FullScreenModeValue::Regular => Self::Regular,
-            FullScreenModeValue::Fullscreen => Self::FullScreen,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-enum InstanceKindDescription {
-    Primary,
-    Assistant,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A name beyond the limit fails while the arguments are decoded, before a tool runs.
-    #[test]
-    fn decoding_refuses_a_name_beyond_the_limit() {
-        let arguments = |name: String| {
-            serde_json::json!({
-                "slot": { "project_id": "p", "position": { "column": 0, "row": 0 } },
-                "content": { "project": name }
-            })
-            .to_string()
-        };
-        let longest = "n".repeat(constants::tools::MAX_NAME_CHARS);
-
-        assert!(decode_arguments::<AssignSlotParams>(&arguments(longest.clone())).is_ok());
-        let error = decode_arguments::<AssignSlotParams>(&arguments(longest + "n")).unwrap_err();
-        assert_eq!(error.code, ToolErrorCode::InvalidArgument);
-        assert!(decode_arguments::<AssignSlotParams>(&arguments(String::new())).is_err());
-    }
 }

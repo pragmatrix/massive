@@ -86,9 +86,9 @@ impl ChangeOutput {
 }
 
 impl DesktopSystem {
-    /// Plans a command that a tool issued (ADR 0036). A refused configuration command comes back
-    /// as [`Planned::Refused`], so the tool answers the agent with the reason instead of a success.
-    pub fn plan_issued(&self, command: DesktopCommand) -> Result<Planned> {
+    /// Plans a command and reports a refused configuration command as [`Planned::Refused`], for an
+    /// issuer that tells someone why nothing changes, such as a tool answering an agent (ADR 0036).
+    pub fn plan_or_refuse(&self, command: DesktopCommand) -> Result<Planned> {
         match command {
             DesktopCommand::Configuration(command) => self.configuration_planning().plan(command),
             command => self.plan(command).map(Planned::Changes),

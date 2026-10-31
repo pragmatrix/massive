@@ -5,6 +5,7 @@ use massive_protocol::tools::v1::ToolOutcome;
 use super::*;
 use crate::desktop_system::change::DesktopSystemEffect;
 use crate::desktop_system::selection::Selection;
+use crate::tools::{DesktopTools, ToolCallPlan};
 
 /// Makes the project `path` an MCP root that grants `access_scopes`, and returns the transaction's
 /// system effects.
@@ -53,20 +54,28 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
         let inside = Target::Instance(instance_a.to_string());
         let outside = Target::Instance(instance_b.to_string());
         let missing = Target::Path("/nowhere".into());
-        let bound = system
-            .bind_tool_connection(&inside)
+        let bound = DesktopTools::new(&system)
+            .bind_connection(&inside)
             .expect("labs-a covers instance a");
         assert!(bound.tools.is_empty(), "nothing is granted yet");
-        assert!(system.bind_tool_connection(&outside).is_none());
-        assert!(system.bind_tool_connection(&missing).is_none());
+        assert!(
+            DesktopTools::new(&system)
+                .bind_connection(&outside)
+                .is_none()
+        );
+        assert!(
+            DesktopTools::new(&system)
+                .bind_connection(&missing)
+                .is_none()
+        );
         assert_eq!(
-            system
-                .bind_tool_connection(&Target::Path("/labs-a/shell-a".into()))
+            DesktopTools::new(&system)
+                .bind_connection(&Target::Path("/labs-a/shell-a".into()))
                 .map(|bound| bound.root),
             Some(bound.root)
         );
 
-        let refused = system.call_tool(bound.root, "desktop_describe", "{}");
+        let refused = DesktopTools::new(&system).call(bound.root, "desktop_describe", "{}");
         assert!(matches!(
             refused,
             ToolCallPlan::Answer(ToolOutcome::Err { code, .. }) if code == "scope_not_granted"
@@ -79,7 +88,7 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
             &[AccessScope::Observe],
         )?;
         let ToolCallPlan::Answer(ToolOutcome::Ok(described)) =
-            system.call_tool(bound.root, "desktop_describe", "{}")
+            DesktopTools::new(&system).call(bound.root, "desktop_describe", "{}")
         else {
             panic!("observe allows describing");
         };
@@ -101,7 +110,7 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
     use massive_protocol::tools::v1::{self, ClientMessage, ConnectReply, HostMessage};
     use massive_protocol::{Connect, Frames, decode, encode, frames};
 
-    use crate::tool_host::ToolHost;
+    use crate::tools::ToolHost;
 
     async fn send(frames: &mut Frames, message: &impl serde::Serialize) {
         frames
@@ -286,7 +295,7 @@ async fn a_slot_tool_acts_only_inside_its_mcp_root() -> Result<()> {
                 },
                 "content": { "project": "added" }
             });
-            system.call_tool(labs_a, "desktop_assign_slot", &arguments.to_string())
+            DesktopTools::new(system).call(labs_a, "desktop_assign_slot", &arguments.to_string())
         };
 
         assert_eq!(
@@ -343,7 +352,7 @@ async fn clearing_a_slot_waits_until_its_instances_are_stopped() -> Result<()> {
                     "position": { "column": 0, "row": 0 }
                 }
             });
-            system.call_tool(labs_a, "desktop_clear_slot", &arguments.to_string())
+            DesktopTools::new(system).call(labs_a, "desktop_clear_slot", &arguments.to_string())
         };
 
         assert_eq!(error_code(&system, clear_shell_a(&system)), "refused");
@@ -387,7 +396,7 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         let assign =
             serde_json::json!({ "slot": slot(labs_a, 1), "content": { "project": "inner" } });
         let ToolCallPlan::Issue { command, .. } =
-            system.call_tool(labs_a, "desktop_assign_slot", &assign.to_string())
+            DesktopTools::new(&system).call(labs_a, "desktop_assign_slot", &assign.to_string())
         else {
             panic!("assigning inside the MCP root issues a command");
         };
@@ -401,7 +410,7 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         };
         let move_slot = |system: &DesktopSystem, from, to| {
             let arguments = serde_json::json!({ "from": from, "to": to });
-            system.call_tool(labs_a, "desktop_move_slot", &arguments.to_string())
+            DesktopTools::new(system).call(labs_a, "desktop_move_slot", &arguments.to_string())
         };
 
         let ToolCallPlan::Issue { command, .. } =
@@ -420,9 +429,11 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         );
         let assign_nested =
             serde_json::json!({ "slot": slot(inner, 0), "content": { "project": "nested" } });
-        let ToolCallPlan::Issue { command, .. } =
-            system.call_tool(labs_a, "desktop_assign_slot", &assign_nested.to_string())
-        else {
+        let ToolCallPlan::Issue { command, .. } = DesktopTools::new(&system).call(
+            labs_a,
+            "desktop_assign_slot",
+            &assign_nested.to_string(),
+        ) else {
             panic!("assigning inside the MCP root issues a command");
         };
         run(&mut system, &mut instance_manager, command)?;
@@ -503,7 +514,7 @@ async fn a_slot_tool_refuses_a_call_that_would_change_nothing() -> Result<()> {
             })
         };
         let call = |tool: &str, arguments: serde_json::Value| {
-            system.call_tool(labs_a, tool, &arguments.to_string())
+            DesktopTools::new(&system).call(labs_a, tool, &arguments.to_string())
         };
 
         let clear = call("desktop_clear_slot", serde_json::json!({ "slot": slot(1) }));
@@ -543,7 +554,7 @@ async fn creating_a_launcher_with_params_needs_act() -> Result<()> {
                 },
                 "content": { "launcher": launcher }
             });
-            system.call_tool(labs_a, "desktop_assign_slot", &arguments.to_string())
+            DesktopTools::new(&system).call(labs_a, "desktop_assign_slot", &arguments.to_string())
         };
 
         let with_params = assign_launcher(serde_json::json!({
@@ -630,7 +641,7 @@ async fn a_slot_tool_refuses_to_nest_projects_beyond_the_limit() -> Result<()> {
             let beside = SlotPosition { column: 1, row: 0 };
             let arguments =
                 serde_json::json!({ "from": slot(labs_a, free), "to": slot(project, beside) });
-            system.call_tool(labs_a, "desktop_move_slot", &arguments.to_string())
+            DesktopTools::new(&system).call(labs_a, "desktop_move_slot", &arguments.to_string())
         };
         let deepest = chain[chain.len() - 1];
         let below_deepest = chain[chain.len() - 2];
@@ -691,7 +702,7 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
                     ..
                 },
             result,
-        } = system.call_tool(labs_a, "desktop_start_instance", &start.to_string())
+        } = DesktopTools::new(&system).call(labs_a, "desktop_start_instance", &start.to_string())
         else {
             panic!("starting an instance issues StartInstance");
         };
@@ -705,7 +716,7 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
             kind,
             focus,
         };
-        let Planned::Changes(changes) = system.plan_issued(spawned)? else {
+        let Planned::Changes(changes) = system.plan_or_refuse(spawned)? else {
             panic!("starting an instance is planned");
         };
         system.transact(
@@ -761,7 +772,7 @@ async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
         let labs_a = project_at(&system, "/labs-a");
         let stop = |instance: InstanceId| {
             let arguments = serde_json::json!({ "instance_id": instance.to_string() });
-            system.call_tool(labs_a, "desktop_stop_instance", &arguments.to_string())
+            DesktopTools::new(&system).call(labs_a, "desktop_stop_instance", &arguments.to_string())
         };
         let ungroup_root =
             serde_json::json!({ "project_id": uuid::Uuid::from(labs_a).to_string() });
@@ -771,7 +782,8 @@ async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
             outcome(&system, stop(instance_a)),
             ToolOutcome::Ok(_)
         ));
-        let ungroup = system.call_tool(labs_a, "desktop_ungroup", &ungroup_root.to_string());
+        let ungroup =
+            DesktopTools::new(&system).call(labs_a, "desktop_ungroup", &ungroup_root.to_string());
         assert_eq!(error_code(&system, ungroup), "refused");
         Ok(())
     })
@@ -788,11 +800,11 @@ fn carry_out(
     arguments: serde_json::Value,
 ) -> Result<String> {
     let ToolCallPlan::Issue { command, result } =
-        system.call_tool(root, tool, &arguments.to_string())
+        DesktopTools::new(system).call(root, tool, &arguments.to_string())
     else {
         panic!("{tool} issues a command");
     };
-    let Planned::Changes(changes) = system.plan_issued(command)? else {
+    let Planned::Changes(changes) = system.plan_or_refuse(command)? else {
         panic!("{tool}'s command is planned");
     };
     system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
@@ -827,7 +839,7 @@ fn assign_project(
         },
         "content": { "project": "added" }
     });
-    system.call_tool(root, "desktop_assign_slot", &arguments.to_string())
+    DesktopTools::new(system).call(root, "desktop_assign_slot", &arguments.to_string())
 }
 
 fn project_at(system: &DesktopSystem, path: &str) -> ProjectId {
@@ -844,7 +856,7 @@ fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> ToolOutcome {
         ToolCallPlan::Answer(outcome) => outcome,
         ToolCallPlan::Issue { command, result } => {
             match system
-                .plan_issued(command)
+                .plan_or_refuse(command)
                 .expect("an issued command plans")
             {
                 Planned::Changes(_) => ToolOutcome::Ok(result.into()),

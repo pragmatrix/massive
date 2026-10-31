@@ -14,7 +14,6 @@ mod change_surface;
 mod command_dispatch;
 mod commands;
 mod configuration_planning;
-mod desktop_tools;
 mod effects;
 mod event_forwarding;
 mod focus_input;
@@ -72,7 +71,6 @@ pub use commands::{
     ConfigurationCommand, DesktopCommand, FocusIntent, RunningInstances, SelectionOperation,
 };
 pub use configuration_planning::{Planned, Refusal};
-pub use desktop_tools::ToolCallPlan;
 pub use effects::Effects;
 pub use fullscreen::{fullscreen_scale, view_size};
 pub use key_delivery::{KeyContext, KeyFocus, KeyHandler, KeyOutcome};
@@ -93,7 +91,7 @@ use crate::desktop_system::change_surface::{ChangeSurface, ConfigurationImpact, 
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
-    InstancePresenter, InstanceTitleBarMetrics, ViewWindowState, instance_extent,
+    InstanceKind, InstancePresenter, InstanceTitleBarMetrics, ViewWindowState, instance_extent,
 };
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
@@ -491,6 +489,45 @@ impl DesktopSystem {
     /// The live configuration aggregate, for the caller's persistence (ADR 0013).
     pub fn configuration(&self) -> &RuntimeConfiguration {
         &self.aggregates.configuration
+    }
+
+    /// The project whose launcher runs `instance`, or `None` when no such instance runs.
+    pub fn project_of_instance(&self, instance: InstanceId) -> Option<ProjectId> {
+        let hierarchy = &self.aggregates.hierarchy;
+        hierarchy
+            .exists(&instance.into())
+            .then(|| hierarchy.project_of_target(&instance.into()))
+    }
+
+    /// The running instances of `launcher`, in the launcher's order.
+    pub fn launcher_instances(
+        &self,
+        launcher: LaunchProfileId,
+    ) -> impl Iterator<Item = InstanceId> {
+        self.aggregates.hierarchy.launcher_instances(launcher)
+    }
+
+    /// How the running `instance` was started.
+    pub fn instance_kind(&self, instance: InstanceId) -> InstanceKind {
+        self.instance_presenter(instance).kind()
+    }
+
+    /// The title of the running `instance`'s primary view, empty while its application has set
+    /// none.
+    pub fn instance_title(&self, instance: InstanceId) -> String {
+        let presenter = self.instance_presenter(instance);
+        presenter
+            .primary_view_id()
+            .and_then(|view| presenter.view_window_state(view).ok())
+            .map(|state| state.title.clone())
+            .unwrap_or_default()
+    }
+
+    fn instance_presenter(&self, instance: InstanceId) -> &InstancePresenter {
+        self.aggregates
+            .instances
+            .get(&instance)
+            .expect("a running instance has a presenter")
     }
 
     pub fn camera(&mut self) -> &PixelCamera {

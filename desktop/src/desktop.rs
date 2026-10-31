@@ -32,7 +32,7 @@ use crate::policy::colors;
 use crate::policy::constants::lifecycle;
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
-use crate::tool_host::{IssuedCommand, ToolHost, ToolRequest};
+use crate::tools::{IssuedCommand, ToolHost, ToolRequest};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -298,19 +298,7 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
-                DesktopEvent::ToolRequest(request) => {
-                    if let Some(IssuedCommand { command, done }) =
-                        self.tool_host.answer(request, &self.system)
-                    {
-                        match self.system.plan_issued(command)? {
-                            Planned::Changes(changes) => {
-                                self.transact_and_persist(changes)?;
-                                done.answer();
-                            }
-                            Planned::Refused(refusal) => done.refuse(refusal),
-                        }
-                    }
-                }
+                DesktopEvent::ToolRequest(request) => self.answer_tool_request(request)?,
             }
 
             finalize_desktop_frame(
@@ -407,6 +395,23 @@ impl Desktop {
             ))?;
         }
 
+        Ok(())
+    }
+
+    /// Answers a tool connection's request (ADR 0036). A command that a tool call issues is carried
+    /// out like a key press, and the call is answered once it is, or with the planner's refusal.
+    fn answer_tool_request(&mut self, request: ToolRequest) -> Result<()> {
+        let Some(IssuedCommand { command, done }) = self.tool_host.answer(request, &self.system)
+        else {
+            return Ok(());
+        };
+        match self.system.plan_or_refuse(command)? {
+            Planned::Changes(changes) => {
+                self.transact_and_persist(changes)?;
+                done.answer();
+            }
+            Planned::Refused(refusal) => done.refuse(refusal),
+        }
         Ok(())
     }
 
