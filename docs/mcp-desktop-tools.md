@@ -56,9 +56,9 @@ with an error code, a colon and a space, followed by a sentence for the agent. T
 | Code | Meaning |
 |---|---|
 | `unknown_id` | An id names no project, launcher or instance that the MCP root covers. It may be stale, or it may lie outside the root, which the error does not reveal. The text names the id. |
-| `scope_not_granted` | The MCP root does not grant the tool's access scope, or the command would stop running instances without `act`. |
+| `scope_not_granted` | The MCP root does not grant the tool's access scope, or the call sets a launcher's params without `act`. |
 | `invalid_argument` | An argument breaks the schema's rules, such as a slot position outside the matrix. A slot lies at most one column right of and one row below the matrix's assigned slots. |
-| `refused` | The desktop refused the command, and the text gives the reason. Examples are clearing an unassigned slot, a push past the matrix's edge, a move onto an assigned slot of another project, a move into the content's own subtree, nesting a project more than 16 levels below the root project, nesting one MCP root inside another, and ungrouping an MCP root. |
+| `refused` | The desktop refused the command, and the text gives the reason. Examples are removing content while instances run below it, clearing an unassigned slot, a push past the matrix's edge, a move onto an assigned slot of another project, a move into the content's own subtree, nesting a project more than 16 levels below the root project, nesting one MCP root inside another, and ungrouping an MCP root. |
 | `too_large` | The call's arguments or its result exceed the tool protocol's frame limit of 1 MiB. Only this call fails. |
 | `connection_closed` | The tool connection ended before the desktop answered the call, for example because the MCP root's configuration changed. |
 
@@ -205,8 +205,9 @@ desktop_assign_slot {
 | `content` | `Content` | yes | What to put there. |
 | `shift` | `Shift` | no | What happens to content in the way. The default is `"shift"`. |
 
-Replacing assigned content with `shift: "keep"` removes the old content and its subtree. When
-instances run below it, the call also needs `act`.
+Replacing assigned content with `shift: "keep"` removes the old content and its subtree. It is
+refused while instances run below the old content, so the agent stops them first with
+`desktop_stop_instance`.
 
 **Why the desktop adds its own fields:**
 
@@ -233,7 +234,8 @@ desktop_clear_slot {
 | `slot` | `SlotRef` | yes | The assigned slot to clear. An unassigned slot is refused. |
 | `shift` | `Shift` | no | Whether the rest of the row moves into the cleared slot. The default is `"keep"`. |
 
-Clearing stops every instance that runs below the content. When any run, the call also needs `act`.
+Clearing is refused while instances run below the content, so the agent stops them first with
+`desktop_stop_instance`.
 
 ### `desktop_move_slot`
 

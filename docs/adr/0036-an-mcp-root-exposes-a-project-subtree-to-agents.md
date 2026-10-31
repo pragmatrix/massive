@@ -63,8 +63,9 @@ The vocabulary is deliberately broad for now:
 | `act` | Starting and stopping instances, and application tools that change something, such as sending input to an instance. |
 
 Starting an instance runs its launcher's command, which is as powerful as sending input to an
-application that runs commands, so both belong to `act`. A removal that would stop running instances needs `act` in addition to
-`organize`.
+application that runs commands, so both belong to `act`. A removal never stops running instances.
+The planner refuses it while instances run below the content, for every issuer, so an agent stops
+them first, which needs `act`.
 
 The format leaves room for refinement. A later version may add application-qualified scopes such as
 `act:term`, where `act` grants every `act:<mcp id>`. Nothing of that is built now.
