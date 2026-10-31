@@ -11,18 +11,20 @@ use super::change::{
 };
 use super::selection::Selection;
 use super::{
-    ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget,
-    FocusableTarget, KeyboardFocusReason, SelectionOperation, ZoomLevel, view_size,
+    ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
+    FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation, ZoomLevel,
+    view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
-use crate::policy::when::{self, RemovingSlotContent, TogglingFullScreen, Ungrouping};
+use crate::policy::when::{self, TogglingFullScreen, Ungrouping};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
     LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
     SlotPosition,
 };
+use crate::security::{self, ConfiguringMcp};
 
 use massive_applications::prelude::*;
 use massive_applications::{
@@ -84,17 +86,27 @@ impl ChangeOutput {
 }
 
 impl DesktopSystem {
-    /// Plan the execution of a command.
+    /// Plans a command and reports a refused configuration command as [`Planned::Refused`], for an
+    /// issuer that tells someone why nothing changes, such as a tool answering an agent (ADR 0036).
+    pub fn plan_or_refuse(&self, command: DesktopCommand) -> Result<Planned> {
+        match command {
+            DesktopCommand::Configuration(command) => self.configuration_planning().plan(command),
+            command => self.plan(command).map(Planned::Changes),
+        }
+    }
+
+    /// Plan the execution of a command. A refused configuration command plans nothing, and the
+    /// refusal is logged.
     pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
-            DesktopCommand::Configuration(configuration_command) => {
-                self.configuration_planning().plan(configuration_command)
-            }
+            DesktopCommand::Configuration(configuration_command) => Ok(changes_of(
+                self.configuration_planning().plan(configuration_command)?,
+            )),
             DesktopCommand::ConfigureSelection(operation) => {
-                match self.command_for_selection(operation) {
-                    Some(command) => self.configuration_planning().plan(command),
-                    None => Ok(Changes::Empty),
-                }
+                let Some(command) = self.command_for_selection(operation) else {
+                    return Ok(Changes::Empty);
+                };
+                Ok(changes_of(self.configuration_planning().plan(command)?))
             }
             DesktopCommand::StartInstance {
                 launcher,
@@ -102,8 +114,14 @@ impl DesktopSystem {
                 root,
                 parameters,
                 kind,
+                focus,
             } => {
-                let originator_instance = self.focused_path().instance();
+                // An instance an agent starts does not appear next to, or slide out of, the
+                // instance the user works in, which may lie outside the agent's MCP root.
+                let originator_instance = match focus {
+                    FocusIntent::Follow => self.focused_path().instance(),
+                    FocusIntent::Keep => None,
+                };
                 let originating_details = originator_instance
                     .map(|originator| self.get_origination_details(launcher, originator));
                 let insertion_pos = originating_details
@@ -168,11 +186,13 @@ impl DesktopSystem {
                         after: None,
                     }),
                 ];
-                changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
-                changes += set_focus(
-                    Some(FocusableTarget::Instance(instance)),
-                    KeyboardFocusReason::PresentInstance,
-                );
+                if focus == FocusIntent::Follow {
+                    changes <<= DesktopChange::SetZoomLevel(ZoomLevel::Focus);
+                    changes += set_focus(
+                        Some(FocusableTarget::Instance(instance)),
+                        KeyboardFocusReason::PresentInstance,
+                    );
+                }
 
                 Ok(changes)
             }
@@ -246,6 +266,7 @@ impl DesktopSystem {
                 Some(ConfigurationCommand::AddNextTo {
                     anchor,
                     content: new_slot_assignment(ConfigurationTarget::Launcher, None),
+                    focus: FocusIntent::Follow,
                 })
             }
             SelectionOperation::Remove => self.removal_command_for_focus(),
@@ -260,7 +281,9 @@ impl DesktopSystem {
                 Some(ConfigurationCommand::Group {
                     parent,
                     slots,
+                    project: ProjectId::new(),
                     name: DEFAULT_NEW_PROJECT_NAME.into(),
+                    focus: FocusIntent::Follow,
                 })
             }
             SelectionOperation::Ungroup => self.ungroup_command_for_selection(),
@@ -281,8 +304,8 @@ impl DesktopSystem {
         }
     }
 
-    /// The removal of the focused slot's content that Cmd+Shift+W issues, unless the desktop
-    /// policy keeps the content while instances run below it.
+    /// The removal of the focused slot's content that Cmd+Shift+W issues. The planner refuses it
+    /// while instances run below the content.
     fn removal_command_for_focus(&self) -> Option<ConfigurationCommand> {
         // The root project sits in no slot, so the focus on it, or on the desktop, removes nothing.
         let content = self
@@ -294,18 +317,12 @@ impl DesktopSystem {
             .configuration
             .slot_of_content(content)
             .expect("slot content of a live target sits in a slot");
-        let instances_run_below = self
-            .aggregates
-            .hierarchy
-            .has_instances_below(&content.target());
-        match when::removing_slot_content(instances_run_below) {
-            RemovingSlotContent::Remove => Some(ConfigurationCommand::ClearSlot {
-                parent,
-                slot,
-                shift: SlotShift::default(),
-            }),
-            refusal @ RemovingSlotContent::KeepWhileInstancesRun => refused(refusal),
-        }
+        Some(ConfigurationCommand::ClearSlot {
+            parent,
+            slot,
+            shift: SlotShift::default(),
+            instances: RunningInstances::Refuse,
+        })
     }
 
     /// The ungrouping Cmd+Shift+G issues: of the focused project, or of the one whose slots are all
@@ -338,7 +355,10 @@ impl DesktopSystem {
                 return refused(refusal);
             }
         };
-        (project != ProjectId::ROOT).then_some(ConfigurationCommand::Ungroup { project })
+        (project != ProjectId::ROOT).then_some(ConfigurationCommand::Ungroup {
+            project,
+            focus: FocusIntent::Follow,
+        })
     }
 
     /// Plans `ToggleFullScreenMode` (ADR 0014): a primary instance resolves to its
@@ -556,10 +576,16 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                let configuration_impact = if project_change.keeps_selection() {
-                    ConfigurationImpact::Changed
-                } else {
+                // A change elsewhere leaves the selection's slots where they are, so an agent
+                // working in another project does not take the user's selection away (ADR 0036).
+                let under_selection = !project_change.keeps_selection()
+                    && self.project_holding_selection().is_some_and(|holding| {
+                        project_change.touched_projects().contains(&holding)
+                    });
+                let configuration_impact = if under_selection {
                     ConfigurationImpact::ChangedUnderSelection
+                } else {
+                    ConfigurationImpact::Changed
                 };
                 let mut output = self.apply_project_change(project_change)?;
                 output.surface.configuration_impact = configuration_impact;
@@ -618,8 +644,10 @@ impl DesktopSystem {
     /// column counts are refreshed once the transaction's changes have all run (ADR 0035).
     fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
         let touched = change.touched_projects();
+        let mcp_indicators = change.mcp_indicator_projects();
         let mut output = self.apply_configuration_change(change)?;
         output.surface.column_counts_invalid += touched;
+        output.surface.mcp_indicators_invalid += mcp_indicators;
         Ok(output)
     }
 
@@ -645,7 +673,8 @@ impl DesktopSystem {
                 // A cleared project takes its whole subtree along, so every presenter below it
                 // goes too. Its counts are dropped by the refresh, which finds it gone.
                 let mut output = ChangeOutput::default();
-                for content in self.aggregates.configuration.clear_slot(parent, slot) {
+                let removed = self.aggregates.configuration.clear_slot(parent, slot);
+                for content in removed.content {
                     match content {
                         SlotContent::Launcher(launcher) => {
                             self.aggregates.launchers.remove(&launcher)?;
@@ -655,6 +684,9 @@ impl DesktopSystem {
                             output.surface.column_counts_invalid += project;
                         }
                     }
+                }
+                for root in removed.mcp_roots {
+                    output.surface.mcp_roots_changed += root;
                 }
                 return Ok(output);
             }
@@ -703,6 +735,12 @@ impl DesktopSystem {
             ConfigurationChange::SetStartupPath(path) => {
                 self.aggregates.configuration.set_startup_path(path);
             }
+            ConfigurationChange::ConfigureMcp { project, mcp } => {
+                self.aggregates.configuration.configure_mcp(project, mcp);
+                let mut output = ChangeOutput::default();
+                output.surface.mcp_roots_changed += project;
+                return Ok(output);
+            }
         }
 
         Ok(ChangeOutput::default())
@@ -727,10 +765,7 @@ impl DesktopSystem {
                 let name = self.aggregates.configuration[id].name.clone();
                 self.insert_launcher_presenter(parent, id, name)
             }
-            SlotContent::Project(id) => {
-                let name = self.aggregates.configuration[id].name.clone();
-                self.insert_project_presenter(host, id, name)
-            }
+            SlotContent::Project(id) => self.insert_project_presenter(host, id),
         }
     }
 
@@ -739,12 +774,7 @@ impl DesktopSystem {
     /// `AssignSlot`, and every nested project arrives via `AssignSlot` with a
     /// fresh id — so an existing presenter is an invariant violation and fails
     /// loudly here.
-    fn insert_project_presenter(
-        &mut self,
-        host: Option<ProjectId>,
-        id: ProjectId,
-        name: String,
-    ) -> Result<()> {
+    fn insert_project_presenter(&mut self, host: Option<ProjectId>, id: ProjectId) -> Result<()> {
         // A nested project's scene node hangs under the matrix that hosts its slot:
         // its layout transform is relative to that matrix. The root project — with
         // no host — is placed in the desktop's own space.
@@ -752,7 +782,12 @@ impl DesktopSystem {
             Some(location) => location,
             None => self.desktop_presenter.location.clone(),
         };
-        let presenter = ProjectPresenter::new(id, name, location);
+        let presenter = ProjectPresenter::new(
+            id,
+            &self.project_header_text(id),
+            self.mcp_activation(id),
+            location,
+        );
         self.aggregates.projects.insert(id, presenter)
     }
 
@@ -766,8 +801,13 @@ impl DesktopSystem {
         name: String,
     ) -> Result<()> {
         let matrix_location = self.aggregates.project_matrix_location(parent);
-        let presenter =
-            LauncherPresenter::new(matrix_location, id, name, massive_geometry::Size::default());
+        let presenter = LauncherPresenter::new(
+            matrix_location,
+            id,
+            name,
+            self.mcp_activation(parent),
+            massive_geometry::Size::default(),
+        );
         self.aggregates.launchers.insert(id, presenter)
     }
 
@@ -884,6 +924,7 @@ impl DesktopSystem {
                 ConfigurationCommand::AddNextTo {
                     anchor,
                     content: new_slot_assignment(*target, name.clone()),
+                    focus: FocusIntent::Follow,
                 }
             }
             ConfigurationRequest::Assign {
@@ -966,6 +1007,7 @@ impl DesktopSystem {
                     parent,
                     slot,
                     shift: SlotShift::default(),
+                    instances: RunningInstances::Stop,
                 }
             }
             ConfigurationRequest::MoveLauncher { direction } => {
@@ -983,24 +1025,11 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 };
 
-                // Moving next to an assigned neighbor exchanges the two, so the launcher always
+                // Onto an assigned neighbor, the move exchanges the two, so the launcher always
                 // moves by one slot.
-                if self
-                    .aggregates
-                    .configuration
-                    .content_at(parent, next_slot)
-                    .is_some()
-                {
-                    ConfigurationCommand::SwapSlots {
-                        parent,
-                        a: slot,
-                        b: next_slot,
-                    }
-                } else {
-                    ConfigurationCommand::MoveSlot {
-                        source: (parent, slot),
-                        dest: (parent, next_slot),
-                    }
+                ConfigurationCommand::MoveSlot {
+                    source: (parent, slot),
+                    dest: (parent, next_slot),
                 }
             }
             ConfigurationRequest::PushLauncher { direction } => {
@@ -1037,6 +1066,30 @@ impl DesktopSystem {
                 };
                 ConfigurationCommand::SetStartupPath(path)
             }
+            ConfigurationRequest::ConfigureMcp { path, mcp } => {
+                let configuration = &self.aggregates.configuration;
+                match security::configuring_mcp(
+                    configuration.mcp_root_of(current_project).is_some(),
+                ) {
+                    ConfiguringMcp::Allow => {}
+                    refusal => {
+                        warn!("Refused to configure MCP: {refusal:?}");
+                        return Ok(ChangeOutput::default());
+                    }
+                }
+                let project = match path {
+                    Some(path) => configuration.resolve_project_path(current_project, path),
+                    None => Some(current_project),
+                };
+                let Some(project) = project else {
+                    warn!("Project path '{path:?}' does not resolve");
+                    return Ok(ChangeOutput::default());
+                };
+                ConfigurationCommand::ConfigureMcp {
+                    project,
+                    mcp: mcp.clone(),
+                }
+            }
             ConfigurationRequest::Resize { size_px } => {
                 let changes = DesktopChange::ResizeAll((*size_px).into()).into();
 
@@ -1045,9 +1098,9 @@ impl DesktopSystem {
             ConfigurationRequest::Undo => todo!(),
             ConfigurationRequest::Redo => todo!(),
         };
-        Ok(ChangeOutput::changes(
+        Ok(ChangeOutput::changes(changes_of(
             self.configuration_planning().plan(command)?,
-        ))
+        )))
     }
 
     fn focused_project(&self) -> Option<ProjectId> {
@@ -1102,6 +1155,18 @@ fn new_slot_assignment(target: ConfigurationTarget, name: Option<String>) -> Slo
                 full_screen_mode: Default::default(),
             },
         },
+    }
+}
+
+/// The changes of a planned command, or none for a refused one. The user is not told why nothing
+/// happens yet, so the refusal is logged.
+fn changes_of(planned: Planned) -> Changes {
+    match planned {
+        Planned::Changes(changes) => changes,
+        Planned::Refused(refusal) => {
+            warn!("Refused: {refusal}");
+            Changes::Empty
+        }
     }
 }
 

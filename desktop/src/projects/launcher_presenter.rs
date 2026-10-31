@@ -20,13 +20,13 @@ use super::slot_layout::SlotLayout;
 use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, Commands, DesktopCommand, DesktopTarget, KeyContext, KeyHandler, KeyInput,
-    KeyOutcome, LayoutContext, SelectionOperation, Shortcut, TargetLayout, measure_container,
-    place_container_children,
+    AppliedLayout, Commands, DesktopCommand, DesktopTarget, FocusIntent, KeyContext, KeyHandler,
+    KeyInput, KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut, TargetLayout,
+    measure_container, place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
 use crate::policy::colors;
-use crate::policy::constants::launcher;
+use crate::policy::constants::{launcher, mcp_indicator};
 use crate::policy::when::{self, PressingCommandEnter};
 use crate::projects::{LaunchProfileId, LauncherMode};
 
@@ -64,6 +64,8 @@ struct LauncherMovement {
     layout: SlotLayout,
     // Alpha fading of name / background.
     fader: Animated<f32>,
+    /// Lives in the movement, because the movement redraws the background on every step.
+    background_color: Animated<Color>,
 }
 
 impl LauncherPresenter {
@@ -73,10 +75,12 @@ impl LauncherPresenter {
         parent_location: Handle<Location>,
         id: LaunchProfileId,
         name: String,
+        mcp_activation: McpActivation,
         size: Size,
     ) -> Self {
+        let background_color = mcp_activation.launcher_background();
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
-        let background_shape = background_shape(size.to_rect(), colors::launcher::BACKGROUND);
+        let background_shape = background_shape(size.to_rect(), background_color);
 
         let (our_transform, our_location) =
             identity_location().relative_to(&parent_location).submit();
@@ -105,9 +109,12 @@ impl LauncherPresenter {
             .submit();
 
         let scene_transform = our_transform.clone();
-        let movement = movement(LauncherMovement::new(), move |movement, context| {
-            movement.apply_animations(context, &scene_transform, &background, &fade_location);
-        })
+        let movement = movement(
+            LauncherMovement::new(background_color),
+            move |movement, context| {
+                movement.apply_animations(context, &scene_transform, &background, &fade_location);
+            },
+        )
         .mount();
 
         Self {
@@ -196,6 +203,7 @@ impl LauncherPresenter {
             root: None,
             parameters,
             kind,
+            focus: FocusIntent::Follow,
         }
     }
 
@@ -226,6 +234,19 @@ impl LauncherPresenter {
     pub fn set_parent_location(&self, parent: &Handle<Location>) {
         self.location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
+        });
+    }
+
+    /// Shows a changed MCP activation (ADR 0036).
+    pub fn set_mcp_activation(&mut self, mcp_activation: McpActivation) {
+        let color = mcp_activation.launcher_background();
+        self.movement.modify(move |movement, context| {
+            movement.background_color.animate_if_changed_with(
+                context,
+                color,
+                mcp_indicator::COLOR_DURATION,
+                mcp_indicator::COLOR_INTERPOLATION,
+            );
         });
     }
 
@@ -385,10 +406,11 @@ fn measure_launcher(
 }
 
 impl LauncherMovement {
-    fn new() -> Self {
+    fn new(background_color: Color) -> Self {
         Self {
             layout: SlotLayout::default(),
             fader: 1.0.into(),
+            background_color: background_color.into(),
         }
     }
 
@@ -400,6 +422,7 @@ impl LauncherMovement {
         fade_location: &Handle<Location>,
     ) {
         let alpha = *self.fader.proceed_with(progress);
+        let background_color = *self.background_color.proceed_with(progress);
         fade_location.update_if_changed_with(|location| location.alpha = alpha);
 
         let Some(layout) = self.layout.proceed_with(progress) else {
@@ -410,11 +433,7 @@ impl LauncherMovement {
         // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
         // is perhaps not reliable.
         background.update_if_changed_with(|visual| {
-            visual.shapes = [background_shape(
-                layout.rect(),
-                colors::launcher::BACKGROUND,
-            )]
-            .into()
+            visual.shapes = [background_shape(layout.rect(), background_color)].into()
         });
     }
 }

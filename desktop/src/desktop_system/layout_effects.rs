@@ -46,6 +46,9 @@ impl DesktopSystem {
             DesktopEffect::RefreshColumnCount(project) => {
                 Ok(self.refresh_column_count_effect(project))
             }
+            DesktopEffect::RefreshMcpIndicators(project) => {
+                Ok(self.refresh_mcp_indicators_effect(project))
+            }
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::Reparent(target) => Ok(self.reparent_effect(target)),

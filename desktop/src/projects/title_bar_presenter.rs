@@ -7,7 +7,7 @@ use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
 use crate::policy::colors;
-use crate::policy::constants::structural_animation;
+use crate::policy::constants::{mcp_indicator, structural_animation};
 
 const TEXT_DECAL_ORDER: usize = 0;
 const ELLIPSIS: char = '…';
@@ -48,9 +48,13 @@ impl TitleBarPresenter {
             .with_decal_order(TEXT_DECAL_ORDER)
             .submit();
 
-        let background_color = style.background_color;
-        let movement = movement(TitleBarMovement::default(), move |movement, progress| {
+        let initial = TitleBarMovement {
+            layout: Animated::default(),
+            background_color: style.background_color.into(),
+        };
+        let movement = movement(initial, move |movement, progress| {
             let layout = *movement.layout.proceed_with(progress);
+            let background_color = *movement.background_color.proceed_with(progress);
             scene_transform.update_if_changed(layout.pivoted_at_origin());
             background.update_if_changed_with(|visual| {
                 visual.shapes = [background_shape(layout.rect(), background_color)].into()
@@ -81,6 +85,22 @@ impl TitleBarPresenter {
         }
         self.content = text.to_string();
         self.update_text();
+    }
+
+    /// Fades to `color`, for example when an MCP root starts or stops covering the bar (ADR 0036).
+    pub fn set_background_color(&mut self, color: Color) {
+        if self.style.background_color == color {
+            return;
+        }
+        self.style.background_color = color;
+        self.movement.modify(move |movement, context| {
+            movement.background_color.animate_if_changed_with(
+                context,
+                color,
+                mcp_indicator::COLOR_DURATION,
+                mcp_indicator::COLOR_INTERPOLATION,
+            );
+        });
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
@@ -135,9 +155,11 @@ impl TitleBarPresenter {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct TitleBarMovement {
     layout: Animated<SizedTransform>,
+    /// Lives in the movement, because the movement redraws the background on every step.
+    background_color: Animated<Color>,
 }
 
 struct FittedText {

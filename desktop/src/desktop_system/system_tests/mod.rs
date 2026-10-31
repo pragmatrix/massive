@@ -33,6 +33,7 @@ mod fullscreen;
 mod layout;
 mod navigation;
 mod selection;
+mod tools;
 
 /// Tests run at the scale factor of a standard display.
 const TEST_SCALE_FACTOR: f64 = 1.0;
@@ -179,7 +180,11 @@ fn instance_manager(
     _receiver: &UnboundedReceiver<(InstanceId, InstanceSubmission)>,
 ) -> InstanceManager {
     let (sender, _receiver) = unbounded_channel();
-    InstanceManager::new(InstanceEnvironment::new(sender, 1.0))
+    InstanceManager::new(InstanceEnvironment::new(
+        sender,
+        1.0,
+        Path::new("desktop.sock").into(),
+    ))
 }
 
 /// A system booted from `config` in a 1000×800 window, its startup launcher

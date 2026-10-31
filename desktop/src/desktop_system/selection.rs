@@ -22,6 +22,14 @@ impl DesktopSystem {
             shared_column_counts: &self.aggregates.shared_column_counts,
         }
     }
+
+    /// The project whose matrix holds the selection: the project of the focused slot. `None` when
+    /// the focus sits in no slot.
+    pub fn project_holding_selection(&self) -> Option<ProjectId> {
+        let focused = self.keyboard_focus.focused()?;
+        let (_, project, _) = self.selection_context().focused_slot(focused)?;
+        Some(project)
+    }
 }
 
 /// The current selection: its offsets from the focused slot's position. `top_left` counts the

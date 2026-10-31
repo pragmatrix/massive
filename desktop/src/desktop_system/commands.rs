@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, SlotShift};
+use massive_applications::{InstanceId, InstanceParameters, McpConfiguration, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
@@ -29,6 +29,8 @@ pub enum DesktopCommand {
         /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T` or `Shift+Cmd+Enter`)
         /// carries its own temporary Full Screen Mode.
         kind: InstanceKind,
+        /// With [`FocusIntent::Follow`], the instance takes the focus and the camera zooms to it.
+        focus: FocusIntent,
     },
     StopInstance(InstanceId),
 
@@ -69,6 +71,32 @@ pub enum SelectionOperation {
     Move(Direction),
 }
 
+impl From<ConfigurationCommand> for DesktopCommand {
+    fn from(command: ConfigurationCommand) -> Self {
+        Self::Configuration(command)
+    }
+}
+
+/// What a removal does when instances run below the removed content. The keyboard and the tools
+/// refuse it, so an agent stops the instances first (ADR 0036). The CLI's `remove` stops them,
+/// because the user names what to remove (ADR 0024).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunningInstances {
+    Refuse,
+    Stop,
+}
+
+/// Whether a command that creates or moves content takes the keyboard focus there (ADR 0036). The
+/// keyboard and the CLI follow, so the user lands on what they made. MCP keeps the focus and the
+/// camera where they are, so an agent never pulls the user away. A focused target that a command
+/// removes hands its focus on either way. The selection survives either way, unless the command
+/// changes the slots of the project that holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusIntent {
+    Follow,
+    Keep,
+}
+
 /// Every operation a user can perform on the configuration (ADR 0024). A command names its slots
 /// by ids and slot positions only. The keyboard, the CLI, and the boot replay turn what they
 /// mean into these, and the desktop system plans each command in one place, together with where the
@@ -87,26 +115,22 @@ pub enum ConfigurationCommand {
         content: SlotAssignment,
         shift: SlotShift,
     },
-    /// Unassigns a slot. The instances that run below its content are stopped. When the focus was
-    /// inside the content, it moves to the nearest assigned slot, or else to the hosting project
+    /// Unassigns a slot. With [`RunningInstances::Refuse`], it is refused while instances run below
+    /// the content, and with [`RunningInstances::Stop`], it stops them. When the focus was inside
+    /// the content, it moves to the nearest assigned slot, or else to the hosting project
     /// (ADR 0029).
     ClearSlot {
         parent: ProjectId,
         slot: SlotPosition,
         shift: SlotShift,
+        instances: RunningInstances,
     },
-    /// Moves a slot's content to an unassigned slot, possibly in another project. Moving onto an
-    /// assigned slot is a [`ConfigurationCommand::SwapSlots`] instead, so a move never displaces
-    /// content.
+    /// Moves a slot's content to another slot, possibly in another project. Onto an assigned slot of
+    /// the same project, it exchanges the two contents, so an issuer only names where the content
+    /// goes. Contents of two projects are never exchanged.
     MoveSlot {
         source: (ProjectId, SlotPosition),
         dest: (ProjectId, SlotPosition),
-    },
-    /// Exchanges the contents of two assigned slots of one project.
-    SwapSlots {
-        parent: ProjectId,
-        a: SlotPosition,
-        b: SlotPosition,
     },
     /// Moves the `block`, a rectangle of `parent`'s matrix, one slot in `direction`. The contents in
     /// front of the block take the place it leaves, and at the matrix's edges nothing moves, so a
@@ -122,23 +146,37 @@ pub enum ConfigurationCommand {
         slot: SlotPosition,
         direction: Direction,
     },
-    /// Assigns `content` right of the slot that `anchor` sits in, shifting the row, and focuses it,
-    /// so that new content appears where the user works.
+    /// Assigns `content` right of the slot that `anchor` sits in, shifting the row. With
+    /// [`FocusIntent::Follow`], it focuses the content, so that new content appears where the user
+    /// works.
     AddNextTo {
         anchor: SlotContent,
         content: SlotAssignment,
+        focus: FocusIntent,
     },
-    /// Wraps `parent`'s `slots` into a new project named `name`, which takes their place and
-    /// receives the focus (ADR 0026).
+    /// Wraps `parent`'s `slots` into a new project `project` named `name`, which takes their place
+    /// (ADR 0026). The issuer creates the project's id, as for [`ConfigurationCommand::AssignSlot`],
+    /// so a tool can answer with it. With [`FocusIntent::Follow`], the project receives the focus.
     Group {
         parent: ProjectId,
         slots: Vec<SlotPosition>,
+        project: ProjectId,
         name: String,
+        focus: FocusIntent,
     },
-    /// Moves the slots of a nested project into its parent's matrix, removes the project, and
-    /// selects the ungrouped slots (ADR 0026). An empty project is removed instead (ADR 0029).
+    /// Moves the slots of a nested project into its parent's matrix and removes the project
+    /// (ADR 0026). With [`FocusIntent::Follow`], it selects the ungrouped slots. An empty project is
+    /// removed instead (ADR 0029).
     Ungroup {
         project: ProjectId,
+        focus: FocusIntent,
     },
     SetStartupPath(Option<String>),
+    /// Makes `project` an MCP root configured by `mcp`, or no MCP root when it is `None`
+    /// (ADR 0036). Enabling, disabling, and changing the access scopes are all this command. It is
+    /// refused when it would make the root project an MCP root or nest MCP roots.
+    ConfigureMcp {
+        project: ProjectId,
+        mcp: Option<McpConfiguration>,
+    },
 }

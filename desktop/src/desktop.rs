@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::fs;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -14,12 +15,15 @@ use massive_applications::{
     InstanceSubmission, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
+use massive_protocol::desktop_socket_path;
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
-use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
+use crate::desktop_system::{
+    DesktopCommand, DesktopSystem, FocusIntent, Planned, TransactionEffectsMode,
+};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{
     InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
@@ -28,6 +32,7 @@ use crate::policy::colors;
 use crate::policy::constants::lifecycle;
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
+use crate::tools::{IssuedCommand, ToolHost, ToolRequest};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -47,6 +52,9 @@ pub struct Desktop {
     instance_manager: InstanceManager,
     instance_submissions: UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     context: ApplicationContext,
+
+    /// Serves tool connections on the desktop socket (ADR 0036).
+    tool_host: ToolHost,
 }
 
 #[derive(Debug)]
@@ -54,6 +62,7 @@ enum DesktopEvent {
     ApplicationEvents(Vec<ApplicationEvent<Infallible>>),
     InstanceSubmission(InstanceId, InstanceSubmission),
     InstanceEnded(InstanceId, massive_shell::Result<()>),
+    ToolRequest(ToolRequest),
 }
 
 impl Desktop {
@@ -72,8 +81,12 @@ impl Desktop {
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
-        let environment =
-            InstanceEnvironment::new(submissions_tx, context.primary_monitor_scale_factor());
+        let socket_path = desktop_socket_path(&projects_dir(&env)?);
+        let environment = InstanceEnvironment::new(
+            submissions_tx,
+            context.primary_monitor_scale_factor(),
+            socket_path.clone(),
+        );
         let mut instance_manager = InstanceManager::new(environment);
 
         // We need to use ViewEvent early on, because the `EventRouter` isn't able to convert events.
@@ -133,8 +146,7 @@ impl Desktop {
         // The boot commands derive from the aggregate while it is still owned
         // here; `DesktopSystem::new` then takes it over, so the live model's
         // placements come from this same instance the commands were read from.
-        let configuration_commands: Commands =
-            to_commands(&configuration).map(DesktopCommand::Configuration);
+        let configuration_commands = to_commands(&configuration);
 
         let mut system = DesktopSystem::new(env, default_size, title_bar_metrics, configuration)?;
 
@@ -142,24 +154,23 @@ impl Desktop {
         // load gives a launcher-less configuration one, and the fallback derived
         // here is the first launcher of the loaded aggregate before any command
         // replays.
-        let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
+        let primary_instance_command = DesktopCommand::StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
             parameters: boot_parameters,
             kind: InstanceKind::Primary,
-        }]
-        .into();
+            focus: FocusIntent::Follow,
+        };
 
         let initial_submission_changes: Changes =
             DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
 
-        let commands = configuration_commands + primary_instance_commands;
-
         let mut changes = Changes::Empty;
-        for command in commands {
-            changes += system.plan(command)?;
+        for command in configuration_commands {
+            changes += system.plan(DesktopCommand::Configuration(command))?;
         }
+        changes += system.plan(primary_instance_command)?;
         let frame = begin_frame();
         system.transact(
             changes + initial_submission_changes,
@@ -175,6 +186,8 @@ impl Desktop {
             &mut renderer,
         )?;
 
+        let tool_host = ToolHost::listen(socket_path)?;
+
         let desktop = Self {
             window,
             window_presentation_state: presentation_state,
@@ -185,6 +198,7 @@ impl Desktop {
             instance_manager,
             instance_submissions: submissions_rx,
             context,
+            tool_host,
         };
         Ok(desktop)
     }
@@ -209,6 +223,10 @@ impl Desktop {
                 instance = self.instance_manager.join_next() => {
                     let (instance_id, instance_result) = instance?;
                     DesktopEvent::InstanceEnded(instance_id, instance_result)
+                }
+
+                Some(request) = self.tool_host.next_request() => {
+                    DesktopEvent::ToolRequest(request)
                 }
             };
 
@@ -280,6 +298,7 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
+                DesktopEvent::ToolRequest(request) => self.answer_tool_request(request)?,
             }
 
             finalize_desktop_frame(
@@ -329,7 +348,7 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
-                DesktopEvent::ApplicationEvents(_) => unreachable!(),
+                DesktopEvent::ApplicationEvents(_) | DesktopEvent::ToolRequest(_) => unreachable!(),
             }
 
             finalize_desktop_frame(
@@ -379,6 +398,23 @@ impl Desktop {
         Ok(())
     }
 
+    /// Answers a tool connection's request (ADR 0036). A command that a tool call issues is carried
+    /// out like a key press, and the call is answered once it is, or with the planner's refusal.
+    fn answer_tool_request(&mut self, request: ToolRequest) -> Result<()> {
+        let Some(IssuedCommand { command, done }) = self.tool_host.answer(request, &self.system)
+        else {
+            return Ok(());
+        };
+        match self.system.plan_or_refuse(command)? {
+            Planned::Changes(changes) => {
+                self.transact_and_persist(changes)?;
+                done.answer();
+            }
+            Planned::Refused(refusal) => done.refuse(refusal),
+        }
+        Ok(())
+    }
+
     /// Transacts the changes, and persists the aggregate when they applied a
     /// configuration change (ADR 0013).
     fn transact_and_persist(&mut self, changes: impl Into<Changes>) -> Result<()> {
@@ -391,6 +427,9 @@ impl Desktop {
                 DesktopSystemEffect::PersistConfiguration => self
                     .configuration_persistence
                     .persist(self.system.configuration()),
+                DesktopSystemEffect::McpRootsChanged(changed) => {
+                    self.tool_host.mcp_roots_changed(&changed)
+                }
             }
         }
         Ok(())
@@ -405,9 +444,7 @@ impl Desktop {
 fn load_configuration(
     env: &DesktopEnvironment,
 ) -> Result<(ConfigurationPersistence, RuntimeConfiguration)> {
-    let projects_dir = env
-        .projects_dir()
-        .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
+    let projects_dir = projects_dir(env)?;
     let configuration_path = projects_dir.join(persistence::CONFIG_FILE_NAME);
     if !configuration_path.exists() {
         log::info!(
@@ -458,4 +495,11 @@ struct WindowContext<'a> {
     window: &'a ShellWindow,
     presentation_state: &'a mut WindowPresentationState,
     renderer: &'a mut AsyncWindowRenderer,
+}
+
+/// The projects directory, usually `~/.massive`, which holds the configuration and the desktop
+/// socket's run directory.
+fn projects_dir(env: &DesktopEnvironment) -> Result<PathBuf> {
+    env.projects_dir()
+        .context("Could not resolve the projects directory (no home directory?)")
 }

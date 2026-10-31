@@ -95,6 +95,20 @@ impl InstanceContext {
         }
     }
 
+    /// The environment variables an instance sets for every process it starts, so that a tool
+    /// client started there connects to this desktop and names this instance as its target
+    /// (ADR 0036).
+    pub fn process_environment(&self) -> [(&'static str, String); 2] {
+        [
+            (
+                "MASSIVE_SOCKET",
+                self.environment.desktop_socket.display().to_string(),
+            ),
+            // The instance id as a hyphenated UUID, which the desktop parses back.
+            ("MASSIVE_INSTANCE", self.id.to_string()),
+        ]
+    }
+
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.environment.primary_monitor_scale_factor
     }

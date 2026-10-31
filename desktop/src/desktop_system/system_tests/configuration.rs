@@ -1,3 +1,5 @@
+use massive_applications::{AccessScope, McpConfiguration};
+
 use super::*;
 
 #[tokio::test]
@@ -407,7 +409,7 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
                 .slot_of_content(idle_project)
                 .is_none()
         );
-        // No record or presenter of the removed project or its launcher stays behind.
+        // The removed project and its launcher leave the configuration, and their presenters go too.
         assert!(
             system
                 .aggregates
@@ -431,8 +433,8 @@ async fn remove_slot_keeps_projects_with_instances_at_any_depth() -> Result<()> 
     .await
 }
 
-/// Cmd+Shift+W keeps a project while an instance runs below it, but the CLI's `remove` stops the
-/// instance and removes the project.
+/// Cmd+Shift+W and the tools keep a project while an instance runs below it, but the CLI's `remove`
+/// stops the instance first and then removes the project (ADR 0024).
 #[tokio::test]
 async fn a_removal_request_stops_the_instances_below() -> Result<()> {
     task_context::with_context(task_context(), async {
@@ -517,6 +519,105 @@ async fn a_move_request_onto_an_assigned_neighbor_swaps() -> Result<()> {
             Some((project_a, neighbor_slot))
         );
         assert_eq!(configuration.content_at(project_a, slot_a), Some(neighbor));
+
+        Ok(())
+    })
+    .await
+}
+
+/// The root project is never an MCP root, MCP roots never nest, and a process inside an MCP root cannot configure MCP, not even for an MCP
+/// root that does not cover it (ADR 0036).
+#[tokio::test]
+async fn mcp_is_configured_only_from_outside_every_mcp_root_and_roots_never_nest() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            instance_b,
+        } = nested_siblings()?;
+        let configure_mcp = |path: &str, mcp: Option<McpConfiguration>| {
+            massive_applications::ConfigurationRequest::ConfigureMcp {
+                path: Some(path.into()),
+                mcp,
+            }
+        };
+        let observe = McpConfiguration {
+            access_scopes: [AccessScope::Observe].into(),
+        };
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_a,
+            massive_applications::ConfigurationRequest::Assign {
+                target: massive_applications::ConfigurationTarget::Project,
+                name: "inner".into(),
+                column: 1,
+                row: 0,
+                under: None,
+                shift: SlotShift::default(),
+            },
+        )?;
+        let configuration = &system.aggregates.configuration;
+        let labs_a = configuration
+            .resolve_project_path(ProjectId::ROOT, "/labs-a")
+            .expect("labs-a resolves");
+        let inner = configuration
+            .resolve_project_path(ProjectId::ROOT, "/labs-a/inner")
+            .expect("inner resolves");
+        let labs_b = configuration
+            .resolve_project_path(ProjectId::ROOT, "/labs-b")
+            .expect("labs-b resolves");
+
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_b,
+            configure_mcp("/labs-a/inner", Some(observe.clone())),
+        )?;
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_b,
+            configure_mcp(
+                "/labs-a",
+                Some(McpConfiguration {
+                    access_scopes: [AccessScope::Act].into(),
+                }),
+            ),
+        )?;
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_a,
+            configure_mcp("/", Some(observe.clone())),
+        )?;
+        let configuration = &system.aggregates.configuration;
+        assert_eq!(configuration[inner].mcp, Some(observe.clone()));
+        assert_eq!(configuration[labs_a].mcp, None);
+        assert_eq!(configuration[ProjectId::ROOT].mcp, None);
+
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_a,
+            configure_mcp("/labs-b", Some(observe.clone())),
+        )?;
+        assert_eq!(
+            system.aggregates.configuration[labs_b].mcp,
+            Some(observe.clone())
+        );
+
+        request(
+            &mut system,
+            &mut instance_manager,
+            instance_b,
+            configure_mcp("/labs-a/inner", None),
+        )?;
+        assert_eq!(
+            system.aggregates.configuration[inner].mcp,
+            Some(observe.clone())
+        );
 
         Ok(())
     })

@@ -198,3 +198,101 @@ fn change_window_focus(
     system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
     Ok(())
 }
+
+/// A command that keeps the focus, as MCP issues it, leaves the user where they are (ADR 0036).
+#[tokio::test]
+async fn adding_content_with_a_kept_focus_leaves_the_focus_alone() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let labs_b = root_project_at(&system, 1);
+
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::Configuration(ConfigurationCommand::AddNextTo {
+                anchor: SlotContent::Project(labs_b),
+                content: SlotAssignment::Project {
+                    id: ProjectId::new(),
+                    name: "added".into(),
+                },
+                focus: FocusIntent::Keep,
+            }),
+        )?;
+
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// Ungrouping with a kept focus leaves a focus elsewhere alone. A focused project that the
+/// ungrouping removes still hands its focus to the ungrouped slots, because the focus cannot stay
+/// on it (ADR 0036).
+#[tokio::test]
+async fn ungrouping_with_a_kept_focus_moves_it_only_off_the_removed_project() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_a,
+            ..
+        } = nested_siblings()?;
+        let labs_a = root_project_at(&system, 0);
+        let labs_b = root_project_at(&system, 1);
+        let ungroup = |project| {
+            DesktopCommand::Configuration(ConfigurationCommand::Ungroup {
+                project,
+                focus: FocusIntent::Keep,
+            })
+        };
+
+        run(&mut system, &mut instance_manager, ungroup(labs_b))?;
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Instance(instance_a))
+        );
+
+        let Some(SlotContent::Launcher(shell_a)) = system
+            .aggregates
+            .configuration
+            .content_at(labs_a, SlotPosition { column: 0, row: 0 })
+        else {
+            panic!("labs-a holds its launcher");
+        };
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Project(labs_a)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        run(&mut system, &mut instance_manager, ungroup(labs_a))?;
+        assert_eq!(
+            system.keyboard_focus.focused(),
+            Some(FocusableTarget::Launcher(shell_a))
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// The nested project in the root's slot at `column`, in the first row.
+fn root_project_at(system: &DesktopSystem, column: u32) -> ProjectId {
+    match system
+        .aggregates
+        .configuration
+        .content_at(ProjectId::ROOT, SlotPosition { column, row: 0 })
+    {
+        Some(SlotContent::Project(project)) => project,
+        other => panic!("expected a project at column {column}, found {other:?}"),
+    }
+}

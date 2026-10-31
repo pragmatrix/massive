@@ -224,6 +224,58 @@ _Avoid_: special case, edge case, quirk
 The one place that holds the desktop's choices that could reasonably have been made differently. In code it is the desktop's `policy` module. Its rules decide every exceptional behavior (ADR 0029). For a command, a rule allows it, refuses it with a reason, or redirects it to another command. For a lifecycle default or a route, a rule chooses the outcome. Its tuning values are the sizes, durations, thresholds, easing curves, and colors that were picked by taste and usability experience.
 _Avoid_: policy (alone in prose, it collides with font policy), rules, guards
 
+**MCP root**:
+A project on which the user enabled MCP. It covers its whole subtree, and agents reach everything it covers with the access scopes it grants. MCP roots never nest (ADR 0036).
+_Avoid_: MCP project (in code), MCP scope, enabled subtree
+
+**Access scope**:
+A named permission an MCP root grants, such as `observe` or `act`. Every tool declares exactly one. Every scope is granted explicitly, so an MCP root without any grants nothing. The name follows OAuth 2's access token scope.
+_Avoid_: scope (alone), level, tag, grant, capability (MCP uses it for negotiated features)
+
+**MCP activation indicator**:
+The colors that show where MCP is active. Every header, launcher and instance title bar an MCP root covers takes its color from `policy::colors::mcp` (ADR 0036).
+_Avoid_: MCP marking, MCP highlight, MCP tint, exposure
+
+**MCP access indicator**:
+The list of access scopes in an MCP root's header, as in `home · MCP observe organize`. It reads `home · MCP` when the MCP root grants nothing (ADR 0036).
+_Avoid_: MCP badge, MCP label
+
+**MCP id**:
+A validated name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*`. A tool's name joins the provider's MCP id and the tool's MCP id with `_`, as in `notes_read_page`. An application without an MCP id offers no tools. The desktop's MCP id is `desktop`.
+_Avoid_: application id, short name
+
+**MCP bridge**:
+The process an agent runs as its MCP server, an application's `mcp serve` subcommand. It is the only process that speaks MCP. It is a tool client and reaches the desktop through a tool connection.
+_Avoid_: MCP server (for the desktop), proxy
+
+**Focus intent**:
+Whether a configuration command moves the keyboard focus as its operation decides (`Follow`, issued by the keyboard and the CLI) or leaves the focus and the camera where they are (`Keep`, issued through MCP). A command that removes the focused target moves the focus either way. The selection survives unless the command changes the slots of the project that holds it (ADR 0036).
+_Avoid_: focus mode, focus policy
+
+**Tool provider**:
+The desktop, or an application with an MCP id, as the owner of MCP tools. It declares its tools as Rust types through the typed tool API and decodes their arguments itself (ADR 0036).
+_Avoid_: tool server, MCP server
+
+**Tool protocol**:
+The messages a tool client exchanges with the desktop over a tool connection: connecting to a target, tool calls, their results, cancellations, and the desktop's reason for closing. It carries tool calls only, so tools can change without a new version of it. Its messages live in `massive-protocol` (ADR 0036).
+_Avoid_: control protocol, MCP protocol, session
+
+**Tool client**:
+A process that connects to the desktop to call tools on the MCP root that covers its target. The MCP bridge is the only one today (ADR 0036).
+_Avoid_: control client, agent (any process can connect), MCP client
+
+**Tool host**:
+The part of the desktop that serves tool connections. It decodes and checks everything that arrives on them, so it is the MCP security boundary (ADR 0036).
+_Avoid_: control host, tool server, MCP server
+
+**Tool connection**:
+The connection between a tool client and the desktop over the desktop socket. It is bound to the MCP root that covers its target for its whole life and speaks the tool protocol (ADR 0036).
+_Avoid_: control connection, session (collides with the desktop session), MCP connection
+
+**Desktop socket**:
+The Unix socket `~/.massive/run/desktop.sock` through which processes connect to the desktop. Its path reaches processes as `MASSIVE_SOCKET`. It exists while the desktop runs, and only the user can reach it (ADR 0036).
+_Avoid_: control socket, MCP socket
+
 **Shaping engine**:
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.
 _Avoid_: font system, shaper backend, text layout engine
