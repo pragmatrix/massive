@@ -168,6 +168,10 @@ _Avoid_: app
 A single running application session, owned by a launcher in the desktop or run alone by the shell. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
 _Avoid_: session, tab, process
 
+**Draw target**:
+Where an application's instances draw their content: into views, which their host shows, or into windows of their own. Only the shell runs an application whose instances draw into their own windows.
+_Avoid_: rendering, presentation, presentation mode
+
 **Shell**:
 The host that owns the native event loop and runs exactly one instance: the desktop, or an application on its own in a window of its view's size.
 _Avoid_: shell application, application context
