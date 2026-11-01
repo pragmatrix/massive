@@ -134,11 +134,11 @@ pub(crate) fn rendering_task_context(font_manager: FontManager) -> TaskContext {
 
 /// What the shell hands to its instance's start once the event loop runs.
 pub(crate) struct Startup {
-    pub(crate) proxy: EventLoopProxy<ShellCommand>,
-    pub(crate) event_sender: WeakUnboundedSender<InstanceMessage>,
-    pub(crate) event_receiver: UnboundedReceiver<InstanceMessage>,
-    pub(crate) scale_factor: f64,
-    pub(crate) font_manager: FontManager,
+    pub proxy: EventLoopProxy<ShellCommand>,
+    pub event_sender: WeakUnboundedSender<InstanceMessage>,
+    pub event_receiver: UnboundedReceiver<InstanceMessage>,
+    pub scale_factor: f64,
+    pub font_manager: FontManager,
 }
 
 /// Starts the shell's single instance.
