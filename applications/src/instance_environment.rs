@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
 use derive_more::Constructor;
 use serde::{Deserialize, Serialize};
@@ -8,28 +10,36 @@ use massive_renderer::RenderPacing;
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
 
-use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
+use crate::{
+    InstanceId, McpConfiguration, ToolCallId, ToolError, ViewChange, ViewCreationInfo, ViewId,
+    ViewRole,
+};
 
 /// Shared instance configuration cloned into each spawned instance.
 #[derive(Debug, Clone)]
 pub struct InstanceEnvironment {
-    pub submission_sender: UnboundedSender<(InstanceId, InstanceSubmission)>,
+    pub output_sender: UnboundedSender<(InstanceId, InstanceOutput)>,
     // Robustness: This might change on runtime.
     pub primary_monitor_scale_factor: f64,
     pub parameters: Map<String, Value>,
+    /// The path of the desktop socket (ADR 0036). An instance passes it to the processes it starts,
+    /// so that a tool client among them can find the desktop.
+    pub desktop_socket: PathBuf,
 }
 
 pub type InstanceParameters = Map<String, Value>;
 
 impl InstanceEnvironment {
     pub fn new(
-        requests_tx: UnboundedSender<(InstanceId, InstanceSubmission)>,
+        output_sender: UnboundedSender<(InstanceId, InstanceOutput)>,
         primary_monitor_scale_factor: f64,
+        desktop_socket: PathBuf,
     ) -> Self {
         Self {
-            submission_sender: requests_tx,
+            output_sender,
             primary_monitor_scale_factor,
             parameters: Default::default(),
+            desktop_socket,
         }
     }
 
@@ -37,6 +47,18 @@ impl InstanceEnvironment {
         self.parameters = parameters;
         self
     }
+}
+
+/// What an instance sends to the desktop, in the order it sends it.
+#[derive(Debug)]
+pub enum InstanceOutput {
+    Submission(InstanceSubmission),
+    /// The answer to a tool call the instance received (ADR 0036). It travels with the
+    /// submissions, so an agent's next call sees everything the instance submitted before.
+    ToolResult {
+        call_id: ToolCallId,
+        outcome: Result<Value, ToolError>,
+    },
 }
 
 #[derive(Debug, Constructor)]
@@ -126,6 +148,12 @@ pub enum ConfigurationRequest {
     },
     SetStartup {
         path: Option<String>,
+    },
+    /// Makes the project at `path`, or else the current project, an MCP root configured by `mcp`,
+    /// or no MCP root when it is `None` (ADR 0036).
+    ConfigureMcp {
+        path: Option<String>,
+        mcp: Option<McpConfiguration>,
     },
     Resize {
         size_px: (u32, u32),

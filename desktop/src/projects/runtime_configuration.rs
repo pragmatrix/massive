@@ -17,14 +17,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use massive_applications::Direction;
-use massive_util::CollectingVec;
+use massive_applications::{Direction, McpConfiguration};
 
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
 use crate::policy::when::{self, Booting};
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
+
+/// How deeply `params` nest: 1 for an object of plain values, and one more for each object or array
+/// nested inside.
+pub fn params_depth(params: &Params) -> usize {
+    fn depth(value: &Value) -> usize {
+        match value {
+            Value::Object(object) => 1 + object.values().map(depth).max().unwrap_or(0),
+            Value::Array(array) => 1 + array.iter().map(depth).max().unwrap_or(0),
+            _ => 0,
+        }
+    }
+    1 + params.values().map(depth).max().unwrap_or(0)
+}
 
 /// The name the terminal gives the root project it synthesizes.
 pub const ROOT_PROJECT_NAME: &str = "Projects";
@@ -198,6 +210,14 @@ impl RuntimeConfiguration {
         }
     }
 
+    /// Makes `project` an MCP root configured by `mcp`, or no MCP root when it is `None`.
+    /// The planner has already refused a change that would nest MCP roots (ADR 0036).
+    pub fn configure_mcp(&mut self, project: ProjectId, mcp: Option<McpConfiguration>) {
+        self.project_mut(project)
+            .expect("the project whose access scopes change exists")
+            .mcp = mcp;
+    }
+
     /// Adds a project with no slots. A duplicate id never reaches here: the
     /// caller ignores it as re-application. Insertion keeps the document order
     /// the IndexMap records.
@@ -207,6 +227,7 @@ impl RuntimeConfiguration {
             Project {
                 id,
                 name,
+                mcp: None,
                 slots: Vec::new(),
             },
         );
@@ -219,31 +240,35 @@ impl RuntimeConfiguration {
     ///
     /// Returns the content that left the configuration: the slot's content and, for a nested
     /// project, everything below it. The caller removes their presenters.
-    pub fn clear_slot(&mut self, project: ProjectId, slot: SlotPosition) -> Vec<SlotContent> {
+    pub fn clear_slot(&mut self, project: ProjectId, slot: SlotPosition) -> RemovedContent {
+        let mut removed = RemovedContent::default();
         let Some(content) = self.content_at(project, slot) else {
-            return Vec::new();
+            return removed;
         };
         self.project_mut(project)
             .expect("the project hosting the slot exists")
             .remove_slot(slot);
-        let mut removed = vec![content];
+        removed.content.push(content);
         if let SlotContent::Project(nested) = content {
-            self.remove_project_records(nested, &mut removed);
+            self.remove_project_subtree(nested, &mut removed);
         }
         removed
     }
 
-    /// Removes the record of `project` and of every project nested below it, and appends the
-    /// content of their slots to `removed`. The slot hosting `project` is already unassigned.
-    fn remove_project_records(&mut self, project: ProjectId, removed: &mut Vec<SlotContent>) {
-        let record = self
+    /// Removes `project` and every project nested below it from the configuration, and adds
+    /// what they held to `removed`. The slot hosting `project` is already unassigned.
+    fn remove_project_subtree(&mut self, project: ProjectId, removed: &mut RemovedContent) {
+        let removed_project = self
             .projects
             .shift_remove(&project)
-            .expect("a nested project has a record");
-        for (_, content) in record.slot_contents() {
-            removed.push(content);
+            .expect("a nested project is in the configuration");
+        if removed_project.mcp.is_some() {
+            removed.mcp_roots.push(project);
+        }
+        for (_, content) in removed_project.slot_contents() {
+            removed.content.push(content);
             if let SlotContent::Project(nested) = content {
-                self.remove_project_records(nested, removed);
+                self.remove_project_subtree(nested, removed);
             }
         }
     }
@@ -947,6 +972,48 @@ impl RuntimeConfiguration {
         self.projects.get(&id)
     }
 
+    /// How many projects lie above `project`: 0 for the root project, 1 for a project in one of its
+    /// slots.
+    pub fn project_depth(&self, project: ProjectId) -> usize {
+        iter::successors(Some(project), |&project| {
+            self.slot_of_content(project).map(|(parent, _)| parent)
+        })
+        .count()
+            - 1
+    }
+
+    /// How many levels of projects `content` brings along: 0 for a launcher, 1 for a project
+    /// without nested projects, and one more for each level nested below it.
+    pub fn nesting_height(&self, content: SlotContent) -> usize {
+        match content {
+            SlotContent::Launcher(_) => 0,
+            SlotContent::Project(project) => {
+                1 + self[project]
+                    .slot_contents()
+                    .map(|(_, content)| self.nesting_height(content))
+                    .max()
+                    .unwrap_or(0)
+            }
+        }
+    }
+
+    /// The MCP root at or above `project`, which covers it. MCP roots never nest, so at most one
+    /// exists (ADR 0036).
+    pub fn mcp_root_of(&self, project: ProjectId) -> Option<ProjectId> {
+        iter::successors(Some(project), |&project| {
+            self.slot_of_content(project).map(|(parent, _)| parent)
+        })
+        .find(|&project| self[project].mcp.is_some())
+    }
+
+    /// Whether an MCP root lies anywhere below `project`, not counting `project` itself.
+    pub fn has_mcp_root_below(&self, project: ProjectId) -> bool {
+        self[project]
+            .nested_projects()
+            .into_iter()
+            .any(|nested| self[nested].mcp.is_some() || self.has_mcp_root_below(nested))
+    }
+
     pub fn project_mut(&mut self, id: ProjectId) -> Option<&mut Project> {
         self.projects.get_mut(&id)
     }
@@ -959,8 +1026,8 @@ impl RuntimeConfiguration {
 /// The walk starts with the root project's own `AssignSlot { parent: None }`,
 /// which parents the root project under the `Desktop` target; every other
 /// project's creation is its slot assignment.
-pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<ConfigurationCommand> {
-    let mut commands = CollectingVec::Empty;
+pub fn to_commands(configuration: &RuntimeConfiguration) -> Vec<ConfigurationCommand> {
+    let mut commands = Vec::new();
 
     commands.push(ConfigurationCommand::SetStartupPath(
         configuration.startup_path.clone(),
@@ -992,7 +1059,7 @@ pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<Config
 fn subtree_commands(
     configuration: &RuntimeConfiguration,
     project: ProjectId,
-    commands: &mut CollectingVec<ConfigurationCommand>,
+    commands: &mut Vec<ConfigurationCommand>,
 ) {
     for slot in configuration[project].slots() {
         let content = match &slot.content {
@@ -1044,6 +1111,9 @@ fn indexed_default_name(name: &str, existing: &[&str]) -> String {
 pub struct Project {
     pub id: ProjectId,
     pub name: String,
+    /// What the user configured on the project as an MCP root, or `None` when it is no MCP root
+    /// (ADR 0036).
+    pub mcp: Option<McpConfiguration>,
     slots: Vec<Slot>,
 }
 
@@ -1056,6 +1126,7 @@ impl Project {
         Self {
             id: ProjectId::new(),
             name,
+            mcp: None,
             slots,
         }
     }
@@ -1318,6 +1389,16 @@ pub enum SlotPayload {
 }
 
 impl SlotPayload {}
+
+/// What clearing a slot removed from the configuration (see [`RuntimeConfiguration::clear_slot`]).
+#[derive(Debug, Default)]
+pub struct RemovedContent {
+    /// The slot's content and, for a nested project, everything below it.
+    pub content: Vec<SlotContent>,
+    /// The MCP roots among the removed projects. Removing an MCP root ends its tool connections
+    /// (ADR 0036).
+    pub mcp_roots: Vec<ProjectId>,
+}
 
 /// The `Copy` id-level view of a [`SlotPayload`], for readers that only match on
 /// which kind of content a slot holds.
@@ -1814,8 +1895,8 @@ mod tests {
         );
     }
 
-    /// Clearing a slot that hosts a project removes the project's whole subtree, so no record of
-    /// it stays behind, and reports everything that left.
+    /// Clearing a slot that hosts a project removes the project's whole subtree from the
+    /// configuration, and reports everything that left.
     #[test]
     fn clearing_a_project_slot_removes_its_subtree_and_reports_it() {
         let slot = SlotPosition { column: 0, row: 0 };
@@ -1828,7 +1909,7 @@ mod tests {
         let launcher = LaunchProfileId::new();
         configuration.assign_slot(Some(inner), slot, launcher_assignment_for(launcher));
 
-        let removed = configuration.clear_slot(root, slot);
+        let removed = configuration.clear_slot(root, slot).content;
 
         assert_eq!(
             removed,

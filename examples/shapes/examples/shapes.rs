@@ -281,7 +281,9 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 ApplicationEvent::View(..)
                 | ApplicationEvent::ApplyAnimations(_)
                 | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_) => {}
+                | ApplicationEvent::Shutdown(_)
+                | ApplicationEvent::ToolCall(_)
+                | ApplicationEvent::CancelToolCall(_) => {}
                 ApplicationEvent::Custom(event) => match event {},
             }
         }

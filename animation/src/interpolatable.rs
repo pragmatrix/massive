@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use massive_geometry::{PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3};
+use massive_geometry::{Color, PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3};
 
 /// For now we have to support `Clone`.
 ///
@@ -76,6 +76,19 @@ impl Interpolatable for Size {
         let width = interpolate(&from.width, &to.width, t);
         let height = interpolate(&from.height, &to.height, t);
         Size::new(width, height)
+    }
+}
+
+/// Interpolates each component in sRGB. A short fade between two colors does not need a perceptual
+/// color space.
+impl Interpolatable for Color {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        Color {
+            red: interpolate(&from.red, &to.red, t),
+            green: interpolate(&from.green, &to.green, t),
+            blue: interpolate(&from.blue, &to.blue, t),
+            alpha: interpolate(&from.alpha, &to.alpha, t),
+        }
     }
 }
 

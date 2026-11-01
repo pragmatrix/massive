@@ -5,7 +5,9 @@ use std::path::Path;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
-use massive_applications::{InstanceChange, InstanceEnvironment, InstanceSubmission, ViewRole};
+use massive_applications::{
+    InstanceChange, InstanceEnvironment, InstanceOutput, InstanceSubmission, ViewRole,
+};
 use massive_geometry::{Rect, RectPx, SizePx};
 use massive_renderer::{FontManager, ShapingEngineKind};
 use massive_scene::{AnyCollector, SceneChange};
@@ -26,6 +28,7 @@ use crate::projects::persistence::parse_configuration;
 use crate::projects::{SlotAssignment, SlotContent, SlotPosition};
 use crate::window_state::WindowState;
 
+mod application_tools;
 mod camera;
 mod configuration;
 mod focus;
@@ -33,6 +36,7 @@ mod fullscreen;
 mod layout;
 mod navigation;
 mod selection;
+mod tools;
 
 /// Tests run at the scale factor of a standard display.
 const TEST_SCALE_FACTOR: f64 = 1.0;
@@ -65,7 +69,12 @@ struct NestedSiblings {
 }
 
 fn nested_siblings() -> Result<NestedSiblings> {
-    let (mut system, receiver) = system_from(NESTED_SIBLINGS_CONFIG);
+    nested_siblings_with(Vec::new())
+}
+
+/// The nested siblings of [`nested_siblings`], with `applications` registered.
+fn nested_siblings_with(applications: Vec<crate::Application>) -> Result<NestedSiblings> {
+    let (mut system, receiver) = system_with_applications(NESTED_SIBLINGS_CONFIG, applications);
     let mut instance_manager = instance_manager(&receiver);
     for command in crate::projects::to_commands(&system.aggregates.configuration) {
         let changes = system.plan(DesktopCommand::Configuration(command))?;
@@ -146,7 +155,7 @@ fn task_context() -> TaskContext {
 
 fn system() -> (
     DesktopSystem,
-    UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) {
     system_from(CONFIG)
 }
@@ -155,12 +164,26 @@ fn system_from(
     config: &str,
 ) -> (
     DesktopSystem,
-    UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    UnboundedReceiver<(InstanceId, InstanceOutput)>,
+) {
+    system_with_applications(config, Vec::new())
+}
+
+/// A system booted from `config` whose environment registers `applications`, while every instance
+/// runs the primary application `terminal`.
+fn system_with_applications(
+    config: &str,
+    applications: Vec<crate::Application>,
+) -> (
+    DesktopSystem,
+    UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) {
     let (_sender, receiver) = unbounded_channel();
+    let applications = crate::application_registry::ApplicationRegistry::new(applications).unwrap();
     let environment = DesktopEnvironment {
         primary_application: "terminal".into(),
-        applications: crate::application_registry::ApplicationRegistry::new(Vec::new()),
+        tool_catalog: crate::tools::ToolCatalog::new(&applications).unwrap(),
+        applications,
         projects_dir: None,
     };
     let path = Path::new("/config/desktop.json");
@@ -176,10 +199,14 @@ fn system_from(
 }
 
 fn instance_manager(
-    _receiver: &UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    _receiver: &UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) -> InstanceManager {
     let (sender, _receiver) = unbounded_channel();
-    InstanceManager::new(InstanceEnvironment::new(sender, 1.0))
+    InstanceManager::new(InstanceEnvironment::new(
+        sender,
+        1.0,
+        Path::new("desktop.sock").into(),
+    ))
 }
 
 /// A system booted from `config` in a 1000×800 window, its startup launcher

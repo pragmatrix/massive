@@ -119,6 +119,9 @@ impl ApplicationContext {
                 ApplicationMessage::Shutdown(instance_id) => {
                     application_events.push(ApplicationEvent::Shutdown(instance_id));
                 }
+                ApplicationMessage::ToolCall(_) | ApplicationMessage::CancelToolCall(_) => {
+                    unreachable!("the shell never calls tools");
+                }
             }
         }
 

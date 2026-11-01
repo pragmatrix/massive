@@ -3,13 +3,16 @@
 //! Each rule is named after its situation and is a pure function of the facts its caller passes in.
 
 use crate::DirectionBias;
-use crate::desktop_system::{Direction, KeyFocus};
+use crate::desktop_system::{Direction, FocusIntent, KeyFocus};
+use crate::policy::constants;
+use crate::projects::Project;
 
-/// What Cmd+Shift+W does to a launcher or a nested project.
+/// Whether a launcher or a nested project may be removed, by the keyboard, the CLI or a tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemovingSlotContent {
     Remove,
-    /// A key press never quits running processes.
+    /// A removal never quits running processes. They are stopped first, one by one, so stopping
+    /// work is always a deliberate step.
     KeepWhileInstancesRun,
 }
 
@@ -54,14 +57,75 @@ pub enum UngroupingProject {
     MoveSlotsOut,
     /// An empty project has no slots to move.
     RemoveProject,
+    /// Ungrouping would dissolve the MCP settings the user made deliberately, so MCP has to be
+    /// disabled first (ADR 0036). Removing the project stays allowed, because it deletes the
+    /// project and its settings explicitly.
+    RefuseWhileMcpRoot,
 }
 
 #[must_use]
-pub fn ungrouping_project(is_empty: bool) -> UngroupingProject {
-    if is_empty {
+pub fn ungrouping_project(project: &Project) -> UngroupingProject {
+    if project.mcp.is_some() {
+        return UngroupingProject::RefuseWhileMcpRoot;
+    }
+    if project.slots().is_empty() {
         return UngroupingProject::RemoveProject;
     }
     UngroupingProject::MoveSlotsOut
+}
+
+/// Whether a command may nest projects as deep as it would.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NestingProjects {
+    Allow,
+    /// A deeper configuration might not load again (see
+    /// [`constants::configuration::MAX_PROJECT_DEPTH`]).
+    RefuseTooDeep,
+}
+
+/// `deepest_project` is the depth of the deepest project after the command, counted from the root
+/// project, or `None` when the command nests no project deeper.
+#[must_use]
+pub fn nesting_projects(deepest_project: Option<usize>) -> NestingProjects {
+    if deepest_project.is_some_and(|depth| depth > constants::configuration::MAX_PROJECT_DEPTH) {
+        return NestingProjects::RefuseTooDeep;
+    }
+    NestingProjects::Allow
+}
+
+/// Whether a launcher's params may nest as deep as they do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NestingParams {
+    Allow,
+    /// A deeper configuration might not load again (see
+    /// [`constants::configuration::MAX_PARAMS_DEPTH`]).
+    RefuseTooDeep,
+}
+
+#[must_use]
+pub fn nesting_params(params_depth: usize) -> NestingParams {
+    if params_depth > constants::configuration::MAX_PARAMS_DEPTH {
+        return NestingParams::RefuseTooDeep;
+    }
+    NestingParams::Allow
+}
+
+/// Where the focus goes when a project's slots move out of it (ADR 0026, ADR 0036).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UngroupingFocus {
+    /// The focus moves to a corner of the ungrouped slots, and the selection covers them.
+    MoveToUngroupedSlots,
+    Keep,
+}
+
+/// The focus cannot stay on the project that ungrouping removes, so it moves even when the command
+/// keeps the focus.
+#[must_use]
+pub fn ungrouping_focus(intent: FocusIntent, focus_on_project: bool) -> UngroupingFocus {
+    match intent {
+        FocusIntent::Keep if !focus_on_project => UngroupingFocus::Keep,
+        FocusIntent::Keep | FocusIntent::Follow => UngroupingFocus::MoveToUngroupedSlots,
+    }
 }
 
 /// What Esc and Cmd+Esc do (ADR 0030, ADR 0031).

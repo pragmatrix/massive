@@ -1,0 +1,13 @@
+[package]
+name = "massive-protocol"
+version = "0.1.0"
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+postcard.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-util = { workspace = true, features = ["codec"] }

@@ -51,6 +51,14 @@ impl<T> CollectingSet<T> {
 }
 
 impl<T: Eq + Hash> CollectingSet<T> {
+    pub fn contains(&self, value: &T) -> bool {
+        match &self.0 {
+            CollectingSetStorage::Empty => false,
+            CollectingSetStorage::One(existing) => existing == value,
+            CollectingSetStorage::Many(values) => values.contains(value),
+        }
+    }
+
     pub fn insert(&mut self, value: T) {
         match &mut self.0 {
             CollectingSetStorage::Empty => self.0 = CollectingSetStorage::One(value),

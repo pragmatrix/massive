@@ -345,6 +345,7 @@ mod tests {
             ConfigurationChange::ClearSlot { parent, slot } => {
                 return configuration
                     .clear_slot(parent, slot)
+                    .content
                     .into_iter()
                     .filter_map(|content| match content {
                         SlotContent::Project(project) => Some(project),
@@ -371,6 +372,9 @@ mod tests {
                 configuration.relocate_slots(parent, &landings);
             }
             ConfigurationChange::SetStartupPath(path) => configuration.set_startup_path(path),
+            ConfigurationChange::ConfigureMcp { project, mcp } => {
+                configuration.configure_mcp(project, mcp)
+            }
         }
         Vec::new()
     }

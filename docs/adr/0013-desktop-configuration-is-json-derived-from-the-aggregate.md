@@ -2,6 +2,11 @@
 
 ## Status: accepted
 
+> The JSON format is superseded by
+> [ADR 0037](./0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md):
+> the configuration is stored as KDL and reconciled into the existing file to keep
+> its comments. The derivation from the aggregate below still holds.
+
 Supersedes [ADR 0006](./0006-desktop-configuration-is-name-keyed-kdl.md) (the
 name-keyed KDL file edited surgically) and the tag mechanism of
 [ADR 0010](./0010-desktop-configuration-names-may-repeat.md).

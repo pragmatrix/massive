@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
 
 async fn run(ctx: ApplicationContext) -> Result<()> {
     let applications = vec![Application::new("Hello Application", hello_instance)];
-    let env = DesktopEnvironment::new(applications);
+    let env = DesktopEnvironment::new(applications)?;
     env.run_desktop(ctx).await
 }
 

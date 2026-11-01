@@ -1,4 +1,4 @@
-use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
+use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission, McpConfiguration};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::{CollectingSet, CollectingVec};
 
@@ -18,6 +18,9 @@ pub enum DesktopSystemEffect {
     ToggleWindowFullScreen,
     /// Persist the live configuration after a transaction.
     PersistConfiguration,
+    /// MCP roots were configured, reconfigured, disabled, or removed (ADR 0036). The tool host
+    /// closes the tool connections bound to them.
+    McpRootsChanged(CollectingSet<ProjectId>),
 }
 
 #[derive(Debug)]
@@ -159,13 +162,18 @@ pub enum ConfigurationChange {
         landings: Vec<(SlotPosition, SlotPosition)>,
     },
     SetStartupPath(Option<String>),
+    ConfigureMcp {
+        project: ProjectId,
+        mcp: Option<McpConfiguration>,
+    },
 }
 
 impl ConfigurationChange {
-    /// Whether the selection survives this change (ADR 0025, ADR 0033). The selection is stored as
-    /// offsets around the focused slot. A change that adds, removes, or moves slots could make
-    /// those offsets cover other slots, or reach past the matrix's edge when the focused slot
-    /// itself moves, so the transaction collapses the selection after it.
+    /// Whether the selection survives this change, even when the change edits the project that
+    /// holds the selection (ADR 0025, ADR 0033). The selection is stored as offsets around the
+    /// focused slot. A change that adds, removes, or moves slots of that project could make those
+    /// offsets cover other slots, or reach past the matrix's edge when the focused slot itself
+    /// moves, so the transaction collapses the selection after it.
     pub fn keeps_selection(&self) -> bool {
         match self {
             Self::AssignSlot { .. }
@@ -178,7 +186,7 @@ impl ConfigurationChange {
             // moved block.
             Self::RelocateSlots { .. } => true,
             // No matrix changes.
-            Self::SetStartupPath(_) => true,
+            Self::SetStartupPath(_) | Self::ConfigureMcp { .. } => true,
         }
     }
 
@@ -215,7 +223,29 @@ impl ConfigurationChange {
             Self::Group {
                 parent, project, ..
             } => [*parent, *project].into_iter().collect(),
-            Self::SetStartupPath(_) => CollectingSet::default(),
+            Self::SetStartupPath(_) | Self::ConfigureMcp { .. } => CollectingSet::default(),
+        }
+    }
+
+    /// The projects whose subtrees may show different MCP indicators after this change
+    /// (ADR 0036). Configuring MCP changes the project's own indicators and those of everything it
+    /// covers, and a move into another project can take content into or out of an MCP root. Every
+    /// other change keeps its content inside the same MCP root, or outside every MCP root.
+    pub fn mcp_indicator_projects(&self) -> CollectingSet<ProjectId> {
+        match self {
+            Self::ConfigureMcp { project, .. } => (*project).into(),
+            Self::MoveSlot {
+                source: (source, _),
+                dest: (dest, _),
+            } if source != dest => (*dest).into(),
+            Self::AssignSlot { .. }
+            | Self::ClearSlot { .. }
+            | Self::MoveSlot { .. }
+            | Self::Group { .. }
+            | Self::Ungroup { .. }
+            | Self::SwapSlots { .. }
+            | Self::RelocateSlots { .. }
+            | Self::SetStartupPath(_) => CollectingSet::default(),
         }
     }
 }

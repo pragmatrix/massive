@@ -120,6 +120,7 @@ async fn sibling_projects_lay_out_the_columns_of_the_widest_one() -> Result<()> 
                 parent: projects[0],
                 slot: SlotPosition { column: 2, row: 0 },
                 shift: SlotShift::Keep,
+                instances: RunningInstances::Refuse,
             }),
         )?;
 

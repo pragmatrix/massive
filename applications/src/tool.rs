@@ -1,0 +1,234 @@
+//! The typed tool API through which the desktop and applications declare their MCP tools
+//! (ADR 0036). A tool is a parameter type and a result type, both deriving serde's traits and
+//! `schemars`' `JsonSchema`. The API derives the JSON Schemas from the types, decodes the arguments,
+//! and encodes the result, so a provider never handles JSON itself.
+
+use std::fmt;
+
+use derive_more::From;
+use schemars::{JsonSchema, Schema, schema_for};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
+
+use crate::AccessScope;
+
+/// A tool that the desktop or an application declares. The desktop joins its provider's MCP id and
+/// `tool` into the [`ToolName`] that MCP's tool list shows.
+#[derive(Debug, Clone)]
+pub struct ToolDeclaration {
+    /// The tool's own MCP id, such as `describe`.
+    pub tool: McpId,
+    pub access_scope: AccessScope,
+    pub description: String,
+    pub input_schema: Schema,
+    pub output_schema: Schema,
+}
+
+impl ToolDeclaration {
+    /// Declares the tool `tool`, which takes `Params` and returns `Output`.
+    pub fn new<Params: JsonSchema, Output: JsonSchema>(
+        tool: McpId,
+        access_scope: AccessScope,
+        description: &str,
+    ) -> Self {
+        Self {
+            tool,
+            access_scope,
+            description: description.to_string(),
+            input_schema: schema_for!(Params),
+            output_schema: schema_for!(Output),
+        }
+    }
+}
+
+/// A tool's name: its provider's MCP id and its own, joined by `_`, such as `desktop_describe`.
+/// Names are looked up, never split, because an MCP id may contain `_` itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ToolName {
+    provider: McpId,
+    tool: McpId,
+}
+
+impl ToolName {
+    /// The longest joined name. LLM APIs commonly cap tool names at 64 characters, and MCP clients
+    /// put a prefix in front, such as Claude Code's `mcp__<server>__`.
+    pub const MAX_LEN: usize = 48;
+
+    /// Joins the provider's MCP id and the tool's, and refuses a joined name longer than
+    /// [`Self::MAX_LEN`].
+    pub fn join(provider: McpId, tool: McpId) -> Result<Self, ToolNameTooLong> {
+        let name = Self { provider, tool };
+        if provider.0.len() + 1 + tool.0.len() > Self::MAX_LEN {
+            return Err(ToolNameTooLong(name));
+        }
+        Ok(name)
+    }
+
+    /// The tool's own MCP id.
+    pub fn tool(self) -> McpId {
+        self.tool
+    }
+
+    /// Whether `name` is this tool name, as a tool call names it.
+    pub fn is(self, name: &str) -> bool {
+        name.strip_prefix(self.provider.as_str())
+            .and_then(|rest| rest.strip_prefix('_'))
+            == Some(self.tool.as_str())
+    }
+}
+
+impl fmt::Display for ToolName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}_{}", self.provider.as_str(), self.tool.as_str())
+    }
+}
+
+/// A joined name that [`ToolName::join`] refused, because it is longer than
+/// [`ToolName::MAX_LEN`]. It carries the refused name, so the caller can name it in its error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolNameTooLong(pub ToolName);
+
+/// A name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*` (ADR 0036). These characters
+/// pass both MCP's tool name rules and the stricter rules of LLM APIs.
+///
+/// MCP ids come from code, so an invalid one is a bug of its author. [`mcp_id!`] checks it at
+/// compile time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct McpId(&'static str);
+
+impl McpId {
+    /// The desktop's own MCP id, which no application may use.
+    pub const DESKTOP: Self = Self::new("desktop");
+
+    /// Panics on an invalid id. In a const context, which [`mcp_id!`] provides, the panic is a
+    /// compile error at the call. A const panic message must be a literal, so it names the rule,
+    /// not the id.
+    pub const fn new(id: &'static str) -> Self {
+        let bytes = id.as_bytes();
+        assert!(
+            !bytes.is_empty() && bytes[0].is_ascii_lowercase(),
+            "an MCP id starts with a-z"
+        );
+        let mut index = 1;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            assert!(
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-',
+                "an MCP id contains only a-z, 0-9, _ and -"
+            );
+            index += 1;
+        }
+        Self(id)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+/// An [`McpId`], checked at compile time.
+///
+/// ```
+/// let id = massive_applications::mcp_id!("read_page");
+/// ```
+///
+/// ```compile_fail
+/// let id = massive_applications::mcp_id!("ReadPage");
+/// ```
+#[macro_export]
+macro_rules! mcp_id {
+    ($id:literal) => {
+        const { $crate::McpId::new($id) }
+    };
+}
+
+/// A call of one of an application's tools, which the desktop forwards to the instance it names
+/// (ADR 0036).
+///
+/// The desktop has already checked the call, so the instance only matches `tool`, the tool's own
+/// MCP id, and decodes the arguments. It answers with [`crate::InstanceContext::answer_tool_call`].
+#[derive(Debug, Clone)]
+pub struct ToolCall {
+    pub id: ToolCallId,
+    pub tool: McpId,
+    arguments: ToolArguments,
+}
+
+impl ToolCall {
+    /// `arguments` lack the `instance_id` that routed the call, because the desktop removes it
+    /// before forwarding.
+    pub fn new(id: ToolCallId, tool: McpId, arguments: ToolArguments) -> Self {
+        Self {
+            id,
+            tool,
+            arguments,
+        }
+    }
+
+    pub fn decode<Params: DeserializeOwned>(&self) -> Result<Params, ToolError> {
+        decode_arguments(&self.arguments)
+    }
+}
+
+/// Identifies a tool call the desktop forwarded to an instance. The desktop chooses it, because the
+/// call ids of different tool connections may collide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
+pub struct ToolCallId(u64);
+
+/// A tool call's arguments, a JSON object. They are text only on the wire, and the tool host's
+/// connection parses them, within serde_json's nesting limit.
+pub type ToolArguments = Map<String, Value>;
+
+/// Decodes a tool call's arguments into the tool's parameter type.
+pub fn decode_arguments<Params: DeserializeOwned>(
+    arguments: &ToolArguments,
+) -> Result<Params, ToolError> {
+    Params::deserialize(arguments).map_err(|error| ToolError {
+        code: ToolErrorCode::InvalidArgument,
+        message: format!("The arguments do not match the tool's input schema: {error}."),
+    })
+}
+
+/// Encodes a tool's result as a JSON value. Integers in a result type fit in 64 bits, because
+/// serde_json's values hold no wider ones.
+pub fn encode_result(output: &impl Serialize) -> Value {
+    serde_json::to_value(output).expect("a tool result type serializes to JSON")
+}
+
+/// A failed tool call: an error code and a sentence for the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolError {
+    pub code: ToolErrorCode,
+    pub message: String,
+}
+
+/// Why a tool call failed. MCP clients see the code's name, so names never change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolErrorCode {
+    /// An id names nothing the MCP root covers. It may be stale, or it may lie outside the MCP
+    /// root, which the error does not reveal.
+    UnknownId,
+    ScopeNotGranted,
+    InvalidArgument,
+    /// The desktop refused the command, for example a move onto an assigned slot of another
+    /// project.
+    Refused,
+}
+
+impl ToolErrorCode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::UnknownId => "unknown_id",
+            Self::ScopeNotGranted => "scope_not_granted",
+            Self::InvalidArgument => "invalid_argument",
+            Self::Refused => "refused",
+        }
+    }
+}
+
+impl fmt::Display for ToolErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}

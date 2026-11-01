@@ -50,6 +50,11 @@ impl DesktopSystem {
                 launcher_configuration.name.clone(),
             )
         };
+        let mcp_activation = self.mcp_activation(
+            self.aggregates
+                .hierarchy
+                .project_of_target(&DesktopTarget::Launcher(launcher_id)),
+        );
 
         // An assistant owns a temporary Full Screen Mode, starting regular; a
         // primary instance is `None` and follows its launcher's mode (ADR 0014).
@@ -62,6 +67,7 @@ impl DesktopSystem {
             launcher_location,
             kind,
             &launcher_name,
+            mcp_activation,
             self.aggregates.instance_title_bar_metrics,
         );
 

@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::fs;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -11,15 +12,18 @@ use uuid::Uuid;
 
 use massive_applications::{
     ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
-    InstanceSubmission, ViewEvent, begin_frame,
+    InstanceOutput, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
+use massive_protocol::desktop_socket_path;
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
-use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
+use crate::desktop_system::{
+    DesktopCommand, DesktopSystem, FocusIntent, Planned, TransactionEffectsMode,
+};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{
     InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
@@ -28,6 +32,7 @@ use crate::policy::colors;
 use crate::policy::constants::lifecycle;
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
+use crate::tools::{IssuedCommand, ToolHost, ToolRequest};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -45,15 +50,19 @@ pub struct Desktop {
     event_manager: EventManager<ViewEvent>,
 
     instance_manager: InstanceManager,
-    instance_submissions: UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    instance_outputs: UnboundedReceiver<(InstanceId, InstanceOutput)>,
     context: ApplicationContext,
+
+    /// Serves tool connections on the desktop socket (ADR 0036).
+    tool_host: ToolHost,
 }
 
 #[derive(Debug)]
 enum DesktopEvent {
     ApplicationEvents(Vec<ApplicationEvent<Infallible>>),
-    InstanceSubmission(InstanceId, InstanceSubmission),
+    InstanceOutput(InstanceId, InstanceOutput),
     InstanceEnded(InstanceId, massive_shell::Result<()>),
+    ToolRequest(ToolRequest),
 }
 
 impl Desktop {
@@ -71,9 +80,13 @@ impl Desktop {
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
 
-        let (submissions_tx, mut submissions_rx) = unbounded_channel();
-        let environment =
-            InstanceEnvironment::new(submissions_tx, context.primary_monitor_scale_factor());
+        let (outputs_tx, mut outputs_rx) = unbounded_channel();
+        let socket_path = desktop_socket_path(&projects_dir(&env)?);
+        let environment = InstanceEnvironment::new(
+            outputs_tx,
+            context.primary_monitor_scale_factor(),
+            socket_path.clone(),
+        );
         let mut instance_manager = InstanceManager::new(environment);
 
         // We need to use ViewEvent early on, because the `EventRouter` isn't able to convert events.
@@ -95,8 +108,11 @@ impl Desktop {
         )?;
 
         // First wait for the initial submission so the window can match the primary view.
-        let Some((initial_instance, initial_submission)) = submissions_rx.recv().await else {
+        let Some((initial_instance, initial_output)) = outputs_rx.recv().await else {
             bail!("Did not receive the initial submission from the application");
+        };
+        let InstanceOutput::Submission(initial_submission) = initial_output else {
+            unreachable!("no tool call reaches an instance before the desktop runs");
         };
 
         let primary_instance = initial_instance;
@@ -133,8 +149,7 @@ impl Desktop {
         // The boot commands derive from the aggregate while it is still owned
         // here; `DesktopSystem::new` then takes it over, so the live model's
         // placements come from this same instance the commands were read from.
-        let configuration_commands: Commands =
-            to_commands(&configuration).map(DesktopCommand::Configuration);
+        let configuration_commands = to_commands(&configuration);
 
         let mut system = DesktopSystem::new(env, default_size, title_bar_metrics, configuration)?;
 
@@ -142,24 +157,23 @@ impl Desktop {
         // load gives a launcher-less configuration one, and the fallback derived
         // here is the first launcher of the loaded aggregate before any command
         // replays.
-        let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
+        let primary_instance_command = DesktopCommand::StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
             parameters: boot_parameters,
             kind: InstanceKind::Primary,
-        }]
-        .into();
+            focus: FocusIntent::Follow,
+        };
 
         let initial_submission_changes: Changes =
             DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
 
-        let commands = configuration_commands + primary_instance_commands;
-
         let mut changes = Changes::Empty;
-        for command in commands {
-            changes += system.plan(command)?;
+        for command in configuration_commands {
+            changes += system.plan(DesktopCommand::Configuration(command))?;
         }
+        changes += system.plan(primary_instance_command)?;
         let frame = begin_frame();
         system.transact(
             changes + initial_submission_changes,
@@ -175,6 +189,8 @@ impl Desktop {
             &mut renderer,
         )?;
 
+        let tool_host = ToolHost::listen(socket_path)?;
+
         let desktop = Self {
             window,
             window_presentation_state: presentation_state,
@@ -183,8 +199,9 @@ impl Desktop {
             configuration_persistence,
             event_manager,
             instance_manager,
-            instance_submissions: submissions_rx,
+            instance_outputs: outputs_rx,
             context,
+            tool_host,
         };
         Ok(desktop)
     }
@@ -198,8 +215,8 @@ impl Desktop {
     async fn run_active(&mut self) -> Result<()> {
         while !self.instance_manager.is_empty() {
             let event = tokio::select! {
-                Some((instance_id, submission)) = self.instance_submissions.recv() => {
-                    DesktopEvent::InstanceSubmission(instance_id, submission)
+                Some((instance_id, output)) = self.instance_outputs.recv() => {
+                    DesktopEvent::InstanceOutput(instance_id, output)
                 }
 
                 events = self.context.wait_for_events::<Infallible>() => {
@@ -209,6 +226,10 @@ impl Desktop {
                 instance = self.instance_manager.join_next() => {
                     let (instance_id, instance_result) = instance?;
                     DesktopEvent::InstanceEnded(instance_id, instance_result)
+                }
+
+                Some(request) = self.tool_host.next_request() => {
+                    DesktopEvent::ToolRequest(request)
                 }
             };
 
@@ -268,18 +289,20 @@ impl Desktop {
                                 info!("Desktop shutdown request received");
                                 return Ok(());
                             }
+                            ApplicationEvent::ToolCall(_) | ApplicationEvent::CancelToolCall(_) => {
+                                unreachable!("the shell never calls tools");
+                            }
                             ApplicationEvent::Custom(event) => match event {},
                         }
                     }
                 }
-                DesktopEvent::InstanceSubmission(instance, submission) => {
-                    self.transact_and_persist(DesktopChange::IntegrateInstanceSubmission(
-                        instance, submission,
-                    ))?;
+                DesktopEvent::InstanceOutput(instance, output) => {
+                    self.integrate_instance_output(instance, output)?;
                 }
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
+                DesktopEvent::ToolRequest(request) => self.answer_tool_request(request)?,
             }
 
             finalize_desktop_frame(
@@ -310,8 +333,8 @@ impl Desktop {
                     error!("Shutdown deadline expired: unfinished instances {unfinished:?}");
                     bail!("Shutdown deadline expired");
                 }
-                Some((instance_id, submission)) = self.instance_submissions.recv() => {
-                    DesktopEvent::InstanceSubmission(instance_id, submission)
+                Some((instance_id, output)) = self.instance_outputs.recv() => {
+                    DesktopEvent::InstanceOutput(instance_id, output)
                 }
                 instance = self.instance_manager.join_next() => {
                     let (instance_id, instance_result) = instance?;
@@ -321,15 +344,13 @@ impl Desktop {
 
             let frame = begin_frame();
             match event {
-                DesktopEvent::InstanceSubmission(instance, submission) => {
-                    self.transact_and_persist(DesktopChange::IntegrateInstanceSubmission(
-                        instance, submission,
-                    ))?;
+                DesktopEvent::InstanceOutput(instance, output) => {
+                    self.integrate_instance_output(instance, output)?;
                 }
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
-                DesktopEvent::ApplicationEvents(_) => unreachable!(),
+                DesktopEvent::ApplicationEvents(_) | DesktopEvent::ToolRequest(_) => unreachable!(),
             }
 
             finalize_desktop_frame(
@@ -351,8 +372,8 @@ impl Desktop {
         (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
     ) -> Result<()> {
         info!(
-            "Instance ended (submissions pending: {}): {instance_id:?}",
-            self.instance_submissions.len()
+            "Instance ended (outputs pending: {}): {instance_id:?}",
+            self.instance_outputs.len()
         );
 
         if self.system.is_present(&instance_id) {
@@ -369,13 +390,48 @@ impl Desktop {
             log::warn!("Instance returned error: {e}");
         }
 
-        // Drain final submissions into this frame before deciding that the desktop is finished.
-        while let Ok((instance, submission)) = self.instance_submissions.try_recv() {
-            self.transact_and_persist(DesktopChange::IntegrateInstanceSubmission(
-                instance, submission,
-            ))?;
+        // Drain final outputs into this frame before deciding that the desktop is finished.
+        while let Ok((instance, output)) = self.instance_outputs.try_recv() {
+            self.integrate_instance_output(instance, output)?;
         }
+        self.tool_host.instance_ended(instance_id);
 
+        Ok(())
+    }
+
+    /// Integrates a submission into the desktop, or hands a tool call's answer to the tool host.
+    fn integrate_instance_output(
+        &mut self,
+        instance: InstanceId,
+        output: InstanceOutput,
+    ) -> Result<()> {
+        match output {
+            InstanceOutput::Submission(submission) => self.transact_and_persist(
+                DesktopChange::IntegrateInstanceSubmission(instance, submission),
+            ),
+            InstanceOutput::ToolResult { call_id, outcome } => {
+                self.tool_host.tool_result(instance, call_id, outcome);
+                Ok(())
+            }
+        }
+    }
+
+    /// Answers a tool connection's request (ADR 0036). A command that a tool call issues is carried
+    /// out like a key press, and the call is answered once it is, or with the planner's refusal.
+    fn answer_tool_request(&mut self, request: ToolRequest) -> Result<()> {
+        let Some(IssuedCommand { command, done }) =
+            self.tool_host
+                .answer(request, &self.system, &self.instance_manager)
+        else {
+            return Ok(());
+        };
+        match self.system.plan_or_refuse(command)? {
+            Planned::Changes(changes) => {
+                self.transact_and_persist(changes)?;
+                done.answer();
+            }
+            Planned::Refused(refusal) => done.refuse(refusal),
+        }
         Ok(())
     }
 
@@ -391,6 +447,9 @@ impl Desktop {
                 DesktopSystemEffect::PersistConfiguration => self
                     .configuration_persistence
                     .persist(self.system.configuration()),
+                DesktopSystemEffect::McpRootsChanged(changed) => self
+                    .tool_host
+                    .mcp_roots_changed(&changed, &self.instance_manager),
             }
         }
         Ok(())
@@ -405,9 +464,7 @@ impl Desktop {
 fn load_configuration(
     env: &DesktopEnvironment,
 ) -> Result<(ConfigurationPersistence, RuntimeConfiguration)> {
-    let projects_dir = env
-        .projects_dir()
-        .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
+    let projects_dir = projects_dir(env)?;
     let configuration_path = projects_dir.join(persistence::CONFIG_FILE_NAME);
     if !configuration_path.exists() {
         log::info!(
@@ -458,4 +515,11 @@ struct WindowContext<'a> {
     window: &'a ShellWindow,
     presentation_state: &'a mut WindowPresentationState,
     renderer: &'a mut AsyncWindowRenderer,
+}
+
+/// The projects directory, usually `~/.massive`, which holds the configuration and the desktop
+/// socket's run directory.
+fn projects_dir(env: &DesktopEnvironment) -> Result<PathBuf> {
+    env.projects_dir()
+        .context("Could not resolve the projects directory (no home directory?)")
 }

@@ -11,6 +11,9 @@ pub enum DesktopEffect {
     /// Refreshes the shared column counts after configuration changes edited the project's slots,
     /// or drops the counts of a project they removed (ADR 0035).
     RefreshColumnCount(ProjectId),
+    /// Refreshes the MCP indicators of the project and everything below it, after configuration
+    /// changes may have changed them (ADR 0036).
+    RefreshMcpIndicators(ProjectId),
     Measure(DesktopTarget),
     Place(DesktopTarget),
     /// Converts the on-screen position of a target that moved to a new parent into that parent's
@@ -26,6 +29,7 @@ enum DesktopEffectPhase {
     /// Every count is final before a matrix measures, because layout reads it.
     #[default]
     ColumnCounts,
+    McpIndicators,
     Layout,
     PropagatePlacements,
 }
@@ -34,6 +38,8 @@ impl DesktopEffect {
     const fn phase(&self) -> DesktopEffectPhase {
         match self {
             Self::RefreshColumnCount(_) => DesktopEffectPhase::ColumnCounts,
+            // Indicators change colors and header text, and a changed header text is measured.
+            Self::RefreshMcpIndicators(_) => DesktopEffectPhase::McpIndicators,
             Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
             // Both run after all placement is done. A `Reparent` needs the new parent's placement,
             // and that parent may have been created in the same transaction.

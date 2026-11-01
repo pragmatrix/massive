@@ -94,7 +94,7 @@ impl OrderedHierarchy<DesktopTarget> {
     }
 
     /// Whether an instance runs anywhere below `target`, at any depth. Removing slot content would
-    /// quit those instances, so the removal key checks this first.
+    /// quit those instances, so the planner refuses the removal while any run.
     pub fn has_instances_below(&self, target: &DesktopTarget) -> bool {
         let mut pending = vec![target];
         while let Some(current) = pending.pop() {

@@ -39,6 +39,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
             root: Some(InstanceRoot::new()),
             parameters: Default::default(),
             kind: InstanceKind::Primary,
+            focus: FocusIntent::Follow,
         })?;
         let mut submission_changes = massive_util::ChangeSet::default();
         submission_changes.push(InstanceChange::CreateView(
@@ -104,6 +105,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
             root: Some(InstanceRoot::new()),
             parameters: Default::default(),
             kind: InstanceKind::Primary,
+            focus: FocusIntent::Follow,
         })?;
         let mut submission_b = massive_util::ChangeSet::default();
         submission_b.push(InstanceChange::CreateView(
@@ -315,6 +317,7 @@ async fn a_new_base_instance_in_a_fullscreen_launcher_frames_fullscreen_from_its
             root: None,
             parameters: Default::default(),
             kind: InstanceKind::Primary,
+            focus: FocusIntent::Follow,
         })?;
         let seed = start
             .iter()

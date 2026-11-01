@@ -11,11 +11,10 @@ use massive_scene::prelude::*;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, KeyContext, KeyFocus, KeyHandler, KeyInput, KeyOutcome,
-    LayoutContext, ProjectPart, SelectionOperation, Shortcut, TargetLayout,
+    LayoutContext, McpActivation, ProjectPart, SelectionOperation, Shortcut, TargetLayout,
     expand_cross_axis_child_sizes, expand_main_axis_child_size, measure_container,
     place_container_children,
 };
-use crate::policy::colors;
 use crate::policy::constants::project;
 use crate::projects::{ProjectId, SlotPosition};
 
@@ -36,18 +35,23 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
-    pub fn new(id: ProjectId, name: String, parent_location: Handle<Location>) -> Self {
+    pub fn new(
+        id: ProjectId,
+        header_text: &str,
+        mcp_activation: McpActivation,
+        parent_location: Handle<Location>,
+    ) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let mut header = TitleBarPresenter::new(
             TitleBarStyle {
-                background_color: colors::project::HEADER_BACKGROUND,
+                background_color: mcp_activation.project_header_background(),
                 font_size: project::HEADER_FONT_SIZE,
                 indent: 0.0,
             },
             location.clone(),
         );
-        header.set_text(&name);
+        header.set_text(header_text);
         let matrix = ProjectMatrixPresenter::new(location.clone());
         let movement = movement(SlotLayout::default(), move |layout, progress| {
             if let Some(layout) = layout.proceed_with(progress) {
@@ -64,6 +68,13 @@ impl ProjectPresenter {
             matrix,
             last_focused_slot: None,
         }
+    }
+
+    /// Shows a changed header text or MCP activation (ADR 0036).
+    pub fn set_header(&mut self, text: &str, mcp_activation: McpActivation) {
+        self.header.set_text(text);
+        self.header
+            .set_background_color(mcp_activation.project_header_background());
     }
 
     pub fn set_parent_location(&self, parent: &Handle<Location>) {

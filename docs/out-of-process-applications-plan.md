@@ -253,10 +253,12 @@ Consequences:
     directory. Same-user processes are trusted.
   - An attaching application registers its name in the handshake.
 - **Discovery.**
-  - The desktop sets `MASSIVE_SOCKET` (socket path) and `MASSIVE_ORIGIN` (an opaque
-    token naming the instance whose process tree this is) in every process it
-    spawns. `mt` passes both through to its shell, so anything started from a
-    terminal inside the desktop connects to that desktop.
+  - The desktop sets `MASSIVE_SOCKET` (socket path) and `MASSIVE_INSTANCE` (the id of
+    the instance whose process tree this is) in every process it spawns. `mt` passes
+    both through to its shell, so anything started from a terminal inside the desktop
+    connects to that desktop. ADR 0036 introduces both, together with the desktop
+    socket and the `Connect` enum of `massive-protocol`, whose first frame names the
+    protocol. The protocols of this plan arrive as another `Connect` variant.
   - Without `MASSIVE_SOCKET`, the client falls back to the well-known per-user
     socket and arrives without an origin.
 - **Placement of live-embedded instances.**
@@ -310,7 +312,7 @@ Each phase can ship and be measured on its own.
    go/no-go decisions follow:
    - a shared-memory ring for bulk payloads;
    - desktop-side animation interpolation, as a separate plan if needed.
-6. **Discovery and live embedding.** `MASSIVE_SOCKET` / `MASSIVE_ORIGIN`
+6. **Discovery and live embedding.** `MASSIVE_SOCKET` / `MASSIVE_INSTANCE`
    propagation, the placement rule, and standalone-or-fail per binary.
 
 ## Validation
