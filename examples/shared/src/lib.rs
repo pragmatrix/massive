@@ -6,6 +6,7 @@ pub mod attributed_text;
 pub mod fonts;
 pub mod gesture_transform;
 pub mod positioning;
+pub mod view_center;
 
 // Even though not used, this is left here for reference.
 //

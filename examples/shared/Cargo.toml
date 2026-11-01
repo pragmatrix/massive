@@ -16,6 +16,7 @@ log = { workspace = true }
 
 massive-applications = { workspace = true }
 massive-geometry = { workspace = true }
+massive-scene = { workspace = true }
 massive-shapes = { workspace = true }
 massive-shell = { workspace = true }
 
