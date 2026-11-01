@@ -239,7 +239,7 @@ enum WinitApplicationHandler {
         // ADR: Option because we need to move it out.
         // Robustness: use a replace_with variant, so that we don't need an `Option` here.
         application: Option<Application>,
-        /// The policy the shell builds the application task's manager from (ADR 0005).
+        /// The policy the shell builds the instance task's font manager from (ADR 0005).
         font_policy: FontPolicy,
     },
     Running {

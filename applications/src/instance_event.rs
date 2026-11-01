@@ -8,13 +8,16 @@ use crate::{
     InstanceId, PresentationId, PresentationTick, ToolCall, ToolCallId, ViewEvent, ViewId,
 };
 
+/// An event an instance receives from
+/// [`InstanceContext::wait_for_events`](crate::InstanceContext::wait_for_events). Next to what its
+/// host sends, it carries the completion events of the instance's movements, of type `T`.
 #[derive(Debug, Clone)]
 pub enum InstanceEvent<T> {
     View(ViewId, ViewEvent),
     ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
-    /// Only instances receive tool calls (ADR 0036). The shell never sends them to its application.
+    /// Only the desktop sends tool calls (ADR 0036). An instance under the shell never receives one.
     ToolCall(ToolCall),
     /// The agent cancelled the call, or its tool connection closed. An instance gets at most one
     /// cancel per call, and it may still answer.
@@ -22,6 +25,7 @@ pub enum InstanceEvent<T> {
     Custom(T),
 }
 
+/// What a host sends to an instance. `wait_for_events` turns it into an [`InstanceEvent`].
 #[derive(Debug, Clone)]
 pub enum InstanceMessage {
     View(ViewId, ViewEvent),

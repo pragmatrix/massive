@@ -69,7 +69,7 @@ async fn syntax(mut ctx: InstanceContext) -> Result<()> {
     let line_height = 40.;
 
     // The handle is `!Send` and is dropped at the end of this block, before any await, so the
-    // example's future stays `Send` for the shell.
+    // example's future stays `Send` for `Application::new`.
     let (glyph_runs, height) = {
         let mut shaper = shaper();
         attributed_text::shape_text(

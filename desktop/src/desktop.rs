@@ -79,7 +79,8 @@ impl Desktop {
         let boot_parameters = configuration[boot_launcher].params.clone();
 
         // The desktop task's change queue: installed by the shell's task context for an instance
-        // that draws its own windows (ADR 0008). Presenters submit their handles through the ambient accessors.
+        // that draws its own windows (ADR 0008). Presenters submit their handles through the
+        // ambient accessors.
 
         let (outputs_tx, mut outputs_rx) = unbounded_channel();
         let socket_path = desktop_socket_path(&projects_dir(&env)?);

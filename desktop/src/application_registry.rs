@@ -13,8 +13,9 @@ impl ApplicationRegistry {
     /// Registers the applications the desktop can run.
     ///
     /// Fails when two applications share a name or an MCP id, when one uses the desktop's MCP id
-    /// (ADR 0036), or when one draws its own windows, which only the shell can host. The applications come from the client's crate, such as mt's, so a mistake in them
-    /// is the client's, and startup reports it as an error the client can show.
+    /// (ADR 0036), or when one draws its own windows, which only the shell can host. The
+    /// applications come from the client's crate, such as mt's, so a mistake in them is the
+    /// client's, and startup reports it as an error the client can show.
     pub fn new(applications: Vec<Application>) -> Result<Self> {
         let mut providers = HashMap::new();
         for application in &applications {

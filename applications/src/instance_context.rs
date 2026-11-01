@@ -257,8 +257,8 @@ impl InstanceContext {
         if change_count == 0 && pacing == *last_submitted_pacing {
             return Ok(());
         }
-        // Recording the pacing before the send changes nothing, because a failed send ends the
-        // instance.
+        // The pacing is recorded before the send. A failed send ends the instance, so a stale
+        // record is never read.
         *last_submitted_pacing = pacing;
 
         trace!(
@@ -274,7 +274,7 @@ impl InstanceContext {
     fn send(&self, output: InstanceOutput) -> Result<()> {
         if let Err(e) = self.environment.output_sender.send((self.id, output)) {
             bail!(
-                "Failed to send instance output because the desktop's receiver is closed: instance={:?}, err: {e:?}",
+                "Failed to send instance output because the host's receiver is closed: instance={:?}, err: {e:?}",
                 self.id
             );
         }
