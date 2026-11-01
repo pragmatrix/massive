@@ -15,14 +15,12 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    ApplicationMessage, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment,
-    InstanceId, ViewEvent, ViewId,
+    Application, ApplicationMessage, CreationMode, InstanceChange, InstanceContext,
+    InstanceEnvironment, InstanceId, RuntimeKind, ViewEvent, ViewId,
 };
 use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
 use massive_shell::Result;
-
-use crate::application_registry::{Application, RuntimeKind};
 
 /// Prefix for the OS thread name of each instance thread; the [`InstanceId`] follows
 /// its debug form.
@@ -80,8 +78,8 @@ impl InstanceManager {
         let environment = self.environment.clone();
         let instance_context =
             InstanceContext::new(instance_id, creation_mode, environment, root, events_rx);
-        let instance_future = (application.run)(instance_context);
-        let runtime_kind = application.runtime_kind;
+        let instance_future = application.run(instance_context);
+        let runtime_kind = application.runtime_kind();
         // Own coordinator per instance: a timestamp from one instance must not affect another's
         // animations when instances run in parallel. The shaping context is a fresh scratch over
         // the manager the task context reaches, so instances shape in parallel on their own
@@ -108,7 +106,7 @@ impl InstanceManager {
         self.instances.insert(
             instance_id,
             RunningInstance {
-                application_name: application.name.clone(),
+                application_name: application.name().to_owned(),
                 events_tx,
             },
         );

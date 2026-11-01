@@ -166,7 +166,7 @@ mod tests {
     use massive_applications::{AccessScope, McpId, ToolDeclaration, mcp_id};
 
     use super::*;
-    use crate::Application;
+    use massive_applications::Application;
 
     #[derive(schemars::JsonSchema)]
     struct NoParams {}

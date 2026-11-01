@@ -73,7 +73,9 @@ fn nested_siblings() -> Result<NestedSiblings> {
 }
 
 /// The nested siblings of [`nested_siblings`], with `applications` registered.
-fn nested_siblings_with(applications: Vec<crate::Application>) -> Result<NestedSiblings> {
+fn nested_siblings_with(
+    applications: Vec<massive_applications::Application>,
+) -> Result<NestedSiblings> {
     let (mut system, receiver) = system_with_applications(NESTED_SIBLINGS_CONFIG, applications);
     let mut instance_manager = instance_manager(&receiver);
     for command in crate::projects::to_commands(&system.aggregates.configuration) {
@@ -173,7 +175,7 @@ fn system_from(
 /// runs the primary application `terminal`.
 fn system_with_applications(
     config: &str,
-    applications: Vec<crate::Application>,
+    applications: Vec<massive_applications::Application>,
 ) -> (
     DesktopSystem,
     UnboundedReceiver<(InstanceId, InstanceOutput)>,

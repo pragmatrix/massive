@@ -6,7 +6,9 @@ use log::error;
 use massive_shell::{ApplicationContext, Result};
 
 use crate::tools::ToolCatalog;
-use crate::{Application, application_registry::ApplicationRegistry, desktop::Desktop};
+use massive_applications::Application;
+
+use crate::{application_registry::ApplicationRegistry, desktop::Desktop};
 
 #[derive(Debug)]
 pub struct DesktopEnvironment {
@@ -31,7 +33,7 @@ impl DesktopEnvironment {
         let Some(primary) = applications.first() else {
             bail!("the desktop needs at least one application, the primary one");
         };
-        let primary_application = primary.name.clone();
+        let primary_application = primary.name().to_owned();
         let applications = ApplicationRegistry::new(applications)?;
         Ok(Self {
             primary_application,

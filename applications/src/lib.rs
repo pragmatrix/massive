@@ -4,6 +4,7 @@ use derive_more::{Display, From};
 use uuid::Uuid;
 
 mod ambient;
+mod application;
 mod application_event;
 mod frame;
 mod instance_context;
@@ -19,6 +20,7 @@ mod view_builder;
 mod view_event;
 
 pub use ambient::*;
+pub use application::*;
 pub use application_event::*;
 pub use frame::*;
 pub use instance_context::*;

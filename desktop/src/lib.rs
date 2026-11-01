@@ -19,7 +19,6 @@ mod view_presenter;
 mod window_state;
 
 pub use aggregates::*;
-pub use application_registry::{Application, RuntimeKind};
 pub use desktop::Desktop;
 pub use desktop_environment::*;
 pub use desktop_system::DesktopTarget;

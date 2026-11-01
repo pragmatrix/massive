@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 
 use massive_applications::{
-    AccessScope, ApplicationEvent, CreationMode, McpId, ToolCallId, ToolDeclaration, mcp_id,
+    AccessScope, Application, ApplicationEvent, CreationMode, McpId, ToolCallId, ToolDeclaration,
+    mcp_id,
 };
 use massive_protocol::Frames;
 use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage, ToolOutcome};
@@ -15,7 +16,6 @@ use tempfile::TempDir;
 use super::tools::configure_mcp;
 use super::tools::tool_client::{connect, receive, send};
 use super::*;
-use crate::Application;
 use crate::tools::ToolHost;
 
 /// A call of an application's tool reaches the instance its `instance_id` names, without that

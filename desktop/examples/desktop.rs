@@ -1,8 +1,8 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use massive_applications::InstanceContext;
-use massive_desktop::{Application, DesktopEnvironment, FontPolicy, ShapingEngineKind};
+use massive_applications::{Application, InstanceContext};
+use massive_desktop::{DesktopEnvironment, FontPolicy, ShapingEngineKind};
 use massive_shell::{ApplicationContext, shell};
 
 #[tokio::main]
