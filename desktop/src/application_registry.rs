@@ -69,7 +69,7 @@ mod tests {
     use super::*;
 
     fn application(name: &str, mcp_id: McpId) -> Application {
-        Application::new(name, |_| async { Ok(()) }).with_mcp_id(mcp_id, Vec::new())
+        Application::new(name, |_| async { Ok(()) }).with_tools(mcp_id, Vec::new())
     }
 
     #[test]

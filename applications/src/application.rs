@@ -104,7 +104,7 @@ impl Application {
 
     /// Declares the MCP tools that agents may call on this application's instances (ADR 0036). The
     /// desktop joins `mcp_id` with each tool's own MCP id into the tool's name.
-    pub fn with_mcp_id(mut self, mcp_id: McpId, declarations: Vec<ToolDeclaration>) -> Self {
+    pub fn with_tools(mut self, mcp_id: McpId, declarations: Vec<ToolDeclaration>) -> Self {
         self.tools = Some(ApplicationTools {
             mcp_id,
             declarations,

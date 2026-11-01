@@ -177,7 +177,7 @@ mod tests {
         let colliding =
             ToolDeclaration::new::<NoParams, NoParams>(mcp_id!("slot"), AccessScope::Read, "");
         let application =
-            Application::new("a", |_| async { Ok(()) }).with_mcp_id(PROVIDER, vec![colliding]);
+            Application::new("a", |_| async { Ok(()) }).with_tools(PROVIDER, vec![colliding]);
         let applications = ApplicationRegistry::new(vec![application]).unwrap();
         let error = ToolCatalog::new(&applications).unwrap_err();
         assert_eq!(
@@ -199,7 +199,7 @@ mod tests {
         let declaration =
             ToolDeclaration::new::<Params, NoParams>(mcp_id!("say"), AccessScope::Read, "");
         let application =
-            Application::new("a", |_| async { Ok(()) }).with_mcp_id(PROVIDER, vec![declaration]);
+            Application::new("a", |_| async { Ok(()) }).with_tools(PROVIDER, vec![declaration]);
         let applications = ApplicationRegistry::new(vec![application]).unwrap();
         let error = ToolCatalog::new(&applications).unwrap_err();
         assert!(
@@ -218,7 +218,7 @@ mod tests {
             "",
         );
         let application =
-            Application::new("a", |_| async { Ok(()) }).with_mcp_id(PROVIDER, vec![declaration]);
+            Application::new("a", |_| async { Ok(()) }).with_tools(PROVIDER, vec![declaration]);
         let applications = ApplicationRegistry::new(vec![application]).unwrap();
         let error = ToolCatalog::new(&applications).unwrap_err();
         assert!(error.to_string().contains("longer than 48"), "{error}");
@@ -232,7 +232,7 @@ mod tests {
         let declaration =
             ToolDeclaration::new::<NoParams, String>(mcp_id!("say"), AccessScope::Read, "");
         let application =
-            Application::new("a", |_| async { Ok(()) }).with_mcp_id(PROVIDER, vec![declaration]);
+            Application::new("a", |_| async { Ok(()) }).with_tools(PROVIDER, vec![declaration]);
         let applications = ApplicationRegistry::new(vec![application]).unwrap();
         let error = ToolCatalog::new(&applications).unwrap_err();
         assert!(error.to_string().contains("is not a struct"), "{error}");

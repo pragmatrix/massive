@@ -302,7 +302,7 @@ fn echo_application() -> Application {
             }
         }
     })
-    .with_mcp_id(
+    .with_tools(
         ECHO,
         vec![ToolDeclaration::new::<EchoParams, Echo>(
             mcp_id!("say"),
