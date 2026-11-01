@@ -164,7 +164,9 @@ desktop cannot decode a newer variant and closes the connection.
 **Frames are length-prefixed postcard.** Every frame is a 4-byte big-endian length followed by the
 postcard encoding of one message. A frame may be at most 1 MiB in either direction, which is the
 protocol's only size limit. A tool's arguments and its result travel as JSON text inside the
-messages, so tools can change without a new version of the protocol. Error codes travel as names, so a
+messages, so tools can change without a new version of the protocol. JSON is text only on the wire.
+The connection on each side parses the arguments when a call arrives and encodes the result when it
+leaves, and everything in between handles JSON values. Error codes travel as names, so a
 new error code needs no new version either. Access scopes never travel. The desktop checks them,
 and the tool list contains only the tools they grant.
 
@@ -237,9 +239,10 @@ same JSON as text, as the MCP specification recommends. A provider fails a call 
 code, which the API turns into a tool result with MCP's `isError` set and the text
 `<code>: <sentence>`. A provider never handles JSON itself.
 
-**Each provider decodes its own tools' arguments.** The desktop decodes the arguments of its own
-tools in the tool host. For an application tool, the tool host reads only `instance_id`,
-removes it from the arguments, checks the call, and forwards the rest. The application side of the
+**Each provider decodes its own tools' arguments.** The tool host's connection parses a call's
+arguments into a JSON object once. The desktop decodes the arguments of its own tools from that
+object. For an application tool, the tool host reads only `instance_id`, removes it from the
+object, checks the call, and forwards the rest. The application side of the
 tool API decodes them inside the instance, today in the desktop's process and later in the
 out-of-process client library. Every argument is therefore decoded once, by the code that owns it.
 

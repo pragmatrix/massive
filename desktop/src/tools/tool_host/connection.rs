@@ -5,11 +5,13 @@ use log::{debug, warn};
 
 use futures::stream::FuturesUnordered;
 use futures::{SinkExt, StreamExt};
+use serde_json::Value;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio_util::bytes::{Bytes, BytesMut};
 
+use massive_applications::{ToolArguments, ToolError, ToolErrorCode};
 use massive_protocol::tools::v1::{
     self, ClientMessage, ConnectReply, HostMessage, ToolDescription, ToolOutcome,
 };
@@ -86,15 +88,22 @@ async fn serve_calls(
                 };
                 match decode(&frame?)? {
                     ClientMessage::CallTool { call_id, tool, arguments } => {
-                        let (reply, outcome) = oneshot::channel();
-                        requests.send(ToolRequest::CallTool {
-                            binding,
-                            call_id,
-                            tool,
-                            arguments,
-                            reply,
-                        })?;
-                        pending.push(async move { (call_id, outcome.await) });
+                        match parse_arguments(&arguments) {
+                            Ok(arguments) => {
+                                let (reply, outcome) = oneshot::channel();
+                                requests.send(ToolRequest::CallTool {
+                                    binding,
+                                    call_id,
+                                    tool,
+                                    arguments,
+                                    reply,
+                                })?;
+                                pending.push(async move { (call_id, outcome.await) });
+                            }
+                            Err(error) => {
+                                frames.send(Bytes::from(result_frame(call_id, Err(error))?)).await?;
+                            }
+                        }
                     }
                     ClientMessage::CancelTool { call_id } => {
                         requests.send(ToolRequest::CancelTool { binding, call_id })?;
@@ -102,10 +111,10 @@ async fn serve_calls(
                 }
             }
             Some((call_id, outcome)) = pending.next() => {
-                let outcome = outcome.unwrap_or_else(|_| ToolOutcome::Err {
-                    code: v1::CONNECTION_CLOSED.into(),
+                let outcome = outcome.unwrap_or_else(|_| Err(ToolError {
+                    code: ToolErrorCode::ConnectionClosed,
                     message: "The desktop ended the call.".into(),
-                });
+                }));
                 frames.send(Bytes::from(result_frame(call_id, outcome)?)).await?;
             }
             reason = &mut closing => {
@@ -119,9 +128,26 @@ async fn serve_calls(
     }
 }
 
-/// The frame that carries a call's result. A result too large for one frame fails only its call,
-/// because the codec would refuse to write it and end the connection.
-fn result_frame(call_id: u64, outcome: ToolOutcome) -> Result<Vec<u8>> {
+/// Parses a call's arguments, which the wire carries as text. serde_json keeps its default nesting
+/// limit, so deeply nested arguments fail instead of exhausting the stack.
+fn parse_arguments(arguments: &str) -> Result<ToolArguments, ToolError> {
+    serde_json::from_str(arguments).map_err(|error| ToolError {
+        code: ToolErrorCode::InvalidArgument,
+        message: format!("The arguments are no JSON object: {error}."),
+    })
+}
+
+/// The frame that carries a call's result, encoded as text for the wire. A result too large for
+/// one frame fails only its call, because the codec would refuse to write it and end the
+/// connection.
+fn result_frame(call_id: u64, outcome: Result<Value, ToolError>) -> Result<Vec<u8>> {
+    let outcome = match outcome {
+        Ok(result) => ToolOutcome::Ok(result.to_string()),
+        Err(ToolError { code, message }) => ToolOutcome::Err {
+            code: code.name().into(),
+            message,
+        },
+    };
     let frame = encode(&HostMessage::ToolResult { call_id, outcome })?;
     if frame.len() <= MAX_FRAME_LENGTH {
         return Ok(frame);
@@ -144,4 +170,20 @@ async fn next_frame(frames: &mut Frames) -> Result<BytesMut> {
 async fn send(frames: &mut Frames, message: &impl serde::Serialize) -> Result<()> {
     frames.send(Bytes::from(encode(message)?)).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool client controls the arguments, so no text may panic or exhaust the stack. Only a JSON
+    /// object is arguments.
+    #[test]
+    fn arguments_that_are_no_json_object_fail_with_invalid_argument() {
+        let deeply_nested = format!(r#"{{"x":{}}}"#, "[".repeat(100_000));
+        for arguments in ["", "not json", "[]", "1", &deeply_nested] {
+            let error = parse_arguments(arguments).expect_err(arguments);
+            assert_eq!(error.code, ToolErrorCode::InvalidArgument);
+        }
+    }
 }

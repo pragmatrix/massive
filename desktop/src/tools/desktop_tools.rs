@@ -7,14 +7,14 @@ mod schema;
 use std::sync::LazyLock;
 
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use massive_applications::{
-    AccessScope, AccessScopes, InstanceId, McpId, ToolDeclaration, ToolError, ToolErrorCode,
-    ToolName, ToolResultJson, decode_arguments, encode_result, tool_name,
+    AccessScope, AccessScopes, InstanceId, McpId, ToolArguments, ToolDeclaration, ToolError,
+    ToolErrorCode, ToolName, decode_arguments, encode_result, tool_name,
 };
 use massive_protocol::Target;
-use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
+use massive_protocol::tools::v1::ToolDescription;
 
 use self::schema::*;
 use super::{ApplicationTool, ToolCatalog};
@@ -43,12 +43,12 @@ pub struct ToolConnectionRoot {
 #[derive(Debug)]
 pub enum ToolCallPlan {
     /// The call is answered from the desktop's state.
-    Answer(ToolOutcome),
+    Answer(Result<Value, ToolError>),
     /// The desktop loop issues `command` like a key press would, and then answers the call with
     /// `result`.
     Issue {
         command: DesktopCommand,
-        result: ToolResultJson,
+        result: Value,
     },
 }
 
@@ -58,7 +58,7 @@ pub enum ToolCallPlan {
 pub struct InstanceCall {
     pub instance: InstanceId,
     pub tool: ToolName,
-    pub arguments: String,
+    pub arguments: ToolArguments,
 }
 
 /// The desktop's tools over the desktop state they read. The desktop system plans and carries out
@@ -94,14 +94,9 @@ impl<'a> DesktopTools<'a> {
 
     /// Plans a call of the tool named `tool` on the MCP root `root`. Every id and slot the call
     /// names is checked before anything happens.
-    pub fn call(&self, root: ProjectId, tool: &str, arguments: &str) -> ToolCallPlan {
-        match self.try_call_tool(root, tool, arguments) {
-            Ok(plan) => plan,
-            Err(ToolError { code, message }) => ToolCallPlan::Answer(ToolOutcome::Err {
-                code: code.name().into(),
-                message,
-            }),
-        }
+    pub fn call(&self, root: ProjectId, tool: &str, arguments: &ToolArguments) -> ToolCallPlan {
+        self.try_call_tool(root, tool, arguments)
+            .unwrap_or_else(|error| ToolCallPlan::Answer(Err(error)))
     }
 
     /// Checks a call of an application's tool on the MCP root `root`. The call may reach the
@@ -111,10 +106,9 @@ impl<'a> DesktopTools<'a> {
         &self,
         root: ProjectId,
         tool: &ApplicationTool,
-        arguments: &str,
+        mut arguments: ToolArguments,
     ) -> Result<InstanceCall, ToolError> {
         self.allow_scope(root, tool.access_scope, "the tool needs it")?;
-        let mut arguments: Map<String, Value> = decode_arguments(arguments)?;
         let Some(Value::String(instance_id)) = arguments.remove("instance_id") else {
             return Err(invalid_argument(
                 "The argument 'instance_id' names the instance to call.",
@@ -127,7 +121,7 @@ impl<'a> DesktopTools<'a> {
             ForwardingCall::Forward => Ok(InstanceCall {
                 instance,
                 tool: tool.name,
-                arguments: Value::Object(arguments).to_string(),
+                arguments,
             }),
             ForwardingCall::RefuseOtherApplication => Err(invalid_argument(&format!(
                 "The instance '{instance_id}' does not provide the tool '{}'.",
@@ -140,7 +134,7 @@ impl<'a> DesktopTools<'a> {
         &self,
         root: ProjectId,
         tool: &str,
-        arguments: &str,
+        arguments: &ToolArguments,
     ) -> Result<ToolCallPlan, ToolError> {
         let Some((desktop_tool, declaration)) = DESKTOP_TOOLS
             .iter()
@@ -156,7 +150,7 @@ impl<'a> DesktopTools<'a> {
             DesktopTool::Describe => {
                 let DescribeParams {} = decode_arguments(arguments)?;
                 let description = encode_result(&self.describe_project(root));
-                Ok(ToolCallPlan::Answer(ToolOutcome::Ok(description.into())))
+                Ok(ToolCallPlan::Answer(Ok(description)))
             }
             DesktopTool::AssignSlot => self.assign_slot(root, decode_arguments(arguments)?),
             DesktopTool::ClearSlot => self.clear_slot(root, decode_arguments(arguments)?),

@@ -5,10 +5,11 @@
 
 use std::fmt;
 
-use derive_more::{From, Into};
+use derive_more::From;
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
 
 use crate::AccessScope;
 
@@ -161,12 +162,12 @@ macro_rules! mcp_id {
 pub struct ToolCall {
     pub id: ToolCallId,
     pub tool: ToolName,
-    arguments: String,
+    arguments: ToolArguments,
 }
 
 impl ToolCall {
-    /// `arguments` is a JSON object as text, without the `instance_id` that routed the call.
-    pub fn new(id: ToolCallId, tool: ToolName, arguments: String) -> Self {
+    /// `arguments` no longer contain the `instance_id` that routed the call.
+    pub fn new(id: ToolCallId, tool: ToolName, arguments: ToolArguments) -> Self {
         Self {
             id,
             tool,
@@ -184,25 +185,24 @@ impl ToolCall {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct ToolCallId(u64);
 
-/// Decodes a tool call's arguments into the tool's parameter type. serde_json keeps its default
-/// nesting limit, so deeply nested arguments fail instead of exhausting the stack.
-pub fn decode_arguments<Params: DeserializeOwned>(arguments: &str) -> Result<Params, ToolError> {
-    serde_json::from_str(arguments).map_err(|error| ToolError {
+/// A tool call's arguments, a JSON object. They are text only on the wire, and the tool protocol's
+/// connections parse them, within serde_json's nesting limit.
+pub type ToolArguments = Map<String, Value>;
+
+/// Decodes a tool call's arguments into the tool's parameter type.
+pub fn decode_arguments<Params: DeserializeOwned>(
+    arguments: &ToolArguments,
+) -> Result<Params, ToolError> {
+    Params::deserialize(arguments).map_err(|error| ToolError {
         code: ToolErrorCode::InvalidArgument,
         message: format!("The arguments do not match the tool's input schema: {error}."),
     })
 }
 
-/// Encodes a tool's result as JSON text.
-pub fn encode_result(output: &impl Serialize) -> ToolResultJson {
-    ToolResultJson(serde_json::to_string(output).expect("a tool result type serializes to JSON"))
+/// Encodes a tool's result as a JSON value.
+pub fn encode_result(output: &impl Serialize) -> Value {
+    serde_json::to_value(output).expect("a tool result type serializes to JSON")
 }
-
-/// A tool's result, encoded as JSON text. Tool results travel as text, because the tool protocol's
-/// binary encoding cannot hold free-form JSON. Only [`encode_result`] creates one, so the text is
-/// always valid JSON.
-#[derive(Debug, Clone, PartialEq, Eq, Into)]
-pub struct ToolResultJson(String);
 
 /// A failed tool call: an error code and a sentence for the agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,6 +221,9 @@ pub enum ToolErrorCode {
     InvalidArgument,
     /// The desktop refused the command, for example a move onto an assigned slot.
     Refused,
+    /// The tool connection ended before the call was answered, for example because the MCP root's
+    /// configuration changed.
+    ConnectionClosed,
 }
 
 impl ToolErrorCode {
@@ -230,6 +233,7 @@ impl ToolErrorCode {
             Self::ScopeNotGranted => "scope_not_granted",
             Self::InvalidArgument => "invalid_argument",
             Self::Refused => "refused",
+            Self::ConnectionClosed => "connection_closed",
         }
     }
 }
@@ -237,34 +241,5 @@ impl ToolErrorCode {
 impl fmt::Display for ToolErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde::Deserialize;
-
-    use super::*;
-
-    #[derive(Debug, Deserialize)]
-    struct Params {
-        #[expect(dead_code)]
-        text: String,
-    }
-
-    /// An agent controls the arguments, so no input may panic or exhaust the stack. Deep nesting
-    /// in an ignored field still recurses, and serde_json's nesting limit stops it.
-    #[test]
-    fn malformed_arguments_fail_with_invalid_argument() {
-        let deeply_nested = format!(r#"{{"text":"","x":{}}}"#, "[".repeat(100_000));
-        for arguments in ["", "not json", r#"{"text":1}"#, &deeply_nested] {
-            let call = ToolCall::new(
-                7.into(),
-                tool_name!(McpId::DESKTOP, "test"),
-                arguments.into(),
-            );
-            let error = call.decode::<Params>().expect_err(arguments);
-            assert_eq!(error.code, ToolErrorCode::InvalidArgument);
-        }
     }
 }

@@ -11,8 +11,8 @@ use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
 
 use crate::{
-    InstanceId, McpConfiguration, ToolCallId, ToolError, ToolResultJson, ViewChange,
-    ViewCreationInfo, ViewId, ViewRole,
+    InstanceId, McpConfiguration, ToolCallId, ToolError, ViewChange, ViewCreationInfo, ViewId,
+    ViewRole,
 };
 
 /// Shared instance configuration cloned into each spawned instance.
@@ -57,7 +57,7 @@ pub enum InstanceOutput {
     /// submissions, so an agent's next call sees everything the instance submitted before.
     ToolResult {
         call_id: ToolCallId,
-        outcome: Result<ToolResultJson, ToolError>,
+        outcome: Result<Value, ToolError>,
     },
 }
 

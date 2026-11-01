@@ -1,4 +1,6 @@
-use massive_applications::{AccessScope, McpConfiguration};
+use massive_applications::{
+    AccessScope, McpConfiguration, ToolArguments, ToolError, ToolErrorCode,
+};
 use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolOutcome;
 
@@ -79,10 +81,14 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
             Some(bound.root)
         );
 
-        let refused = DesktopTools::new(&system).call(bound.root, "desktop_describe", "{}");
+        let refused =
+            DesktopTools::new(&system).call(bound.root, "desktop_describe", &ToolArguments::new());
         assert!(matches!(
             refused,
-            ToolCallPlan::Answer(ToolOutcome::Err { code, .. }) if code == "scope_not_granted"
+            ToolCallPlan::Answer(Err(ToolError {
+                code: ToolErrorCode::ScopeNotGranted,
+                ..
+            }))
         ));
 
         configure_mcp(
@@ -91,11 +97,12 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
             "/labs-a",
             &[AccessScope::Observe],
         )?;
-        let ToolCallPlan::Answer(ToolOutcome::Ok(described)) =
-            DesktopTools::new(&system).call(bound.root, "desktop_describe", "{}")
+        let ToolCallPlan::Answer(Ok(described)) =
+            DesktopTools::new(&system).call(bound.root, "desktop_describe", &ToolArguments::new())
         else {
             panic!("observe allows describing");
         };
+        let described = described.to_string();
         assert!(described.contains("\"shell-a\""), "{described}");
         assert!(!described.contains("\"shell-b\""), "{described}");
 
@@ -282,7 +289,11 @@ async fn a_slot_tool_acts_only_inside_its_mcp_root() -> Result<()> {
                 },
                 "content": { "project": "added" }
             });
-            DesktopTools::new(system).call(labs_a, "desktop_assign_slot", &arguments.to_string())
+            DesktopTools::new(system).call(
+                labs_a,
+                "desktop_assign_slot",
+                &tool_arguments(arguments),
+            )
         };
 
         assert_eq!(
@@ -339,7 +350,7 @@ async fn clearing_a_slot_waits_until_its_instances_are_stopped() -> Result<()> {
                     "position": { "column": 0, "row": 0 }
                 }
             });
-            DesktopTools::new(system).call(labs_a, "desktop_clear_slot", &arguments.to_string())
+            DesktopTools::new(system).call(labs_a, "desktop_clear_slot", &tool_arguments(arguments))
         };
 
         assert_eq!(error_code(&system, clear_shell_a(&system)), "refused");
@@ -348,10 +359,7 @@ async fn clearing_a_slot_waits_until_its_instances_are_stopped() -> Result<()> {
             &mut instance_manager,
             DesktopCommand::StopInstance(instance_a),
         )?;
-        assert!(matches!(
-            outcome(&system, clear_shell_a(&system)),
-            ToolOutcome::Ok(_)
-        ));
+        assert!(outcome(&system, clear_shell_a(&system)).is_ok());
         Ok(())
     })
     .await
@@ -383,7 +391,7 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         let assign =
             serde_json::json!({ "slot": slot(labs_a, 1), "content": { "project": "inner" } });
         let ToolCallPlan::Issue { command, .. } =
-            DesktopTools::new(&system).call(labs_a, "desktop_assign_slot", &assign.to_string())
+            DesktopTools::new(&system).call(labs_a, "desktop_assign_slot", &tool_arguments(assign))
         else {
             panic!("assigning inside the MCP root issues a command");
         };
@@ -397,7 +405,7 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         };
         let move_slot = |system: &DesktopSystem, from, to| {
             let arguments = serde_json::json!({ "from": from, "to": to });
-            DesktopTools::new(system).call(labs_a, "desktop_move_slot", &arguments.to_string())
+            DesktopTools::new(system).call(labs_a, "desktop_move_slot", &tool_arguments(arguments))
         };
 
         let ToolCallPlan::Issue { command, .. } =
@@ -419,7 +427,7 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
         let ToolCallPlan::Issue { command, .. } = DesktopTools::new(&system).call(
             labs_a,
             "desktop_assign_slot",
-            &assign_nested.to_string(),
+            &tool_arguments(assign_nested),
         ) else {
             panic!("assigning inside the MCP root issues a command");
         };
@@ -501,7 +509,7 @@ async fn a_slot_tool_refuses_a_call_that_would_change_nothing() -> Result<()> {
             })
         };
         let call = |tool: &str, arguments: serde_json::Value| {
-            DesktopTools::new(&system).call(labs_a, tool, &arguments.to_string())
+            DesktopTools::new(&system).call(labs_a, tool, &tool_arguments(arguments))
         };
 
         let clear = call("desktop_clear_slot", serde_json::json!({ "slot": slot(1) }));
@@ -541,7 +549,11 @@ async fn creating_a_launcher_with_params_needs_act() -> Result<()> {
                 },
                 "content": { "launcher": launcher }
             });
-            DesktopTools::new(&system).call(labs_a, "desktop_assign_slot", &arguments.to_string())
+            DesktopTools::new(&system).call(
+                labs_a,
+                "desktop_assign_slot",
+                &tool_arguments(arguments),
+            )
         };
 
         let with_params = assign_launcher(serde_json::json!({
@@ -628,7 +640,7 @@ async fn a_slot_tool_refuses_to_nest_projects_beyond_the_limit() -> Result<()> {
             let beside = SlotPosition { column: 1, row: 0 };
             let arguments =
                 serde_json::json!({ "from": slot(labs_a, free), "to": slot(project, beside) });
-            DesktopTools::new(&system).call(labs_a, "desktop_move_slot", &arguments.to_string())
+            DesktopTools::new(&system).call(labs_a, "desktop_move_slot", &tool_arguments(arguments))
         };
         let deepest = chain[chain.len() - 1];
         let below_deepest = chain[chain.len() - 2];
@@ -637,20 +649,14 @@ async fn a_slot_tool_refuses_to_nest_projects_beyond_the_limit() -> Result<()> {
             error_code(&system, assign_project(&system, labs_a, deepest, 0)),
             "refused"
         );
-        assert!(matches!(
-            outcome(&system, assign_project(&system, labs_a, below_deepest, 1)),
-            ToolOutcome::Ok(_)
-        ));
+        assert!(outcome(&system, assign_project(&system, labs_a, below_deepest, 1)).is_ok());
         // Moved below a project at the limit minus one, `outer` and `inner` would reach one level
         // past it. One level higher, they fit.
         assert_eq!(
             error_code(&system, move_outer_into(below_deepest)),
             "refused"
         );
-        assert!(matches!(
-            outcome(&system, move_outer_into(chain[chain.len() - 3])),
-            ToolOutcome::Ok(_)
-        ));
+        assert!(outcome(&system, move_outer_into(chain[chain.len() - 3])).is_ok());
         Ok(())
     })
     .await
@@ -689,11 +695,15 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
                     ..
                 },
             result,
-        } = DesktopTools::new(&system).call(labs_a, "desktop_start_instance", &start.to_string())
+        } = DesktopTools::new(&system).call(
+            labs_a,
+            "desktop_start_instance",
+            &tool_arguments(start),
+        )
         else {
             panic!("starting an instance issues StartInstance");
         };
-        assert_eq!(created_instance(&String::from(result)), instance);
+        assert_eq!(created_instance(&result), instance);
         // The tests register no application to spawn, so the instance counts as spawned already.
         let spawned = DesktopCommand::StartInstance {
             launcher,
@@ -759,18 +769,22 @@ async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
         let labs_a = project_at(&system, "/labs-a");
         let stop = |instance: InstanceId| {
             let arguments = serde_json::json!({ "instance_id": instance.to_string() });
-            DesktopTools::new(&system).call(labs_a, "desktop_stop_instance", &arguments.to_string())
+            DesktopTools::new(&system).call(
+                labs_a,
+                "desktop_stop_instance",
+                &tool_arguments(arguments),
+            )
         };
         let ungroup_root =
             serde_json::json!({ "project_id": uuid::Uuid::from(labs_a).to_string() });
 
         assert_eq!(error_code(&system, stop(instance_b)), "unknown_id");
-        assert!(matches!(
-            outcome(&system, stop(instance_a)),
-            ToolOutcome::Ok(_)
-        ));
-        let ungroup =
-            DesktopTools::new(&system).call(labs_a, "desktop_ungroup", &ungroup_root.to_string());
+        assert!(outcome(&system, stop(instance_a)).is_ok());
+        let ungroup = DesktopTools::new(&system).call(
+            labs_a,
+            "desktop_ungroup",
+            &tool_arguments(ungroup_root),
+        );
         assert_eq!(error_code(&system, ungroup), "refused");
         Ok(())
     })
@@ -790,9 +804,9 @@ fn carry_out(
     root: ProjectId,
     tool: &str,
     arguments: serde_json::Value,
-) -> Result<String> {
+) -> Result<serde_json::Value> {
     let ToolCallPlan::Issue { command, result } =
-        DesktopTools::new(system).call(root, tool, &arguments.to_string())
+        DesktopTools::new(system).call(root, tool, &tool_arguments(arguments))
     else {
         panic!("{tool} issues a command");
     };
@@ -800,19 +814,25 @@ fn carry_out(
         panic!("{tool}'s command is planned");
     };
     system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
-    Ok(result.into())
+    Ok(result)
 }
 
-fn created_id(result: &str) -> uuid::Uuid {
-    let created: serde_json::Value = serde_json::from_str(result).unwrap();
-    uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap()
+fn tool_arguments(arguments: serde_json::Value) -> ToolArguments {
+    let serde_json::Value::Object(arguments) = arguments else {
+        panic!("arguments are a JSON object");
+    };
+    arguments
 }
 
-fn created_instance(result: &str) -> InstanceId {
+fn created_id(result: &serde_json::Value) -> uuid::Uuid {
+    uuid::Uuid::parse_str(result["id"].as_str().unwrap()).unwrap()
+}
+
+fn created_instance(result: &serde_json::Value) -> InstanceId {
     created_id(result).into()
 }
 
-fn created_project(result: &str) -> ProjectId {
+fn created_project(result: &serde_json::Value) -> ProjectId {
     created_id(result).into()
 }
 
@@ -831,7 +851,7 @@ fn assign_project(
         },
         "content": { "project": "added" }
     });
-    DesktopTools::new(system).call(root, "desktop_assign_slot", &arguments.to_string())
+    DesktopTools::new(system).call(root, "desktop_assign_slot", &tool_arguments(arguments))
 }
 
 fn project_at(system: &DesktopSystem, path: &str) -> ProjectId {
@@ -843,7 +863,7 @@ fn project_at(system: &DesktopSystem, path: &str) -> ProjectId {
 }
 
 /// What the desktop loop answers for `plan`, without carrying out an issued command.
-fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> ToolOutcome {
+fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> Result<serde_json::Value, ToolError> {
     match plan {
         ToolCallPlan::Answer(outcome) => outcome,
         ToolCallPlan::Issue { command, result } => {
@@ -851,11 +871,11 @@ fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> ToolOutcome {
                 .plan_or_refuse(command)
                 .expect("an issued command plans")
             {
-                Planned::Changes(_) => ToolOutcome::Ok(result.into()),
-                Planned::Refused(refusal) => ToolOutcome::Err {
-                    code: "refused".into(),
+                Planned::Changes(_) => Ok(result),
+                Planned::Refused(refusal) => Err(ToolError {
+                    code: ToolErrorCode::Refused,
                     message: refusal.to_string(),
-                },
+                }),
             }
         }
     }
@@ -863,8 +883,8 @@ fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> ToolOutcome {
 
 fn error_code(system: &DesktopSystem, plan: ToolCallPlan) -> String {
     match outcome(system, plan) {
-        ToolOutcome::Err { code, .. } => code,
-        other => panic!("expected a tool error, found {other:?}"),
+        Err(ToolError { code, .. }) => code.name().into(),
+        Ok(result) => panic!("expected a tool error, found {result}"),
     }
 }
 

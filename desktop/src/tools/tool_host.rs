@@ -20,16 +20,17 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use log::{info, warn};
+use serde_json::Value;
 use tokio::net::UnixListener;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use massive_applications::{
-    ApplicationMessage, InstanceId, ToolCall, ToolCallId, ToolError, ToolErrorCode, ToolResultJson,
+    ApplicationMessage, InstanceId, ToolArguments, ToolCall, ToolCallId, ToolError, ToolErrorCode,
 };
 use massive_protocol::Target;
-use massive_protocol::tools::v1::{self, ToolDescription, ToolOutcome};
+use massive_protocol::tools::v1::ToolDescription;
 use massive_util::CollectingSet;
 
 use super::{DesktopTools, InstanceCall, ToolCallPlan, ToolCatalog};
@@ -49,14 +50,17 @@ pub enum ToolRequest {
         binding: BindingId,
         call_id: u64,
         tool: String,
-        arguments: String,
-        reply: oneshot::Sender<ToolOutcome>,
+        arguments: ToolArguments,
+        reply: CallReplySender,
     },
     /// The agent cancelled the call `call_id`.
     CancelTool { binding: BindingId, call_id: u64 },
     /// The connection ended. Its forwarded calls are cancelled.
     Disconnected { binding: BindingId },
 }
+
+/// Where the desktop loop sends a call's answer. The connection encodes it for the wire.
+type CallReplySender = oneshot::Sender<Result<Value, ToolError>>;
 
 /// A tool call whose command the desktop loop carries out like a key press, before it answers the
 /// call through `done`.
@@ -69,23 +73,23 @@ pub struct IssuedCommand {
 /// The answer of a call whose command the desktop loop carries out.
 #[derive(Debug)]
 pub struct CallDone {
-    result: ToolResultJson,
-    reply: oneshot::Sender<ToolOutcome>,
+    result: Value,
+    reply: CallReplySender,
 }
 
 impl CallDone {
     /// Answers the call with its result, once the desktop has carried out its command. A tool
     /// client that left in the meantime no longer listens.
     pub fn answer(self) {
-        let _ = self.reply.send(ToolOutcome::Ok(self.result.into()));
+        let _ = self.reply.send(Ok(self.result));
     }
 
     /// Answers the call with the reason the planner refused its command.
     pub fn refuse(self, refusal: Refusal) {
-        let _ = self.reply.send(ToolOutcome::Err {
-            code: ToolErrorCode::Refused.name().into(),
+        let _ = self.reply.send(Err(ToolError {
+            code: ToolErrorCode::Refused,
             message: refusal.to_string(),
-        });
+        }));
     }
 }
 
@@ -124,7 +128,7 @@ struct ForwardedCall {
     /// The id the tool client chose, which only its connection knows.
     client_call_id: u64,
     instance: InstanceId,
-    reply: oneshot::Sender<ToolOutcome>,
+    reply: CallReplySender,
 }
 
 #[derive(Debug)]
@@ -214,18 +218,18 @@ impl ToolHost {
             } => {
                 let Some(root) = self.root_of(binding) else {
                     // The MCP root changed after the call was sent, and the connection is ending.
-                    let _ = reply.send(ToolOutcome::Err {
-                        code: v1::CONNECTION_CLOSED.into(),
+                    let _ = reply.send(Err(ToolError {
+                        code: ToolErrorCode::ConnectionClosed,
                         message: "The MCP root's configuration changed.".into(),
-                    });
+                    }));
                     return None;
                 };
                 let tools = DesktopTools::new(system);
                 if let Some(application_tool) = self.catalog.application_tool(&tool) {
-                    match tools.forward_call(root, application_tool, &arguments) {
+                    match tools.forward_call(root, application_tool, arguments) {
                         Ok(call) => self.forward(instances, binding, call_id, call, reply),
                         Err(error) => {
-                            let _ = reply.send(error_outcome(error));
+                            let _ = reply.send(Err(error));
                         }
                     }
                     return None;
@@ -266,7 +270,7 @@ impl ToolHost {
         &mut self,
         instance: InstanceId,
         call_id: ToolCallId,
-        outcome: Result<ToolResultJson, ToolError>,
+        outcome: Result<Value, ToolError>,
     ) {
         match self.forwarded.get(&call_id) {
             Some(call) if call.instance == instance => {}
@@ -280,10 +284,6 @@ impl ToolHost {
             .forwarded
             .remove(&call_id)
             .expect("the answered call is forwarded");
-        let outcome = match outcome {
-            Ok(result) => ToolOutcome::Ok(result.into()),
-            Err(error) => error_outcome(error),
-        };
         let _ = call.reply.send(outcome);
     }
 
@@ -348,7 +348,7 @@ impl ToolHost {
             tool,
             arguments,
         }: InstanceCall,
-        reply: oneshot::Sender<ToolOutcome>,
+        reply: CallReplySender,
     ) {
         let id = ToolCallId::from(self.next_call);
         self.next_call += 1;
@@ -414,18 +414,11 @@ fn cancel(instances: &InstanceManager, instance: InstanceId, id: ToolCallId) {
     let _ = instances.send_event(instance, ApplicationMessage::CancelToolCall(id));
 }
 
-fn error_outcome(ToolError { code, message }: ToolError) -> ToolOutcome {
-    ToolOutcome::Err {
-        code: code.name().into(),
-        message,
-    }
-}
-
-fn instance_ended() -> ToolOutcome {
-    ToolOutcome::Err {
-        code: ToolErrorCode::UnknownId.name().into(),
+fn instance_ended() -> Result<Value, ToolError> {
+    Err(ToolError {
+        code: ToolErrorCode::UnknownId,
         message: "The instance ended before it answered.".into(),
-    }
+    })
 }
 
 async fn accept_connections(listener: UnixListener, requests: UnboundedSender<ToolRequest>) {
