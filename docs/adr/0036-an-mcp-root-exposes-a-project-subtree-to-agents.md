@@ -296,7 +296,7 @@ and assistant title bars stay distinguishable inside an MCP root.
 ### Security checks live in one module
 
 **Every security-relevant check of the desktop lives in the `security` module
-(`desktop/src/security/`).** This covers bounding tool protocol input, binding a tool connection to the MCP root of its target,
+(`desktop/src/security.rs`).** This covers bounding tool protocol input, binding a tool connection to the MCP root of its target,
 checking that a call's targets are covered, checking access scopes, refusing `ConfigureMcp`
 from a covered instance, and rejecting nested MCP roots. Each check is a pure function that takes
 the facts it needs and returns an allowance or a refusal with a reason, like the rules of the

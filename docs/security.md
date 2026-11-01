@@ -30,7 +30,7 @@ decodes and checks everything that arrives on a tool connection.
 
 ## Checks
 
-Every check below lives in the desktop's `security` module (`desktop/src/security/`), and nowhere
+Every check below lives in the desktop's `security` module (`desktop/src/security.rs`), and nowhere
 else. A check is a pure function that takes the facts it needs and returns an allowance or a refusal
 with a reason. A new check is added to the module and to this table in the same change.
 
