@@ -11,13 +11,13 @@ use tokio::time::{Instant as TokioInstant, sleep_until};
 use uuid::Uuid;
 
 use massive_applications::{
-    ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
-    InstanceOutput, ViewEvent, begin_frame,
+    ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceContext,
+    InstanceEnvironment, InstanceId, InstanceOutput, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
 use massive_protocol::desktop_socket_path;
 use massive_renderer::RenderPacing;
-use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
+use massive_shell::{AsyncWindowRenderer, InstanceWindows, ShellWindow};
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
@@ -51,7 +51,8 @@ pub struct Desktop {
 
     instance_manager: InstanceManager,
     instance_outputs: UnboundedReceiver<(InstanceId, InstanceOutput)>,
-    context: ApplicationContext,
+    /// The desktop's own context as the shell's instance.
+    context: InstanceContext,
 
     /// Serves tool connections on the desktop socket (ADR 0036).
     tool_host: ToolHost,
@@ -66,7 +67,7 @@ enum DesktopEvent {
 }
 
 impl Desktop {
-    pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
+    pub async fn new(env: DesktopEnvironment, context: InstanceContext) -> Result<Self> {
         // Load configuration
 
         let (configuration_persistence, configuration) = load_configuration(&env)?;
@@ -77,8 +78,8 @@ impl Desktop {
         // parameters here, as a launcher passes them to every primary instance it starts.
         let boot_parameters = configuration[boot_launcher].params.clone();
 
-        // The desktop task's change queue: installed by the shell's application task context
-        // (ADR 0008). Presenters submit their handles through the ambient accessors.
+        // The desktop task's change queue: installed by the shell's task context for an instance
+        // that draws its own windows (ADR 0008). Presenters submit their handles through the ambient accessors.
 
         let (outputs_tx, mut outputs_rx) = unbounded_channel();
         let socket_path = desktop_socket_path(&projects_dir(&env)?);

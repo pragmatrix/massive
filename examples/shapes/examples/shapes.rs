@@ -19,7 +19,7 @@ use shared::application::{Application, UpdateResponse};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(run, FontPolicy::bare(ShapingEngineKind::Parley))
+    shell::run_application(run, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn run(mut ctx: ApplicationContext) -> Result<()> {

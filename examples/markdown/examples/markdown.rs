@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application, FontPolicy::bare(ShapingEngineKind::CosmicText))
+    shell::run_application(application, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {

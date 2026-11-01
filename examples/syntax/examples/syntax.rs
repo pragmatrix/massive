@@ -19,7 +19,7 @@ use shared::attributed_text::{self, TextAttribute};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(syntax, FontPolicy::bare(ShapingEngineKind::Parley))
+    shell::run_application(syntax, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {

@@ -2,18 +2,16 @@ use std::any::Any;
 
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
-use tokio::sync::oneshot;
 
-use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoopProxy;
-use winit::window::WindowAttributes;
 
 use massive_applications::task_context;
-use massive_applications::{ApplicationEvent, ApplicationMessage, PresentationId, ViewId};
+use massive_applications::{ApplicationEvent, ApplicationMessage};
 use massive_geometry::SizePx;
 use massive_util::CoalescingReceiver;
 
 use crate::ShellWindow;
+use crate::instance_windows::ShellWindows;
 use crate::shell::ShellCommand;
 
 /// The [`ApplicationContext`] is the application's connection to the shell. It allows it to create
@@ -51,32 +49,10 @@ impl ApplicationContext {
     }
 
     /// Creates a new window.
-    ///
-    /// Async because it needs to communicate with the application's main thread on which the window
-    /// is actually created.
     pub async fn new_window(&self, inner_size: impl Into<SizePx>) -> Result<ShellWindow> {
-        let (on_created, when_created) = oneshot::channel();
-        let view_id = ViewId::new();
-        let presentation_id = PresentationId::new();
-        let inner_size = inner_size.into();
-        let attributes = WindowAttributes::default()
-            .with_inner_size(PhysicalSize::new(inner_size.width, inner_size.height));
-        self.event_loop_proxy
-            .send_event(ShellCommand::CreateWindow {
-                view_id,
-                attributes: attributes.into(),
-                on_created,
-            })
-            .map_err(|e| anyhow!(e.to_string()))?;
-
-        let window = when_created.await??;
-        Ok(ShellWindow::new(
-            view_id,
-            presentation_id,
-            window,
-            self.event_loop_proxy.clone(),
-            self.event_sender.clone(),
-        ))
+        ShellWindows::new(self.event_loop_proxy.clone(), self.event_sender.clone())
+            .new_window(inner_size.into())
+            .await
     }
 
     /// Wait for multiple application events treating custom events of type `T`. If custom events

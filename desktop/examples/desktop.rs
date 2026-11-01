@@ -3,17 +3,10 @@ use tokio::sync::mpsc;
 
 use massive_applications::{Application, InstanceContext};
 use massive_desktop::{DesktopEnvironment, FontPolicy, ShapingEngineKind};
-use massive_shell::{ApplicationContext, shell};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    shell::run(run, FontPolicy::bare(ShapingEngineKind::Parley))
-}
-
-async fn run(ctx: ApplicationContext) -> Result<()> {
+fn main() -> Result<()> {
     let applications = vec![Application::new("Hello Application", hello_instance)];
-    let env = DesktopEnvironment::new(applications)?;
-    env.run_desktop(ctx).await
+    DesktopEnvironment::new(applications)?.run(FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn hello_instance(ctx: InstanceContext) -> Result<()> {

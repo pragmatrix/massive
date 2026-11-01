@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shell::run(
+    shell::run_application(
         |ctx| logs(receiver, ctx),
         FontPolicy::bare(ShapingEngineKind::Parley),
     )

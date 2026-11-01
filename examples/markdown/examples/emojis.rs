@@ -32,7 +32,7 @@ use markdown::FontBridge;
 #[tokio::main]
 async fn main() -> Result<()> {
     // The markdown bridge builds a cosmic-text manager, so the shell names the same engine.
-    shell::run(emojis, FontPolicy::bare(ShapingEngineKind::CosmicText))
+    shell::run_application(emojis, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn emojis(mut ctx: ApplicationContext) -> Result<()> {

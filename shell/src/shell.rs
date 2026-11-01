@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::thread;
 
 use anyhow::Result;
-use anyhow::{anyhow, bail};
+use anyhow::{Context, anyhow, bail};
 use log::{debug, error, info, warn};
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::mpsc::{
+    UnboundedReceiver, UnboundedSender, WeakUnboundedSender, unbounded_channel,
+};
+use tokio::sync::oneshot;
 
 use wgpu::{Surface, SurfaceTarget};
 use winit::application::ApplicationHandler;
@@ -15,29 +19,54 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
-use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
+use massive_applications::{
+    Application, ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment,
+    InstanceFuture, InstanceId, Presentation, RuntimeKind, ViewEvent, ViewId, run_instance,
+};
 use massive_renderer::{FontManager, FontPolicy};
 use massive_scene::{AnyCollector, SceneChange};
 
 use crate::ApplicationContext;
+use crate::instance_windows::ShellWindows;
 use crate::platform;
 use crate::shell_window::ShellWindowShared;
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
+/// The OS thread name of the shell's instance.
+const INSTANCE_THREAD_NAME: &str = "massive instance";
 
-/// Starts the shell.
+/// Starts the shell with one instance of `application`.
 ///
-/// This runs `application` with `tokio::spawn` on the tokio threadpool and waits for its
-/// completion. It also executes the winit event loop and blocks until it returns. This gives
+/// The instance runs on a dedicated thread under the runtime its application names (ADR 0009). The
+/// winit event loop runs on the calling thread and blocks until the instance ends. This gives
 /// clients the option to run the event loop on the main thread, which some platforms require.
 ///
-/// `font_policy` is the shell's construction input for the application task's font manager. The
-/// application cannot replace it: faces are only valid inside the manager that issued them, so a
+/// `font_policy` is the shell's construction input for the instance task's font manager. The
+/// instance cannot replace it: faces are only valid inside the manager that issued them, so a
 /// live task may not change its face authority (ADR 0005).
-pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
+pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
+    run_spawner(
+        Box::new(move |startup| start_instance(application, startup)),
+        font_policy,
+    )
+}
+
+/// Starts the shell with an application that drives the shell directly through an
+/// [`ApplicationContext`].
+///
+/// This runs `application` with `tokio::spawn` on the tokio threadpool and waits for its
+/// completion. The examples use it until they run as instances.
+pub fn run_application<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
     font_policy: FontPolicy,
 ) -> Result<()> {
+    run_spawner(
+        Box::new(move |startup| spawn_application(application, startup)),
+        font_policy,
+    )
+}
+
+fn run_spawner(spawner: ApplicationSpawner, font_policy: FontPolicy) -> Result<()> {
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
 
@@ -70,7 +99,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     match tokio::runtime::Handle::try_current() {
         Ok(_handle) => {
             // Already inside a Tokio runtime.
-            run_with_tokio(application, font_policy)
+            run_with_tokio(spawner, font_policy)
         }
         Err(_) => {
             // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
@@ -81,42 +110,24 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
                 .enable_all()
                 .build()?;
             let _guard = runtime.enter();
-            let r = run_with_tokio(application, font_policy);
+            let r = run_with_tokio(spawner, font_policy);
             drop(_guard);
             r
         }
     }
 }
 
-fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
-    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
-    font_policy: FontPolicy,
-) -> Result<()> {
+fn run_with_tokio(spawner: ApplicationSpawner, font_policy: FontPolicy) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
-
-    // Spawn application.
 
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
-
-    let spawn_application = |task_context: TaskContext, application_context: ApplicationContext| {
-        let _application_task = tokio::spawn(async move {
-            let event_loop_proxy = application_context.event_loop_proxy.clone();
-            let r =
-                task_context::with_context(task_context, application(application_context)).await;
-            if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(r))) =
-                event_loop_proxy.send_event(ShellCommand::ApplicationEnded(r))
-            {
-                error!("Application ended after the event loop exited: {r:?}");
-            }
-        });
-    };
 
     // Event loop
 
     let mut winit_context = WinitApplicationHandler::Initializing {
         proxy: event_loop_proxy,
-        spawner: Some(Box::new(spawn_application)),
+        spawner: Some(spawner),
         font_policy,
     };
 
@@ -140,6 +151,107 @@ fn application_task_context(font_manager: FontManager) -> TaskContext {
         MovementRuntime::default(),
         font_manager.new_shaping_context(),
     )
+}
+
+/// What the shell hands to the code that starts its application once the event loop runs.
+struct Startup {
+    proxy: EventLoopProxy<ShellCommand>,
+    event_sender: WeakUnboundedSender<ApplicationMessage>,
+    event_receiver: UnboundedReceiver<ApplicationMessage>,
+    scale_factor: f64,
+    font_manager: FontManager,
+}
+
+/// Starts the shell's single instance.
+fn start_instance(application: Application, startup: Startup) -> Result<()> {
+    match application.presentation() {
+        Presentation::Windows => start_instance_drawing_windows(application, startup),
+        Presentation::Views => bail!(
+            "the application '{}' presents views, which the shell cannot host yet",
+            application.name()
+        ),
+    }
+}
+
+/// Starts an instance that opens its own windows and renders scene changes into them, so its task
+/// collects scene changes like the desktop's.
+fn start_instance_drawing_windows(application: Application, startup: Startup) -> Result<()> {
+    let Startup {
+        proxy,
+        event_sender,
+        event_receiver,
+        scale_factor,
+        font_manager,
+    } = startup;
+    let windows = ShellWindows::new(proxy.clone(), event_sender);
+    // Nothing receives the instance's output: an instance that draws its own windows sends none.
+    let (output_sender, _) = unbounded_channel();
+    let environment = InstanceEnvironment::new(output_sender, scale_factor, None);
+    let context = InstanceContext::drawing_windows(
+        InstanceId::new(),
+        CreationMode::New(Default::default()),
+        environment,
+        Arc::new(windows),
+        event_receiver,
+    );
+    spawn_instance_thread(
+        application.runtime_kind(),
+        application.run(context),
+        application_task_context(font_manager),
+        proxy,
+    )
+}
+
+/// Runs the instance on a dedicated thread (ADR 0009) at the user-interactive priority that the
+/// shell gives its application, and reports the instance's end to the event loop.
+fn spawn_instance_thread(
+    runtime_kind: RuntimeKind,
+    instance: InstanceFuture,
+    task_context: TaskContext,
+    proxy: EventLoopProxy<ShellCommand>,
+) -> Result<()> {
+    thread::Builder::new()
+        .name(INSTANCE_THREAD_NAME.into())
+        .spawn(move || {
+            platform::set_current_thread_user_interactive(INSTANCE_THREAD_NAME);
+            let mut runtime = runtime_kind.runtime_builder();
+            runtime.on_thread_start(|| {
+                platform::set_current_thread_user_interactive("instance worker");
+            });
+            let result = run_instance(runtime, instance, task_context);
+            report_application_end(&proxy, result);
+        })
+        .context("Spawning the instance thread")?;
+    Ok(())
+}
+
+fn spawn_application<R: Future<Output = Result<()>> + 'static + Send>(
+    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
+    startup: Startup,
+) -> Result<()> {
+    let Startup {
+        proxy,
+        event_sender,
+        event_receiver,
+        scale_factor,
+        font_manager,
+    } = startup;
+    let application_context =
+        ApplicationContext::new(event_sender, event_receiver, proxy.clone(), scale_factor);
+    let task_context = application_task_context(font_manager);
+    let _application_task = tokio::spawn(async move {
+        let r = task_context::with_context(task_context, application(application_context)).await;
+        report_application_end(&proxy, r);
+    });
+    Ok(())
+}
+
+fn report_application_end(proxy: &EventLoopProxy<ShellCommand>, result: Result<()>) {
+    if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(result))) =
+        proxy.send_event(ShellCommand::ApplicationEnded(result))
+    {
+        error!("Application ended after the event loop exited: {result:?}");
+    }
 }
 
 #[derive(Debug)]
@@ -187,8 +299,8 @@ enum WinitApplicationHandler {
     },
 }
 
-/// Type alias for the application spawner closure.
-type ApplicationSpawner = Box<dyn FnOnce(TaskContext, ApplicationContext)>;
+/// Starts the application once the event loop runs.
+type ApplicationSpawner = Box<dyn FnOnce(Startup) -> Result<()>>;
 
 impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -203,7 +315,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 
         crate::platform::initialize_platform_menu(proxy.clone());
 
-        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = unbounded_channel();
 
         let scale_factor = event_loop
             .primary_monitor()
@@ -213,12 +325,6 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                 FALLBACK_SCALE_FACTOR
             });
 
-        let application_context = ApplicationContext::new(
-            event_sender.downgrade(),
-            event_receiver,
-            proxy.clone(),
-            scale_factor,
-        );
         // The task boundary is here: `resumed` has the event loop, the font policy and the spawner
         // in one place, and the contexts must exist before the application starts (ADR 0008).
         let font_manager = match FontManager::new(*font_policy) {
@@ -232,16 +338,28 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                 return;
             }
         };
-        let task_context = application_task_context(font_manager);
+        let startup = Startup {
+            proxy: proxy.clone(),
+            event_sender: event_sender.downgrade(),
+            event_receiver,
+            scale_factor,
+            font_manager,
+        };
 
         // The application can send CreateWindow as soon as it is spawned, so publish the Running
-        // state before starting its task.
+        // state before starting it.
         let spawner = spawner.take().expect("application spawner is available");
         *self = Self::Running {
             event_sender,
             views: HashMap::new(),
         };
-        spawner(task_context, application_context);
+        if let Err(error) = spawner(startup) {
+            error!("Failed to start the application: {error:#}");
+            *self = Self::Ended {
+                application_result: Err(error),
+            };
+            event_loop.exit();
+        }
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {

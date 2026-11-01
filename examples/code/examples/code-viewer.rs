@@ -17,7 +17,7 @@ use shared::attributed_text::{self, AttributedText};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(code_viewer, FontPolicy::bare(ShapingEngineKind::Parley))
+    shell::run_application(code_viewer, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {

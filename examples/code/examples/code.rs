@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application, FontPolicy::bare(ShapingEngineKind::Parley))
+    shell::run_application(application, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
