@@ -6,7 +6,7 @@ use std::path::Path;
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    InstanceChange, InstanceEnvironment, InstanceOutput, InstanceSubmission, ViewRole,
+    Application, InstanceChange, InstanceEnvironment, InstanceOutput, InstanceSubmission, ViewRole,
 };
 use massive_geometry::{Rect, RectPx, SizePx};
 use massive_renderer::{FontManager, ShapingEngineKind};
@@ -73,9 +73,7 @@ fn nested_siblings() -> Result<NestedSiblings> {
 }
 
 /// The nested siblings of [`nested_siblings`], with `applications` registered.
-fn nested_siblings_with(
-    applications: Vec<massive_applications::Application>,
-) -> Result<NestedSiblings> {
+fn nested_siblings_with(applications: Vec<Application>) -> Result<NestedSiblings> {
     let (mut system, receiver) = system_with_applications(NESTED_SIBLINGS_CONFIG, applications);
     let mut instance_manager = instance_manager(&receiver);
     for command in crate::projects::to_commands(&system.aggregates.configuration) {
@@ -175,7 +173,7 @@ fn system_from(
 /// runs the primary application `terminal`.
 fn system_with_applications(
     config: &str,
-    applications: Vec<massive_applications::Application>,
+    applications: Vec<Application>,
 ) -> (
     DesktopSystem,
     UnboundedReceiver<(InstanceId, InstanceOutput)>,
