@@ -19,8 +19,8 @@ use winit::window::{Window, WindowAttributes, WindowId};
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::TaskContext;
 use massive_applications::{
-    Application, ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment,
-    InstanceFuture, InstanceId, Rendering, RuntimeKind, ViewEvent, ViewId, run_instance,
+    Application, CreationMode, InstanceContext, InstanceEnvironment, InstanceFuture, InstanceId,
+    InstanceMessage, Rendering, RuntimeKind, ViewEvent, ViewId, run_instance,
 };
 use massive_renderer::{FontManager, FontPolicy};
 use massive_scene::{AnyCollector, SceneChange};
@@ -135,8 +135,8 @@ pub(crate) fn rendering_task_context(font_manager: FontManager) -> TaskContext {
 /// What the shell hands to its instance's start once the event loop runs.
 pub(crate) struct Startup {
     pub(crate) proxy: EventLoopProxy<ShellCommand>,
-    pub(crate) event_sender: WeakUnboundedSender<ApplicationMessage>,
-    pub(crate) event_receiver: UnboundedReceiver<ApplicationMessage>,
+    pub(crate) event_sender: WeakUnboundedSender<InstanceMessage>,
+    pub(crate) event_receiver: UnboundedReceiver<InstanceMessage>,
     pub(crate) scale_factor: f64,
     pub(crate) font_manager: FontManager,
 }
@@ -243,7 +243,7 @@ enum WinitApplicationHandler {
         font_policy: FontPolicy,
     },
     Running {
-        event_sender: UnboundedSender<ApplicationMessage>,
+        event_sender: UnboundedSender<InstanceMessage>,
         views: HashMap<WindowId, ViewId>,
     },
     Ended {
@@ -363,7 +363,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                         "Received FullscreenRequested while WinitApplicationHandler is not Running"
                     );
                 };
-                if let Err(error) = event_sender.send(ApplicationMessage::FullscreenRequested) {
+                if let Err(error) = event_sender.send(InstanceMessage::FullscreenRequested) {
                     error!("Failed to send fullscreen request to the application: {error:?}");
                 }
             }
@@ -398,7 +398,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         };
 
         if let Some((view_id, event)) = view_event {
-            self.send_event(event_loop, ApplicationMessage::View(view_id, event))
+            self.send_event(event_loop, InstanceMessage::View(view_id, event))
         }
     }
 
@@ -424,7 +424,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 }
 
 impl WinitApplicationHandler {
-    fn send_event(&mut self, event_loop: &ActiveEventLoop, event: ApplicationMessage) {
+    fn send_event(&mut self, event_loop: &ActiveEventLoop, event: InstanceMessage) {
         let Self::Running { event_sender, .. } = self else {
             error!("Cannot send shell event: application handler must be in the running state.");
             return;

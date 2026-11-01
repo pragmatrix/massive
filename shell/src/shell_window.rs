@@ -13,7 +13,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::EventLoopProxy;
 use winit::window::{CursorIcon, Window, WindowId};
 
-use massive_applications::{ApplicationMessage, PresentationId, ViewId};
+use massive_applications::{InstanceMessage, PresentationId, ViewId};
 use massive_geometry::{BoxPx, SizePx};
 
 use crate::WindowRendererBuilder;
@@ -41,7 +41,7 @@ impl ShellWindow {
         presentation_id: PresentationId,
         window: Window,
         event_loop_proxy: EventLoopProxy<ShellCommand>,
-        event_sender: WeakUnboundedSender<ApplicationMessage>,
+        event_sender: WeakUnboundedSender<InstanceMessage>,
     ) -> Self {
         // We retrieve the window id early on, because retrieving seem to run on the main thread?
         let window_id = window.id();
@@ -120,7 +120,7 @@ pub struct ShellWindowShared {
     // For creating surfaces, we need to communicate with the Shell.
     event_loop_proxy: EventLoopProxy<ShellCommand>,
     /// For Sending out ApplyAnimations
-    pub(crate) event_sender: WeakUnboundedSender<ApplicationMessage>,
+    pub(crate) event_sender: WeakUnboundedSender<InstanceMessage>,
 }
 
 impl Drop for ShellWindowShared {

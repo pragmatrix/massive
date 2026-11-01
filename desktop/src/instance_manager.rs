@@ -10,8 +10,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    Application, ApplicationMessage, CreationMode, InstanceChange, InstanceContext,
-    InstanceEnvironment, InstanceFuture, InstanceId, RuntimeKind, ViewEvent, ViewId, run_instance,
+    Application, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment,
+    InstanceFuture, InstanceId, InstanceMessage, RuntimeKind, ViewEvent, ViewId, run_instance,
 };
 use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
@@ -41,7 +41,7 @@ pub struct InstanceManager {
 struct RunningInstance {
     #[allow(unused)]
     application_name: String,
-    events_tx: UnboundedSender<ApplicationMessage>,
+    events_tx: UnboundedSender<InstanceMessage>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into)]
@@ -118,7 +118,7 @@ impl InstanceManager {
         Ok(())
     }
 
-    /// Begin the shutdown of an instance by sending [`ApplicationMessage::Shutdown`]. Returns
+    /// Begin the shutdown of an instance by sending [`InstanceMessage::Shutdown`]. Returns
     /// immediately after sending the event
     pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self.instances.get(&instance_id).ok_or_else(|| {
@@ -130,7 +130,7 @@ impl InstanceManager {
 
         instance
             .events_tx
-            .send(ApplicationMessage::Shutdown(instance_id))
+            .send(InstanceMessage::Shutdown(instance_id))
             .map_err(|_| {
                 anyhow!(
                     "Failed to send shutdown event to instance {:?}",
@@ -170,10 +170,10 @@ impl InstanceManager {
 
     pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
         let (instance, view) = path.into().into();
-        self.send_event(instance, ApplicationMessage::View(view, event))
+        self.send_event(instance, InstanceMessage::View(view, event))
     }
 
-    pub fn send_event(&self, instance_id: InstanceId, event: ApplicationMessage) -> Result<()> {
+    pub fn send_event(&self, instance_id: InstanceId, event: InstanceMessage) -> Result<()> {
         let instance = self.get_instance(instance_id)?;
 
         instance

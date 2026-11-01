@@ -5,10 +5,10 @@ use uuid::Uuid;
 
 mod ambient;
 mod application;
-mod application_event;
 mod frame;
 mod instance_context;
 mod instance_environment;
+mod instance_event;
 mod instance_runtime;
 mod key_event;
 mod mcp;
@@ -22,10 +22,10 @@ mod view_event;
 
 pub use ambient::*;
 pub use application::*;
-pub use application_event::*;
 pub use frame::*;
 pub use instance_context::*;
 pub use instance_environment::*;
+pub use instance_event::*;
 pub use instance_runtime::*;
 pub use key_event::*;
 pub use mcp::*;

@@ -12,9 +12,8 @@ use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::prelude::*;
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    Application, ApplicationMessage, CreationMode, InstanceChange, InstanceContext,
-    InstanceEnvironment, InstanceId, InstanceOutput, ViewChange, ViewCreationInfo, ViewEvent,
-    ViewId, begin_frame,
+    Application, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment, InstanceId,
+    InstanceMessage, InstanceOutput, ViewChange, ViewCreationInfo, ViewEvent, ViewId, begin_frame,
 };
 use massive_geometry::{BoxPx, Rect};
 use massive_scene::AnyCollector;
@@ -74,7 +73,7 @@ async fn host(
     application: Application,
     instance_task_context: TaskContext,
     windows: ShellWindows,
-    mut shell_events: UnboundedReceiver<ApplicationMessage>,
+    mut shell_events: UnboundedReceiver<InstanceMessage>,
     scale_factor: f64,
     proxy: EventLoopProxy<ShellCommand>,
 ) -> Result<()> {
@@ -124,7 +123,7 @@ async fn host(
 struct ViewsHost {
     instance_id: InstanceId,
     windows: ShellWindows,
-    instance_events: UnboundedSender<ApplicationMessage>,
+    instance_events: UnboundedSender<InstanceMessage>,
     /// The instance's one view, once the instance created it.
     view: Option<HostedView>,
 }
@@ -181,18 +180,18 @@ impl ViewsHost {
 
     /// Forwards an event from the shell to the instance. A close request becomes the shutdown
     /// request, as the desktop sends it to an instance that it closes.
-    fn forward(&mut self, message: ApplicationMessage) -> Result<()> {
+    fn forward(&mut self, message: InstanceMessage) -> Result<()> {
         let message = match message {
-            ApplicationMessage::View(_, ViewEvent::CloseRequested) => {
-                ApplicationMessage::Shutdown(self.instance_id)
+            InstanceMessage::View(_, ViewEvent::CloseRequested) => {
+                InstanceMessage::Shutdown(self.instance_id)
             }
-            ApplicationMessage::View(view_id, event) => {
+            InstanceMessage::View(view_id, event) => {
                 if let Some(view) = &mut self.view
                     && view.id == view_id
                 {
                     view.renderer.resize_redraw(&event)?;
                 }
-                ApplicationMessage::View(view_id, event)
+                InstanceMessage::View(view_id, event)
             }
             message => message,
         };

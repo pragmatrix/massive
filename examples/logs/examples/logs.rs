@@ -21,7 +21,7 @@ use winit::event::ElementState;
 
 use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
-use massive_applications::{Application, ApplicationEvent, InstanceContext, KeyEvent, ViewEvent};
+use massive_applications::{Application, InstanceContext, InstanceEvent, KeyEvent, ViewEvent};
 use massive_geometry::{SizePx, Vector3};
 use massive_scene::Ref;
 use massive_scene::prelude::*;
@@ -121,7 +121,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext
             Wakeup::Events(events) => {
                 for event in events {
                     match event {
-                        ApplicationEvent::View(_, view_event) => {
+                        InstanceEvent::View(_, view_event) => {
                             if let ViewEvent::Resized(size) = view_event {
                                 center.resize(&view, size);
                             }
@@ -129,11 +129,10 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext
                                 return Ok(());
                             }
                         }
-                        ApplicationEvent::Shutdown(_) => return Ok(()),
-                        ApplicationEvent::ToolCall(_) | ApplicationEvent::CancelToolCall(_) => {}
-                        ApplicationEvent::ApplyAnimations(_)
-                        | ApplicationEvent::FullscreenRequested => {}
-                        ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
+                        InstanceEvent::Shutdown(_) => return Ok(()),
+                        InstanceEvent::ToolCall(_) | InstanceEvent::CancelToolCall(_) => {}
+                        InstanceEvent::ApplyAnimations(_) | InstanceEvent::FullscreenRequested => {}
+                        InstanceEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
                             logs.finish_fade_out(line_id);
                         }
                     }
@@ -147,7 +146,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext
 
 enum Wakeup {
     Line(Vec<u8>),
-    Events(Vec<ApplicationEvent<LogEvent>>),
+    Events(Vec<InstanceEvent<LogEvent>>),
 }
 
 #[derive(Debug)]

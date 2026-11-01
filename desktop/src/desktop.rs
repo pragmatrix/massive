@@ -11,8 +11,8 @@ use tokio::time::{Instant as TokioInstant, sleep_until};
 use uuid::Uuid;
 
 use massive_applications::{
-    ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceContext,
-    InstanceEnvironment, InstanceId, InstanceOutput, ViewEvent, begin_frame,
+    CreationMode, Frame, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId,
+    InstanceMessage, InstanceOutput, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
 use massive_protocol::desktop_socket_path;
@@ -60,7 +60,7 @@ pub struct Desktop {
 
 #[derive(Debug)]
 enum DesktopEvent {
-    ApplicationEvents(Vec<ApplicationEvent<Infallible>>),
+    InstanceEvents(Vec<InstanceEvent<Infallible>>),
     InstanceOutput(InstanceId, InstanceOutput),
     InstanceEnded(InstanceId, massive_shell::Result<()>),
     ToolRequest(ToolRequest),
@@ -221,7 +221,7 @@ impl Desktop {
                 }
 
                 events = self.context.wait_for_events::<Infallible>() => {
-                    DesktopEvent::ApplicationEvents(events?)
+                    DesktopEvent::InstanceEvents(events?)
                 }
 
                 instance = self.instance_manager.join_next() => {
@@ -237,17 +237,17 @@ impl Desktop {
             let mut frame = begin_frame();
 
             match event {
-                DesktopEvent::ApplicationEvents(events) => {
+                DesktopEvent::InstanceEvents(events) => {
                     for event in events {
                         match event {
-                            ApplicationEvent::FullscreenRequested => {
+                            InstanceEvent::FullscreenRequested => {
                                 let changes = self.system.plan(DesktopCommand::ToggleFullScreen)?;
                                 self.transact_and_persist(changes)?;
                             }
-                            ApplicationEvent::View(_, ViewEvent::CloseRequested) => {
+                            InstanceEvent::View(_, ViewEvent::CloseRequested) => {
                                 return Ok(());
                             }
-                            ApplicationEvent::View(_, view_event) => {
+                            InstanceEvent::View(_, view_event) => {
                                 let mut desktop_changes = Changes::default();
 
                                 if let ViewEvent::Resized(size_px) = &view_event {
@@ -274,26 +274,26 @@ impl Desktop {
                                 // This is completely weird here. We need a better solution for resize_redraw().
                                 self.renderer.resize_redraw(&view_event)?;
                             }
-                            ApplicationEvent::ApplyAnimations(tick) => {
+                            InstanceEvent::ApplyAnimations(tick) => {
                                 frame.upgrade_to_apply_animations_cycle(tick.vblank_time);
                                 let animating_instances =
                                     self.system.animating_instances().collect::<Vec<_>>();
                                 for instance in animating_instances {
                                     _ = self.instance_manager.send_event(
                                         instance,
-                                        ApplicationMessage::ApplyAnimations(tick),
+                                        InstanceMessage::ApplyAnimations(tick),
                                     );
                                 }
                             }
-                            ApplicationEvent::Shutdown(_) => {
+                            InstanceEvent::Shutdown(_) => {
                                 // Robustness: Clarify if and when this happens.
                                 info!("Desktop shutdown request received");
                                 return Ok(());
                             }
-                            ApplicationEvent::ToolCall(_) | ApplicationEvent::CancelToolCall(_) => {
+                            InstanceEvent::ToolCall(_) | InstanceEvent::CancelToolCall(_) => {
                                 unreachable!("the shell never calls tools");
                             }
-                            ApplicationEvent::Custom(event) => match event {},
+                            InstanceEvent::Custom(event) => match event {},
                         }
                     }
                 }
@@ -351,7 +351,7 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     self.handle_instance_ended((instance_id, instance_result))?;
                 }
-                DesktopEvent::ApplicationEvents(_) | DesktopEvent::ToolRequest(_) => unreachable!(),
+                DesktopEvent::InstanceEvents(_) | DesktopEvent::ToolRequest(_) => unreachable!(),
             }
 
             finalize_desktop_frame(

@@ -9,7 +9,7 @@ use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoopProxy;
 use winit::window::WindowAttributes;
 
-use massive_applications::{ApplicationMessage, InstanceContext, PresentationId, ViewId};
+use massive_applications::{InstanceContext, InstanceMessage, PresentationId, ViewId};
 use massive_geometry::SizePx;
 
 use crate::ShellWindow;
@@ -55,13 +55,13 @@ impl InstanceWindows for InstanceContext {
 pub struct ShellWindows {
     event_loop_proxy: EventLoopProxy<ShellCommand>,
     /// The instance's event queue, which receives the animation ticks of every window's renderer.
-    event_sender: WeakUnboundedSender<ApplicationMessage>,
+    event_sender: WeakUnboundedSender<InstanceMessage>,
 }
 
 impl ShellWindows {
     pub fn new(
         event_loop_proxy: EventLoopProxy<ShellCommand>,
-        event_sender: WeakUnboundedSender<ApplicationMessage>,
+        event_sender: WeakUnboundedSender<InstanceMessage>,
     ) -> Self {
         Self {
             event_loop_proxy,

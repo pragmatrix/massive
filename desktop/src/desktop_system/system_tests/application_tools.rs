@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use massive_applications::{
-    AccessScope, Application, ApplicationEvent, CreationMode, McpId, ToolCallId, ToolDeclaration,
+    AccessScope, Application, CreationMode, InstanceEvent, McpId, ToolCallId, ToolDeclaration,
     mcp_id,
 };
 use massive_protocol::Frames;
@@ -275,7 +275,7 @@ fn echo_application() -> Application {
         let mut cancels = 0;
         loop {
             match ctx.wait_for_event().await? {
-                ApplicationEvent::ToolCall(call) => {
+                InstanceEvent::ToolCall(call) => {
                     match call.decode().map(|EchoParams { text }| Echo { text }) {
                         Ok(Echo { text }) if text == WAIT => waiting = Some(call.id),
                         Ok(Echo { text }) if text == HOLD => {}
@@ -288,7 +288,7 @@ fn echo_application() -> Application {
                         echoed => ctx.answer_tool_call(call.id, echoed)?,
                     }
                 }
-                ApplicationEvent::CancelToolCall(call_id) => {
+                InstanceEvent::CancelToolCall(call_id) => {
                     cancels += 1;
                     if waiting == Some(call_id) {
                         let cancelled = Echo {
@@ -297,7 +297,7 @@ fn echo_application() -> Application {
                         ctx.answer_tool_call(call_id, Ok(cancelled))?;
                     }
                 }
-                ApplicationEvent::Shutdown(_) => return Ok(()),
+                InstanceEvent::Shutdown(_) => return Ok(()),
                 _ => {}
             }
         }

@@ -39,8 +39,8 @@ output burst (e.g. `cat` of a large file) at display refresh rate:
   interleaved with view and configuration changes, ADR 0008) plus `RenderPacing`
   through `InstanceEnvironment::submission_sender`
   (`applications/src/instance_environment.rs`). They receive a coalesced
-  `ApplicationMessage` stream: view events, `ApplyAnimations(PresentationTick)`,
-  fullscreen, and shutdown (`applications/src/application_event.rs`).
+  `InstanceMessage` stream: view events, `ApplyAnimations(PresentationTick)`,
+  fullscreen, and shutdown (`applications/src/instance_event.rs`).
 - Applications are registered in-process as closures:
   `Application { name, runtime_kind, run: Fn(InstanceContext) -> Future }`
   (`desktop/src/application_registry.rs`). Each instance gets a desktop-owned

@@ -15,8 +15,8 @@ use massive_util::{ChangeCollector, ChangeSet, CoalescingReceiver};
 use crate::prelude::*;
 use crate::view_builder::ViewBuilder;
 use crate::{
-    ApplicationEvent, ApplicationMessage, ConfigurationRequest, FrameSubmission, InstanceChange,
-    InstanceEnvironment, InstanceId, InstanceOutput, InstanceParameters, InstanceSubmission,
+    ConfigurationRequest, FrameSubmission, InstanceChange, InstanceEnvironment, InstanceEvent,
+    InstanceId, InstanceMessage, InstanceOutput, InstanceParameters, InstanceSubmission,
     ToolCallId, ToolError, ViewExtent, encode_result,
 };
 use crate::{pacing_for, task_context};
@@ -42,7 +42,7 @@ pub struct InstanceContext {
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
     content: Content,
-    events: CoalescingReceiver<ApplicationMessage>,
+    events: CoalescingReceiver<InstanceMessage>,
 }
 
 /// How the instance's content reaches the screen, following the application's
@@ -93,7 +93,7 @@ impl InstanceContext {
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
         view_parent: Ref<Location>,
-        events: UnboundedReceiver<ApplicationMessage>,
+        events: UnboundedReceiver<InstanceMessage>,
     ) -> Self {
         Self {
             id,
@@ -114,7 +114,7 @@ impl InstanceContext {
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
         windows: HostWindows,
-        events: UnboundedReceiver<ApplicationMessage>,
+        events: UnboundedReceiver<InstanceMessage>,
     ) -> Self {
         Self {
             id,
@@ -169,7 +169,7 @@ impl InstanceContext {
         self.environment.primary_monitor_scale_factor
     }
 
-    pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {
+    pub async fn wait_for_event(&mut self) -> Result<InstanceEvent<std::convert::Infallible>> {
         Ok(self.events.recv().await?.into())
     }
 
@@ -177,13 +177,13 @@ impl InstanceContext {
     ///
     /// On an animation tick, the task's animation cycle starts at the tick's vblank time and the
     /// movements advance to it, before the instance opens its next frame. A movement's completion
-    /// event arrives as [`ApplicationEvent::Custom`], and one that is not a `T` is an error.
-    pub async fn wait_for_events<T: Any>(&mut self) -> Result<Vec<ApplicationEvent<T>>> {
+    /// event arrives as [`InstanceEvent::Custom`], and one that is not a `T` is an error.
+    pub async fn wait_for_events<T: Any>(&mut self) -> Result<Vec<InstanceEvent<T>>> {
         let messages = self.events.recv_all().await?;
 
         let mut events = Vec::with_capacity(messages.len());
         for message in messages {
-            let ApplicationMessage::ApplyAnimations(tick) = message else {
+            let InstanceMessage::ApplyAnimations(tick) = message else {
                 events.push(message.into());
                 continue;
             };
@@ -192,12 +192,12 @@ impl InstanceContext {
                     animation.upgrade_to_apply_animations_cycle(tick.vblank_time);
                     movement.apply_animations(animation.animation_time())
                 });
-            events.push(ApplicationEvent::ApplyAnimations(tick));
+            events.push(InstanceEvent::ApplyAnimations(tick));
             for event in completion_events {
                 let event = event
                     .downcast::<T>()
                     .map_err(|_| anyhow!("movement completion event has the wrong type"))?;
-                events.push(ApplicationEvent::Custom(*event));
+                events.push(InstanceEvent::Custom(*event));
             }
         }
 

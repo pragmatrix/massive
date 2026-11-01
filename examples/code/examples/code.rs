@@ -24,7 +24,7 @@ use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
 use massive_applications::prelude::*;
-use massive_applications::{Application, ApplicationEvent, InstanceContext, ViewEvent};
+use massive_applications::{Application, InstanceContext, InstanceEvent, ViewEvent};
 use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
@@ -288,7 +288,7 @@ async fn code(mut ctx: InstanceContext) -> Result<()> {
             info!("Event: {event:?}");
 
             match event {
-                ApplicationEvent::View(_, view_event) => {
+                InstanceEvent::View(_, view_event) => {
                     if let ViewEvent::Resized(size) = view_event {
                         center.resize(&view, size);
                     }
@@ -297,12 +297,12 @@ async fn code(mut ctx: InstanceContext) -> Result<()> {
                         UpdateResponse::Continue => {}
                     }
                 }
-                ApplicationEvent::Shutdown(_) => return Ok(()),
-                ApplicationEvent::ApplyAnimations(_)
-                | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::ToolCall(_)
-                | ApplicationEvent::CancelToolCall(_) => {}
-                ApplicationEvent::Custom(event) => match event {},
+                InstanceEvent::Shutdown(_) => return Ok(()),
+                InstanceEvent::ApplyAnimations(_)
+                | InstanceEvent::FullscreenRequested
+                | InstanceEvent::ToolCall(_)
+                | InstanceEvent::CancelToolCall(_) => {}
+                InstanceEvent::Custom(event) => match event {},
             }
         }
     }
