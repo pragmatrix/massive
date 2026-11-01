@@ -80,10 +80,11 @@ impl<'a> DesktopTools<'a> {
         let covering_mcp_root = self
             .target_project(target)
             .and_then(|project| self.system.configuration().mcp_root_of(project));
-        let root = match security::connecting_to_target(covering_mcp_root) {
-            ConnectingToTarget::Bind(root) => root,
+        match security::connecting_to_target(covering_mcp_root.is_some()) {
+            ConnectingToTarget::Bind => {}
             ConnectingToTarget::Decline => return None,
-        };
+        }
+        let root = covering_mcp_root.expect("a bound target lies in an MCP root");
         Some(ToolConnectionRoot {
             root,
             tools: self
@@ -569,8 +570,7 @@ fn desktop_tools() -> Vec<(DesktopTool, ToolName, ToolDeclaration)> {
                 mcp_id!("move_slot"),
                 AccessScope::Organize,
                 "Moves a slot's content to another slot, possibly in another project of the MCP \
-                 project. Onto an assigned slot of the same project, it exchanges the two \
-                 contents.",
+                 root. Onto an assigned slot of the same project, it exchanges the two contents.",
             ),
         ),
         (
@@ -629,6 +629,7 @@ fn desktop_tools() -> Vec<(DesktopTool, ToolName, ToolDeclaration)> {
         .collect()
 }
 
+/// Which of the desktop's tools a call names, so a call is dispatched by matching it.
 #[derive(Debug, Clone, Copy)]
 enum DesktopTool {
     Describe,

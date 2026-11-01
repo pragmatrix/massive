@@ -62,20 +62,21 @@ pub fn making_mcp_root(
 /// What the desktop answers a tool client that connects to a target (ADR 0036).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectingToTarget {
-    Bind(ProjectId),
+    /// The connection is bound to the MCP root that covers the target.
+    Bind,
     /// A target that does not exist is declined like one outside every MCP root, so a tool client
     /// learns nothing about what lies outside every MCP root.
     Decline,
 }
 
-/// `covering_mcp_root` is the MCP root that covers the target, or `None` when the target does not
-/// exist or no MCP root covers it.
+/// `covered` tells whether an MCP root covers the target. It is false when the target does not
+/// exist.
 #[must_use]
-pub fn connecting_to_target(covering_mcp_root: Option<ProjectId>) -> ConnectingToTarget {
-    match covering_mcp_root {
-        Some(root) => ConnectingToTarget::Bind(root),
-        None => ConnectingToTarget::Decline,
+pub fn connecting_to_target(covered: bool) -> ConnectingToTarget {
+    if covered {
+        return ConnectingToTarget::Bind;
     }
+    ConnectingToTarget::Decline
 }
 
 /// The reason every declined tool connection gets, whatever the target was.
