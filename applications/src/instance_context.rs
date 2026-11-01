@@ -281,3 +281,117 @@ impl InstanceContext {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use massive_animation::{
+        Animated, AnimationCoordinator, Interpolation, Movement, MovementRuntime,
+    };
+    use massive_renderer::{FontManager, ShapingEngineKind};
+    use massive_scene::AnyCollector;
+    use massive_scene::prelude::*;
+    use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
+    use crate::task_context::{TaskContext, with_context};
+    use crate::{PresentationId, PresentationTick};
+
+    use super::*;
+
+    const MOVEMENT_DURATION: Duration = Duration::from_millis(100);
+
+    #[derive(Debug, PartialEq)]
+    struct MovementCompleted;
+
+    /// A tick past a movement's end advances the movement, and its completion event follows the
+    /// tick in the same batch, so the instance sees the end in the frame that the tick opens.
+    #[tokio::test]
+    async fn a_tick_delivers_a_finished_movements_completion_after_the_tick() {
+        with_context(instance_task_context(), async {
+            let (mut context, events, _movement) = instance_with_a_moving_movement();
+            events.send(tick_past_the_movement()).unwrap();
+
+            let received = context
+                .wait_for_events::<MovementCompleted>()
+                .await
+                .unwrap();
+
+            assert!(
+                matches!(
+                    received.as_slice(),
+                    [
+                        InstanceEvent::ApplyAnimations(_),
+                        InstanceEvent::Custom(MovementCompleted)
+                    ]
+                ),
+                "{received:?}"
+            );
+        })
+        .await
+    }
+
+    /// A completion event of another type than the one the instance waits for is an error, not a
+    /// lost event.
+    #[tokio::test]
+    async fn a_completion_event_of_another_type_is_an_error() {
+        with_context(instance_task_context(), async {
+            let (mut context, events, _movement) = instance_with_a_moving_movement();
+            events.send(tick_past_the_movement()).unwrap();
+
+            let error = context.wait_for_events::<String>().await.unwrap_err();
+
+            assert!(error.to_string().contains("wrong type"), "{error}");
+        })
+        .await
+    }
+
+    fn instance_task_context() -> TaskContext {
+        TaskContext::new(
+            AnyCollector::for_type::<InstanceChange>(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            // Any engine compiled into this build works: the tests never shape.
+            FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context(),
+        )
+    }
+
+    /// An instance whose one movement animates for [`MOVEMENT_DURATION`] and then completes.
+    fn instance_with_a_moving_movement() -> (
+        InstanceContext,
+        UnboundedSender<InstanceMessage>,
+        Movement<Animated<f64>>,
+    ) {
+        let (events, events_receiver) = unbounded_channel();
+        let (output_sender, _outputs) = unbounded_channel();
+        let (_root_transform, root) = identity_location().submit();
+        let mut context = InstanceContext::new(
+            InstanceId::new(),
+            CreationMode::Restore,
+            InstanceEnvironment::new(output_sender, 1.0, None),
+            root.to_ref(),
+            events_receiver,
+        );
+
+        let frame = begin_frame();
+        let movement = movement(Animated::from(0.0), |value, progress| {
+            value.proceed_with(progress);
+        })
+        .completion_event(|| MovementCompleted)
+        .mount();
+        movement.modify(|value, allocator| {
+            value.animate_with(allocator, 1.0, MOVEMENT_DURATION, Interpolation::Linear);
+        });
+        // Ending the frame's cycle starts the queued animation.
+        context.submit(frame.submission()).unwrap();
+
+        (context, events, movement)
+    }
+
+    fn tick_past_the_movement() -> InstanceMessage {
+        InstanceMessage::ApplyAnimations(PresentationTick {
+            presentation_id: PresentationId::new(),
+            vblank_time: Instant::now() + MOVEMENT_DURATION * 2,
+        })
+    }
+}
