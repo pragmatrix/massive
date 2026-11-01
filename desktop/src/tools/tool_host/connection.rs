@@ -81,7 +81,13 @@ async fn serve_calls(
 ) -> Result<()> {
     let mut pending = FuturesUnordered::new();
     loop {
+        // A result that is ready goes out before the desktop's closing, so a command that took
+        // effect is never reported as closed (see `a_ready_result_goes_out_before_the_closing`).
         tokio::select! {
+            biased;
+            Some((call_id, outcome)) = pending.next() => {
+                frames.send(Bytes::from(result_frame(call_id, received(outcome))?)).await?;
+            }
             frame = frames.next() => {
                 let Some(frame) = frame else {
                     return Ok(());
@@ -110,12 +116,6 @@ async fn serve_calls(
                     }
                 }
             }
-            Some((call_id, outcome)) = pending.next() => {
-                let outcome = outcome.unwrap_or_else(|_| Err(CallFailure::ConnectionClosed(
-                    "The desktop ended the call.".into(),
-                )));
-                frames.send(Bytes::from(result_frame(call_id, outcome)?)).await?;
-            }
             reason = &mut closing => {
                 let reason = reason.unwrap_or_else(|_| "the desktop quits".into());
                 if let Err(error) = send(frames, &HostMessage::Closing { reason }).await {
@@ -133,6 +133,17 @@ fn parse_arguments(arguments: &str) -> Result<ToolArguments, ToolError> {
     serde_json::from_str(arguments).map_err(|error| ToolError {
         code: ToolErrorCode::InvalidArgument,
         message: format!("The arguments are not a JSON object: {error}."),
+    })
+}
+
+/// The outcome of a call, or `connection_closed` when the desktop dropped the call unanswered.
+fn received(
+    outcome: Result<Result<Value, CallFailure>, oneshot::error::RecvError>,
+) -> Result<Value, CallFailure> {
+    outcome.unwrap_or_else(|_| {
+        Err(CallFailure::ConnectionClosed(
+            "The desktop ended the call.".into(),
+        ))
     })
 }
 
@@ -187,6 +198,40 @@ mod tests {
         for arguments in ["", "not json", "[]", "1", &deeply_nested] {
             let error = parse_arguments(arguments).expect_err(arguments);
             assert_eq!(error.code, ToolErrorCode::InvalidArgument);
+        }
+    }
+
+    /// A result that is ready when the desktop ends the connection still reaches the client, so a
+    /// command that took effect is never reported as `connection_closed`. Both are ready at once
+    /// here, and the loop repeats, because an unbiased choice would pick either.
+    #[tokio::test]
+    async fn a_ready_result_goes_out_before_the_closing() {
+        for _ in 0..32 {
+            let (client_end, host_end) = UnixStream::pair().unwrap();
+            let (requests, mut received) = tokio::sync::mpsc::unbounded_channel();
+            let (closing, closing_receiver) = oneshot::channel();
+            tokio::spawn(async move {
+                let mut frames = frames(host_end);
+                serve_calls(&mut frames, &requests, BindingId(0), closing_receiver).await
+            });
+            let mut client = frames(client_end);
+            let call = ClientMessage::CallTool {
+                call_id: 7,
+                tool: "t".into(),
+                arguments: "{}".into(),
+            };
+            send(&mut client, &call).await.unwrap();
+            let Some(ToolRequest::CallTool { reply, .. }) = received.recv().await else {
+                panic!("the call reaches the desktop loop");
+            };
+            reply.send(Ok(serde_json::json!({}))).unwrap();
+            closing.send("closed".into()).unwrap();
+
+            let first: HostMessage = decode(&client.next().await.unwrap().unwrap()).unwrap();
+            assert!(
+                matches!(first, HostMessage::ToolResult { call_id: 7, .. }),
+                "{first:?}"
+            );
         }
     }
 }
