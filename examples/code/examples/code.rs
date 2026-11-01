@@ -23,19 +23,18 @@ use project_model::CargoConfig;
 use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
-use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
+use massive_applications::{Application, ApplicationEvent, InstanceContext, ViewEvent};
 use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
-use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
 use shared::attributed_text::{self, AttributedText, TextAttribute};
 use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env()
         .add_directive("salsa=warn".parse()?)
         .add_directive("hir_ty=warn".parse()?);
@@ -59,10 +58,13 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run_application(application, FontPolicy::bare(ShapingEngineKind::Parley))
+    shell::run(
+        Application::new("Code", code),
+        FontPolicy::bare(ShapingEngineKind::Parley),
+    )
 }
 
-async fn application(mut ctx: ApplicationContext) -> Result<()> {
+async fn code(mut ctx: InstanceContext) -> Result<()> {
     // let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
     let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
 
@@ -253,21 +255,23 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         attributed_text::shape_text(&mut shaper, text, &attributes, font_size, line_height, None)
     };
 
-    // Window
+    // View
 
     let size = LogicalSize::new(1024, 800).to_physical(ctx.primary_monitor_scale_factor());
-    let window = ctx.new_window((size.width, size.height)).await?;
-    let view_id = window.view_id();
+    let view_size = SizePx::new(size.width, size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
-    // Application
+    // Content
 
     let content_size = SizePx::new(1280, height as u32);
     let mut gestures = GestureTransform::default();
 
-    let mut renderer = window.renderer().with_text().build().await?;
-
     let transform = gestures.get_transform(content_size).submit();
-    let location = transform.to_location().submit();
+    let location = transform
+        .to_location()
+        .relative_to(center.location())
+        .submit();
 
     let _visual = glyph_runs
         .into_iter()
@@ -277,32 +281,30 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .submit();
 
     loop {
+        transform.update_if_changed(gestures.get_transform(content_size));
+        ctx.submit(begin_frame().submission())?;
+
         for event in ctx.wait_for_events::<Infallible>().await? {
             info!("Event: {event:?}");
 
             match event {
-                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                ApplicationEvent::View(_, view_event) => {
+                    if let ViewEvent::Resized(size) = view_event {
+                        center.resize(&view, size);
+                    }
                     match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    renderer.resize_redraw(&view_event)?;
                 }
-                ApplicationEvent::View(..)
-                | ApplicationEvent::ApplyAnimations(_)
+                ApplicationEvent::Shutdown(_) => return Ok(()),
+                ApplicationEvent::ApplyAnimations(_)
                 | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_)
                 | ApplicationEvent::ToolCall(_)
                 | ApplicationEvent::CancelToolCall(_) => {}
                 ApplicationEvent::Custom(event) => match event {},
             }
         }
-
-        // DI: This check has to be done in the renderer and the renderer has to decide when it
-        // needs to redraw.
-        transform.update_if_changed(gestures.get_transform(content_size));
-
-        begin_frame().render_to(&mut renderer)?;
     }
 }
 
