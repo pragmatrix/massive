@@ -46,7 +46,7 @@ pub struct InstanceContext {
 }
 
 /// How the instance's content reaches the screen, following the application's
-/// [`Presentation`](crate::Presentation).
+/// [`Rendering`](crate::Rendering).
 #[derive(Debug)]
 enum Content {
     /// The instance's views hang below `view_parent`, and the host draws the instance changes the

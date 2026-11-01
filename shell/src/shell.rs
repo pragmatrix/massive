@@ -20,7 +20,7 @@ use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::TaskContext;
 use massive_applications::{
     Application, ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment,
-    InstanceFuture, InstanceId, Presentation, RuntimeKind, ViewEvent, ViewId, run_instance,
+    InstanceFuture, InstanceId, Rendering, RuntimeKind, ViewEvent, ViewId, run_instance,
 };
 use massive_renderer::{FontManager, FontPolicy};
 use massive_scene::{AnyCollector, SceneChange};
@@ -141,9 +141,9 @@ pub(crate) struct Startup {
 
 /// Starts the shell's single instance.
 fn start_instance(application: Application, startup: Startup) -> Result<()> {
-    match application.presentation() {
-        Presentation::Windows => start_instance_drawing_windows(application, startup),
-        Presentation::Views => views_host::start(application, startup),
+    match application.rendering() {
+        Rendering::Instance => start_instance_drawing_windows(application, startup),
+        Rendering::Host => views_host::start(application, startup),
     }
 }
 

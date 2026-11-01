@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 
-use massive_applications::{Application, ApplicationTools, McpId, Presentation};
+use massive_applications::{Application, ApplicationTools, McpId, Rendering};
 
 #[derive(Debug)]
 pub struct ApplicationRegistry {
@@ -18,7 +18,7 @@ impl ApplicationRegistry {
     pub fn new(applications: Vec<Application>) -> Result<Self> {
         let mut providers = HashMap::new();
         for application in &applications {
-            if application.presentation() == Presentation::Windows {
+            if application.rendering() == Rendering::Instance {
                 bail!(
                     "the application '{}' draws its own windows, which only the shell can host",
                     application.name()
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn the_registry_rejects_an_application_that_draws_its_own_windows() {
         let application =
-            Application::new("a", |_| async { Ok(()) }).with_presentation(Presentation::Windows);
+            Application::new("a", |_| async { Ok(()) }).with_rendering(Rendering::Instance);
         let error = ApplicationRegistry::new(vec![application]).unwrap_err();
         assert!(error.to_string().contains("only the shell"), "{error}");
     }

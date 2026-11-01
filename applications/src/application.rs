@@ -18,7 +18,7 @@ use crate::{InstanceContext, McpId, ToolDeclaration};
 pub struct Application {
     name: String,
     runtime_kind: RuntimeKind,
-    presentation: Presentation,
+    rendering: Rendering,
     tools: Option<ApplicationTools>,
     #[debug(skip)]
     run: RunInstanceBox,
@@ -47,15 +47,15 @@ pub enum RuntimeKind {
     MultiThread,
 }
 
-/// How the instances of an application put their content on the screen.
+/// Who renders the content of an application's instances.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Presentation {
-    /// The instance creates views and submits instance changes, and its host draws them. Every
-    /// host runs such an instance.
-    Views,
-    /// The instance opens its own windows and renders scene changes into them. Only the shell
-    /// runs such an instance, and the desktop is one.
-    Windows,
+pub enum Rendering {
+    /// The host renders: the instance creates views and submits instance changes, and its host
+    /// draws them. Every host runs such an instance.
+    Host,
+    /// The instance renders: it opens its own windows and renders scene changes into them. Only
+    /// the shell runs such an instance, and the desktop is one.
+    Instance,
 }
 
 impl RuntimeKind {
@@ -82,7 +82,7 @@ impl Application {
         Self {
             name,
             runtime_kind: RuntimeKind::CurrentThread,
-            presentation: Presentation::Views,
+            rendering: Rendering::Host,
             tools: None,
             run: run_boxed,
         }
@@ -95,10 +95,10 @@ impl Application {
         self
     }
 
-    /// Select how instances of this application present their content. Default is
-    /// [`Presentation::Views`].
-    pub fn with_presentation(mut self, presentation: Presentation) -> Self {
-        self.presentation = presentation;
+    /// Select who renders the content of this application's instances. Default is
+    /// [`Rendering::Host`].
+    pub fn with_rendering(mut self, rendering: Rendering) -> Self {
+        self.rendering = rendering;
         self
     }
 
@@ -120,8 +120,8 @@ impl Application {
         self.runtime_kind
     }
 
-    pub fn presentation(&self) -> Presentation {
-        self.presentation
+    pub fn rendering(&self) -> Rendering {
+        self.rendering
     }
 
     pub fn tools(&self) -> Option<&ApplicationTools> {

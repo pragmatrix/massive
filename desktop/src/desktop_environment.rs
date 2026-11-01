@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use anyhow::bail;
 use log::error;
 
-use massive_applications::{Application, InstanceContext, Presentation, RuntimeKind};
+use massive_applications::{Application, InstanceContext, Rendering, RuntimeKind};
 use massive_shapes::FontPolicy;
 use massive_shell::{Result, shell};
 
@@ -76,7 +76,7 @@ impl DesktopEnvironment {
             environment.run_desktop(context)
         })
         .with_runtime_kind(RuntimeKind::MultiThread)
-        .with_presentation(Presentation::Windows);
+        .with_rendering(Rendering::Instance);
         shell::run(application, font_policy)
     }
 

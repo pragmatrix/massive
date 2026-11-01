@@ -1,5 +1,5 @@
 //! The windows that an instance opens itself while the shell hosts it, which only an application
-//! with [`Presentation::Windows`](massive_applications::Presentation::Windows) does. The desktop is
+//! with [`Rendering::Instance`](massive_applications::Rendering::Instance) does. The desktop is
 //! such an application.
 
 use anyhow::{Result, anyhow};
