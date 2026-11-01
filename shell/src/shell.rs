@@ -30,6 +30,7 @@ use crate::ApplicationContext;
 use crate::instance_windows::ShellWindows;
 use crate::platform;
 use crate::shell_window::ShellWindowShared;
+use crate::views_host;
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
 /// The OS thread name of the shell's instance.
@@ -144,7 +145,7 @@ fn run_with_tokio(spawner: ApplicationSpawner, font_policy: FontPolicy) -> Resul
 
 /// The contexts of the application task: its change queue, animation clock, movement runtime
 /// and a shaping context over the supplied font manager (ADR 0008).
-fn application_task_context(font_manager: FontManager) -> TaskContext {
+pub(crate) fn application_task_context(font_manager: FontManager) -> TaskContext {
     TaskContext::new(
         AnyCollector::for_type::<SceneChange>(),
         AnimationCoordinator::new(),
@@ -154,22 +155,19 @@ fn application_task_context(font_manager: FontManager) -> TaskContext {
 }
 
 /// What the shell hands to the code that starts its application once the event loop runs.
-struct Startup {
-    proxy: EventLoopProxy<ShellCommand>,
-    event_sender: WeakUnboundedSender<ApplicationMessage>,
-    event_receiver: UnboundedReceiver<ApplicationMessage>,
-    scale_factor: f64,
-    font_manager: FontManager,
+pub(crate) struct Startup {
+    pub(crate) proxy: EventLoopProxy<ShellCommand>,
+    pub(crate) event_sender: WeakUnboundedSender<ApplicationMessage>,
+    pub(crate) event_receiver: UnboundedReceiver<ApplicationMessage>,
+    pub(crate) scale_factor: f64,
+    pub(crate) font_manager: FontManager,
 }
 
 /// Starts the shell's single instance.
 fn start_instance(application: Application, startup: Startup) -> Result<()> {
     match application.presentation() {
         Presentation::Windows => start_instance_drawing_windows(application, startup),
-        Presentation::Views => bail!(
-            "the application '{}' presents views, which the shell cannot host yet",
-            application.name()
-        ),
+        Presentation::Views => views_host::start(application, startup),
     }
 }
 
@@ -204,7 +202,7 @@ fn start_instance_drawing_windows(application: Application, startup: Startup) ->
 
 /// Runs the instance on a dedicated thread (ADR 0009) at the user-interactive priority that the
 /// shell gives its application, and reports the instance's end to the event loop.
-fn spawn_instance_thread(
+pub(crate) fn spawn_instance_thread(
     runtime_kind: RuntimeKind,
     instance: InstanceFuture,
     task_context: TaskContext,
@@ -246,7 +244,7 @@ fn spawn_application<R: Future<Output = Result<()>> + 'static + Send>(
     Ok(())
 }
 
-fn report_application_end(proxy: &EventLoopProxy<ShellCommand>, result: Result<()>) {
+pub(crate) fn report_application_end(proxy: &EventLoopProxy<ShellCommand>, result: Result<()>) {
     if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(result))) =
         proxy.send_event(ShellCommand::ApplicationEnded(result))
     {

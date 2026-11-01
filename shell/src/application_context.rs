@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
 use winit::event_loop::EventLoopProxy;
 
 use massive_applications::task_context;
-use massive_applications::{ApplicationEvent, ApplicationMessage};
+use massive_applications::{ApplicationEvent, ApplicationMessage, ViewId};
 use massive_geometry::SizePx;
 use massive_util::CoalescingReceiver;
 
@@ -51,7 +51,7 @@ impl ApplicationContext {
     /// Creates a new window.
     pub async fn new_window(&self, inner_size: impl Into<SizePx>) -> Result<ShellWindow> {
         ShellWindows::new(self.event_loop_proxy.clone(), self.event_sender.clone())
-            .new_window(inner_size.into())
+            .new_window(ViewId::new(), inner_size.into())
             .await
     }
 

@@ -44,7 +44,7 @@ impl InstanceWindows for InstanceContext {
                      draws its own windows"
                 )
             })?;
-            windows.new_window(inner_size).await
+            windows.new_window(ViewId::new(), inner_size).await
         }
     }
 }
@@ -69,9 +69,9 @@ impl ShellWindows {
         }
     }
 
-    pub async fn new_window(&self, inner_size: SizePx) -> Result<ShellWindow> {
+    /// Creates a window whose events arrive under `view_id`.
+    pub async fn new_window(&self, view_id: ViewId, inner_size: SizePx) -> Result<ShellWindow> {
         let (on_created, when_created) = oneshot::channel();
-        let view_id = ViewId::new();
         let presentation_id = PresentationId::new();
         let attributes = WindowAttributes::default()
             .with_inner_size(PhysicalSize::new(inner_size.width, inner_size.height));
