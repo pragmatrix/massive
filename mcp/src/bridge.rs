@@ -1,16 +1,20 @@
 //! The bridge's MCP server, which serves the tools of the bound tool connection to the agent.
 
 use std::env;
+use std::error::Error;
 use std::path::PathBuf;
+use std::pin::pin;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::info;
+
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     JsonObject, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
+use rmcp::transport::IntoTransport;
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
 use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
@@ -25,7 +29,17 @@ const DEFAULT_PROJECTS_DIR: &str = ".massive";
 /// `target` is a target path from `--target`. Without it, the bridge targets the instance it runs
 /// in, from `MASSIVE_INSTANCE`.
 pub async fn serve(target: Option<String>) -> Result<()> {
-    let (bridge, ended) = match connect(target).await {
+    serve_on(connect(target).await, rmcp::transport::stdio()).await
+}
+
+/// Serves MCP on `transport` for the tool connection `connected`, or offers no tools when the
+/// connection failed.
+async fn serve_on<T, E, A>(connected: Result<Connected, String>, transport: T) -> Result<()>
+where
+    T: IntoTransport<RoleServer, E, A>,
+    E: Error + Send + Sync + 'static,
+{
+    let (bridge, ended) = match connected {
         Ok(Connected {
             client,
             tools,
@@ -39,14 +53,21 @@ pub async fn serve(target: Option<String>) -> Result<()> {
             (Bridge::Unbound { reason }, None)
         }
     };
-    let running = bridge.serve(rmcp::transport::stdio()).await?;
+    let running = bridge.serve(transport).await?;
     match ended {
         Some(ended) => {
+            let cancel = running.cancellation_token();
+            let mut waiting = pin!(running.waiting());
             tokio::select! {
-                result = running.waiting() => { result?; }
+                result = &mut waiting => { result?; }
                 reason = ended => {
                     let reason = reason.context("the tool connection task failed")?;
                     info!("The desktop ended the tool connection: {reason}");
+                    // The tool connection failed every pending call. rmcp writes those answers
+                    // only while its tasks run, and mt's runtime ends when `serve` returns, so
+                    // cancelling and waiting lets rmcp drain them first, as its docs require.
+                    cancel.cancel();
+                    waiting.await?;
                 }
             }
         }
@@ -75,6 +96,7 @@ async fn connect(target: Option<String>) -> Result<Connected, String> {
     connection::open(&socket, target).await
 }
 
+/// The desktop socket, from `MASSIVE_SOCKET` or else the desktop's default projects directory.
 fn socket_path() -> Result<PathBuf> {
     if let Some(socket) = env::var_os("MASSIVE_SOCKET") {
         return Ok(socket.into());
@@ -180,5 +202,63 @@ fn mcp_result(outcome: ToolOutcome) -> CallToolResult {
         ToolOutcome::Err { code, message } => {
             CallToolResult::error(vec![ContentBlock::text(format!("{code}: {message}"))])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixStream;
+
+    use super::*;
+    use crate::connection::tests::close_after_one_call;
+
+    /// When the desktop ends the tool connection, the agent still gets the `connection_closed`
+    /// answer of its pending call before `serve` returns, as mt's current-thread runtime ends
+    /// then. The race this guards against is too narrow to reproduce here, so the test pins the
+    /// behavior, not the race.
+    #[test]
+    fn pending_calls_are_answered_when_the_desktop_ends() {
+        let (mut agent, bridge_end) = tokio::io::duplex(1 << 16);
+        let requests = [
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"t","arguments":{}}}"#,
+        ];
+        let runtime = || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+        };
+
+        let bridge_runtime = runtime();
+        bridge_runtime.block_on(async {
+            for request in requests {
+                agent
+                    .write_all(format!("{request}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            let (connection_end, desktop_end) = UnixStream::pair().unwrap();
+            tokio::spawn(close_after_one_call(desktop_end));
+            let connected = connection::bind(connection_end, Target::Path("/a".into())).await;
+            serve_on(connected, tokio::io::split(bridge_end))
+                .await
+                .unwrap();
+        });
+        // Dropping the runtime drops every task that still holds the transport, as mt's does.
+        drop(bridge_runtime);
+
+        let output = runtime().block_on(async {
+            let mut output = String::new();
+            agent.read_to_string(&mut output).await.unwrap();
+            output
+        });
+        let answer = output
+            .lines()
+            .find(|line| line.contains(r#""id":2"#))
+            .unwrap_or_else(|| panic!("the pending call is answered: {output}"));
+        assert!(answer.contains("connection_closed"), "{answer}");
     }
 }

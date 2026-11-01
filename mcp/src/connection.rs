@@ -93,7 +93,7 @@ fn connect_failed(error: io::Error) -> String {
 
 /// Sends the `Connect` frame for `target` over `stream`, and starts the connection task once the
 /// desktop has bound the connection.
-async fn bind(stream: UnixStream, target: Target) -> Result<Connected, String> {
+pub async fn bind(stream: UnixStream, target: Target) -> Result<Connected, String> {
     let mut frames = frames(stream);
     let connect = Connect::Tools {
         version: v1::VERSION,
@@ -281,7 +281,7 @@ fn too_large() -> ToolOutcome {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::time::Duration;
 
     use super::*;
@@ -330,7 +330,7 @@ mod tests {
 
     /// The desktop's side of one connection: it binds the connection, receives one call, and ends
     /// the connection without answering it.
-    async fn close_after_one_call(stream: UnixStream) {
+    pub async fn close_after_one_call(stream: UnixStream) {
         let mut frames = frames(stream);
         let _: Connect = decode(&frames.next().await.unwrap().unwrap()).unwrap();
         send(&mut frames, &ConnectReply::Connected { tools: Vec::new() })
