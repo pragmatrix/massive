@@ -15,7 +15,7 @@ use massive_shapes::{
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
-use shared::application::{Application, UpdateResponse};
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,7 +39,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
 
     // Scene & application
-    let mut application = Application::default();
+    let mut gestures = GestureTransform::default();
 
     // Logical page size based on layout of shapes (we adjust after computing bounds)
     // We'll build shapes around (0,0) then center them by translating the matrix to the page center.
@@ -206,8 +206,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     let page_width = bounds.size().width.ceil() as u32;
     let page_height = bounds.size().height.ceil() as u32;
 
-    // Center shapes: we shift by -bounds.origin then let Application matrix re-centers page
-    // (Application::matrix already centers by half the page size). So we translate shapes so that
+    // Center shapes: we shift by -bounds.origin then let the gesture transform re-center the page
+    // (GestureTransform::get_transform already centers by half the page size). So we translate shapes so that
     // their local coordinates start at (0,0) relative to bounds.
     let offset_x = -bounds.left;
     let offset_y = -bounds.top;
@@ -259,9 +259,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let transform = application
-        .get_transform((page_width, page_height))
-        .submit();
+    let transform = gestures.get_transform((page_width, page_height)).submit();
     let location = transform.to_location().submit();
 
     let _visual = shapes.at(&location).with_decal_order(0).submit();
@@ -270,12 +268,11 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         for event in ctx.wait_for_events::<Infallible>().await? {
             match event {
                 ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
-                    match application.update(&view_event) {
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    transform
-                        .update_if_changed(application.get_transform((page_width, page_height)));
+                    transform.update_if_changed(gestures.get_transform((page_width, page_height)));
                     renderer.resize_redraw(&view_event)?;
                 }
                 ApplicationEvent::View(..)

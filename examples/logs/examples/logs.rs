@@ -27,8 +27,8 @@ use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
-use shared::application::{Application, UpdateResponse};
 use shared::attributed_text;
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
 
 const FADE_DURATION: Duration = Duration::from_millis(400);
 const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
@@ -151,7 +151,7 @@ enum LogEvent {
 }
 
 struct Logs {
-    application: Application,
+    gestures: GestureTransform,
 
     application_transform: Handle<Transform>,
     layout: Movement<LayoutMovement>,
@@ -164,9 +164,9 @@ struct Logs {
 impl Logs {
     fn new() -> Self {
         let content_width = 1280;
-        let application = Application::default();
+        let gestures = GestureTransform::default();
 
-        let application_transform = application.get_transform((0, 0)).submit();
+        let application_transform = gestures.get_transform((0, 0)).submit();
         let application_location = application_transform.to_location().submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.
@@ -198,7 +198,7 @@ impl Logs {
         .mount();
 
         Self {
-            application,
+            gestures,
             application_transform,
             layout,
             location,
@@ -301,7 +301,7 @@ impl Logs {
             warn!("{view_event:?}");
         }
 
-        match self.application.update(view_event) {
+        match self.gestures.update(view_event) {
             UpdateResponse::Exit => {
                 return UpdateResponse::Exit;
             }
@@ -309,7 +309,7 @@ impl Logs {
         }
 
         self.application_transform
-            .update_if_changed(self.application.get_transform((0, 0)));
+            .update_if_changed(self.gestures.get_transform((0, 0)));
 
         UpdateResponse::Continue
     }

@@ -14,8 +14,8 @@ use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
 use massive_shell::{ApplicationContext, shell};
 
-use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, TextAttribute};
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -92,8 +92,8 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     // Application
 
     let content_size = (1280, height as u32);
-    let mut application = Application::default();
-    let transform = application.get_transform(content_size).submit();
+    let mut gestures = GestureTransform::default();
+    let transform = gestures.get_transform(content_size).submit();
     let position = transform.to_location().submit();
 
     // Hold the submitted visual, otherwise it will disappear.
@@ -108,7 +108,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         for event in ctx.wait_for_events::<Infallible>().await? {
             match event {
                 ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
-                    match application.update(&view_event) {
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
@@ -126,7 +126,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        transform.update_if_changed(application.get_transform(content_size));
+        transform.update_if_changed(gestures.get_transform(content_size));
 
         begin_frame().render_to(&mut renderer)?;
     }

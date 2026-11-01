@@ -25,7 +25,7 @@ use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use shared::application::{Application, UpdateResponse};
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
 
 use markdown::FontBridge;
 
@@ -151,8 +151,8 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     // Application
 
     let content_size = SizePx::new(page_width as _, page_height);
-    let mut application = Application::default();
-    let transform = application.get_transform(content_size).submit();
+    let mut gestures = GestureTransform::default();
+    let transform = gestures.get_transform(content_size).submit();
     let location = transform.to_location().submit();
 
     // Hold the submitted visual, otherwise it will disappear.
@@ -172,7 +172,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
             match event {
                 ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
-                    match application.update(&view_event) {
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
@@ -188,7 +188,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        transform.update_if_changed(application.get_transform(content_size));
+        transform.update_if_changed(gestures.get_transform(content_size));
 
         begin_frame().render_to(&mut renderer)?;
     }

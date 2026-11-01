@@ -32,8 +32,8 @@ use massive_shapes::{FontPolicy, ShapingEngineKind};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
-use shared::application::{Application, UpdateResponse};
 use shared::fonts;
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
 
 use markdown::FontBridge;
 
@@ -98,8 +98,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         markdown,
     )?;
 
-    let mut application = Application::default();
-    let page_transform = application.get_transform(content_size);
+    let mut gestures = GestureTransform::default();
+    let page_transform = gestures.get_transform(content_size);
 
     let transform = page_transform.submit();
     let location = transform.to_location().submit();
@@ -120,7 +120,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
                     info!("View Event: {view_event:?}");
 
-                    match application.update(&view_event) {
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => {
                             info!("Exiting Markdown application");
                             return Ok(());
@@ -128,7 +128,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                         UpdateResponse::Continue => {}
                     }
 
-                    transform.update_if_changed(application.get_transform(content_size));
+                    transform.update_if_changed(gestures.get_transform(content_size));
                     renderer.resize_redraw(&view_event)?;
                 }
                 ApplicationEvent::View(..)

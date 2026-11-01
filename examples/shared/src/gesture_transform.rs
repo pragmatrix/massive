@@ -9,8 +9,12 @@ enum ActiveGesture {
     Rotation(RotationGesture),
 }
 
+/// The transform an example applies to its content, driven by the user's gestures in the view.
+///
+/// Dragging with the left mouse button moves the content, and with Cmd held it rotates the content.
+/// The mouse wheel moves it along z. Escape or a close request ends the example.
 #[derive(Default)]
-pub struct Application {
+pub struct GestureTransform {
     gesture: Option<ActiveGesture>,
 
     position: Option<VectorPx>,
@@ -42,7 +46,7 @@ pub enum UpdateResponse {
     Exit,
 }
 
-impl Application {
+impl GestureTransform {
     #[must_use]
     pub fn update(&mut self, view_event: &ViewEvent) -> UpdateResponse {
         match view_event {
