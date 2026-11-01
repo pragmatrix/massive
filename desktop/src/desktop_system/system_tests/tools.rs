@@ -3,13 +3,16 @@ use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolOutcome;
 
 use super::*;
+use crate::application_registry::ApplicationRegistry;
 use crate::desktop_system::change::DesktopSystemEffect;
 use crate::desktop_system::selection::Selection;
-use crate::tools::{DesktopTools, ToolCallPlan};
+use crate::tools::{DesktopTools, ToolCallPlan, ToolCatalog};
+
+use self::tool_client::{connect, receive, send};
 
 /// Makes the project `path` an MCP root that grants `access_scopes`, and returns the transaction's
 /// system effects.
-fn configure_mcp(
+pub fn configure_mcp(
     system: &mut DesktopSystem,
     instance_manager: &mut InstanceManager,
     path: &str,
@@ -53,24 +56,25 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
 
         let inside = Target::Instance(instance_a.to_string());
         let outside = Target::Instance(instance_b.to_string());
+        let catalog = desktop_catalog();
         let missing = Target::Path("/nowhere".into());
         let bound = DesktopTools::new(&system)
-            .bind_connection(&inside)
+            .bind_connection(&inside, &catalog)
             .expect("labs-a covers instance a");
         assert!(bound.tools.is_empty(), "nothing is granted yet");
         assert!(
             DesktopTools::new(&system)
-                .bind_connection(&outside)
+                .bind_connection(&outside, &catalog)
                 .is_none()
         );
         assert!(
             DesktopTools::new(&system)
-                .bind_connection(&missing)
+                .bind_connection(&missing, &catalog)
                 .is_none()
         );
         assert_eq!(
             DesktopTools::new(&system)
-                .bind_connection(&Target::Path("/labs-a/shell-a".into()))
+                .bind_connection(&Target::Path("/labs-a/shell-a".into()), &catalog)
                 .map(|bound| bound.root),
             Some(bound.root)
         );
@@ -106,39 +110,15 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
 #[tokio::test]
 async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_root_changes()
 -> Result<()> {
-    use futures::{SinkExt, StreamExt};
-    use massive_protocol::tools::v1::{self, ClientMessage, ConnectReply, HostMessage};
-    use massive_protocol::{Connect, Frames, decode, encode, frames};
+    use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage};
 
     use crate::tools::ToolHost;
-
-    async fn send(frames: &mut Frames, message: &impl serde::Serialize) {
-        frames
-            .send(tokio_util::bytes::Bytes::from(encode(message).unwrap()))
-            .await
-            .unwrap();
-    }
-
-    async fn receive<T: serde::de::DeserializeOwned>(frames: &mut Frames) -> T {
-        decode(&frames.next().await.unwrap().unwrap()).unwrap()
-    }
-
-    async fn connect(socket: &Path, target: &str) -> (Frames, ConnectReply) {
-        let stream = tokio::net::UnixStream::connect(socket).await.unwrap();
-        let mut frames = frames(stream);
-        let connect = Connect::Tools {
-            version: v1::VERSION,
-            target: Target::Path(target.into()),
-        };
-        send(&mut frames, &connect).await;
-        let reply = receive(&mut frames).await;
-        (frames, reply)
-    }
 
     /// Answers the tool host's requests from `system` until `client` is done.
     async fn serve_until<T>(
         tool_host: &mut ToolHost,
         system: &DesktopSystem,
+        instances: &InstanceManager,
         client: impl Future<Output = T>,
     ) -> T {
         tokio::pin!(client);
@@ -146,7 +126,7 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
             tokio::select! {
                 result = &mut client => return result,
                 Some(request) = tool_host.next_request() => {
-                    let issued = tool_host.answer(request, system);
+                    let issued = tool_host.answer(request, system, instances);
                     assert!(issued.is_none(), "describing issues no command");
                 }
             }
@@ -167,27 +147,34 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
         )?;
         let directory = tempfile::tempdir()?;
         let socket = directory.path().join("run").join("desktop.sock");
-        let mut tool_host = ToolHost::listen(socket.clone())?;
+        let mut tool_host = ToolHost::listen(socket.clone(), desktop_catalog())?;
 
-        let (_, declined) = serve_until(&mut tool_host, &system, connect(&socket, "/labs-b")).await;
+        let (_, declined) = serve_until(
+            &mut tool_host,
+            &system,
+            &instance_manager,
+            connect(&socket, "/labs-b"),
+        )
+        .await;
         assert!(matches!(declined, ConnectReply::Declined { .. }));
 
-        let (mut frames, described) = serve_until(&mut tool_host, &system, async {
-            let (mut frames, connected) = connect(&socket, "/labs-a").await;
-            let ConnectReply::Connected { tools } = connected else {
-                panic!("labs-a is an MCP root");
-            };
-            assert_eq!(tools.len(), 1);
-            let call = ClientMessage::CallTool {
-                call_id: 7,
-                tool: tools[0].name.clone(),
-                arguments: "{}".into(),
-            };
-            send(&mut frames, &call).await;
-            let result = receive(&mut frames).await;
-            (frames, result)
-        })
-        .await;
+        let (mut frames, described) =
+            serve_until(&mut tool_host, &system, &instance_manager, async {
+                let (mut frames, connected) = connect(&socket, "/labs-a").await;
+                let ConnectReply::Connected { tools } = connected else {
+                    panic!("labs-a is an MCP root");
+                };
+                assert_eq!(tools.len(), 1);
+                let call = ClientMessage::CallTool {
+                    call_id: 7,
+                    tool: tools[0].name.clone(),
+                    arguments: "{}".into(),
+                };
+                send(&mut frames, &call).await;
+                let result = receive(&mut frames).await;
+                (frames, result)
+            })
+            .await;
         let HostMessage::ToolResult {
             call_id: 7,
             outcome: ToolOutcome::Ok(described),
@@ -201,7 +188,7 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
         let [DesktopSystemEffect::McpRootsChanged(changed)] = effects.as_slice() else {
             panic!("reconfiguring an MCP root changes it: {effects:?}");
         };
-        tool_host.mcp_roots_changed(changed);
+        tool_host.mcp_roots_changed(changed, &instance_manager);
         // A connection that is not closed would wait forever, so the wait is bounded.
         let closing = tokio::time::timeout(
             std::time::Duration::from_secs(5),
@@ -792,6 +779,11 @@ async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
 
 /// Calls `tool` through a connection bound to `root` and carries out its command as the desktop
 /// loop does, and returns the result.
+/// The catalog of a desktop without applications that declare tools.
+fn desktop_catalog() -> ToolCatalog {
+    ToolCatalog::new(&ApplicationRegistry::new(Vec::new()))
+}
+
 fn carry_out(
     system: &mut DesktopSystem,
     instance_manager: &mut InstanceManager,
@@ -873,5 +865,37 @@ fn error_code(system: &DesktopSystem, plan: ToolCallPlan) -> String {
     match outcome(system, plan) {
         ToolOutcome::Err { code, .. } => code,
         other => panic!("expected a tool error, found {other:?}"),
+    }
+}
+
+/// A tool client on the desktop socket, as `massive-mcp` is one.
+pub mod tool_client {
+    use std::path::Path;
+
+    use futures::{SinkExt, StreamExt};
+    use massive_protocol::tools::v1::{self, ConnectReply};
+    use massive_protocol::{Connect, Frames, Target, decode, encode, frames};
+
+    pub async fn send(frames: &mut Frames, message: &impl serde::Serialize) {
+        frames
+            .send(tokio_util::bytes::Bytes::from(encode(message).unwrap()))
+            .await
+            .unwrap();
+    }
+
+    pub async fn receive<T: serde::de::DeserializeOwned>(frames: &mut Frames) -> T {
+        decode(&frames.next().await.unwrap().unwrap()).unwrap()
+    }
+
+    pub async fn connect(socket: &Path, target: &str) -> (Frames, ConnectReply) {
+        let stream = tokio::net::UnixStream::connect(socket).await.unwrap();
+        let mut frames = frames(stream);
+        let connect = Connect::Tools {
+            version: v1::VERSION,
+            target: Target::Path(target.into()),
+        };
+        send(&mut frames, &connect).await;
+        let reply = receive(&mut frames).await;
+        (frames, reply)
     }
 }

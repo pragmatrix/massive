@@ -10,7 +10,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio_util::bytes::{Bytes, BytesMut};
 
-use massive_protocol::tools::v1::{self, ClientMessage, ConnectReply, HostMessage, ToolOutcome};
+use massive_protocol::tools::v1::{
+    self, ClientMessage, ConnectReply, HostMessage, ToolDescription, ToolOutcome,
+};
 use massive_protocol::{Connect, Frames, MAX_FRAME_LENGTH, decode, encode, frames};
 
 use super::{BindingId, ConnectOutcome, ToolRequest};
@@ -39,22 +41,31 @@ async fn run(frames: &mut Frames, requests: &UnboundedSender<ToolRequest>) -> Re
 
     let (reply, outcome) = oneshot::channel();
     requests.send(ToolRequest::Connect { target, reply })?;
-    let (binding, closing) = match outcome.await? {
+    match outcome.await? {
         ConnectOutcome::Bound {
             binding,
             tools,
             closing,
         } => {
-            let connected = ConnectReply::Connected { tools };
-            send(frames, &connected).await?;
-            (binding, closing)
+            let served = serve_bound(frames, requests, binding, tools, closing).await;
+            // A desktop that quits no longer listens.
+            let _ = requests.send(ToolRequest::Disconnected { binding });
+            served
         }
         ConnectOutcome::Declined { reason } => {
-            send(frames, &ConnectReply::Declined { reason }).await?;
-            return Ok(());
+            send(frames, &ConnectReply::Declined { reason }).await
         }
-    };
+    }
+}
 
+async fn serve_bound(
+    frames: &mut Frames,
+    requests: &UnboundedSender<ToolRequest>,
+    binding: BindingId,
+    tools: Vec<ToolDescription>,
+    closing: oneshot::Receiver<String>,
+) -> Result<()> {
+    send(frames, &ConnectReply::Connected { tools }).await?;
     serve_calls(frames, requests, binding, closing).await
 }
 
@@ -76,12 +87,18 @@ async fn serve_calls(
                 match decode(&frame?)? {
                     ClientMessage::CallTool { call_id, tool, arguments } => {
                         let (reply, outcome) = oneshot::channel();
-                        requests.send(ToolRequest::CallTool { binding, tool, arguments, reply })?;
+                        requests.send(ToolRequest::CallTool {
+                            binding,
+                            call_id,
+                            tool,
+                            arguments,
+                            reply,
+                        })?;
                         pending.push(async move { (call_id, outcome.await) });
                     }
-                    // Desktop tools finish within one desktop loop turn, so there is nothing to
-                    // cancel yet. Application tools will forward it (ADR 0036).
-                    ClientMessage::CancelTool { .. } => {}
+                    ClientMessage::CancelTool { call_id } => {
+                        requests.send(ToolRequest::CancelTool { binding, call_id })?;
+                    }
                 }
             }
             Some((call_id, outcome)) = pending.next() => {

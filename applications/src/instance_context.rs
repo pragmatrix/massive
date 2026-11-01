@@ -2,6 +2,7 @@
 
 use anyhow::{Result, bail};
 use log::{error, trace, warn};
+use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_renderer::RenderPacing;
@@ -12,7 +13,8 @@ use crate::prelude::*;
 use crate::view_builder::ViewBuilder;
 use crate::{
     ApplicationEvent, ApplicationMessage, ConfigurationRequest, FrameSubmission, InstanceChange,
-    InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, ViewExtent,
+    InstanceEnvironment, InstanceId, InstanceOutput, InstanceParameters, InstanceSubmission,
+    ToolCallId, ToolError, ViewExtent, encode_result,
 };
 use crate::{pacing_for, task_context};
 
@@ -126,6 +128,20 @@ impl InstanceContext {
         submit(InstanceChange::Configuration(request));
     }
 
+    /// Answers a tool call. The answer is sent at once, apart from the collected changes, so a
+    /// waiting agent does not depend on the next frame. A call may be answered long after it arrived
+    /// (ADR 0036).
+    pub fn answer_tool_call(
+        &self,
+        call_id: ToolCallId,
+        result: Result<impl Serialize, ToolError>,
+    ) -> Result<()> {
+        self.send(InstanceOutput::ToolResult {
+            call_id,
+            outcome: result.map(|output| encode_result(&output)),
+        })
+    }
+
     pub fn submit(&mut self, submission: FrameSubmission<InstanceChange>) -> Result<()> {
         let (changes, pacing) = submission.into_parts();
         self.submit_changes(changes, pacing)
@@ -153,20 +169,20 @@ impl InstanceContext {
             self.id
         );
 
-        let submission = InstanceSubmission::new(changes, pacing);
-        if let Err(e) = self
-            .environment
-            .submission_sender
-            .send((self.id, submission))
-        {
+        self.send(InstanceOutput::Submission(InstanceSubmission::new(
+            changes, pacing,
+        )))?;
+        self.last_submitted_pacing = pacing;
+        Ok(())
+    }
+
+    fn send(&self, output: InstanceOutput) -> Result<()> {
+        if let Err(e) = self.environment.output_sender.send((self.id, output)) {
             bail!(
-                "Failed to submit instance changes because the desktop submission receiver is closed: instance={:?}, changes={change_count}, err: {e:?}",
+                "Failed to send instance output because the desktop's receiver is closed: instance={:?}, err: {e:?}",
                 self.id
             );
         }
-
-        self.last_submitted_pacing = pacing;
-
         Ok(())
     }
 }

@@ -153,3 +153,22 @@ pub fn creating_launcher(sets_params: bool, granted: &AccessScopes) -> CreatingL
     }
     CreatingLauncher::Allow
 }
+
+/// Whether a call of an application's tool may reach the instance it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForwardingCall {
+    Forward,
+    /// Only the application that declares a tool decodes its arguments, so an instance of another
+    /// application never receives them.
+    RefuseOtherApplication,
+}
+
+/// `runs_declaring_application` tells whether the named instance runs the application that
+/// declares the tool.
+#[must_use]
+pub fn forwarding_call(runs_declaring_application: bool) -> ForwardingCall {
+    if runs_declaring_application {
+        return ForwardingCall::Forward;
+    }
+    ForwardingCall::RefuseOtherApplication
+}

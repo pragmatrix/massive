@@ -523,6 +523,12 @@ impl DesktopSystem {
             .unwrap_or_default()
     }
 
+    /// The name of the application `instance` runs. Every instance runs the primary application,
+    /// because instances are spawned from it.
+    pub fn instance_application(&self, _instance: InstanceId) -> &str {
+        &self.env.primary_application
+    }
+
     fn instance_presenter(&self, instance: InstanceId) -> &InstancePresenter {
         self.aggregates
             .instances

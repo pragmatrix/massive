@@ -5,7 +5,9 @@ use std::path::Path;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
-use massive_applications::{InstanceChange, InstanceEnvironment, InstanceSubmission, ViewRole};
+use massive_applications::{
+    InstanceChange, InstanceEnvironment, InstanceOutput, InstanceSubmission, ViewRole,
+};
 use massive_geometry::{Rect, RectPx, SizePx};
 use massive_renderer::{FontManager, ShapingEngineKind};
 use massive_scene::{AnyCollector, SceneChange};
@@ -26,6 +28,7 @@ use crate::projects::persistence::parse_configuration;
 use crate::projects::{SlotAssignment, SlotContent, SlotPosition};
 use crate::window_state::WindowState;
 
+mod application_tools;
 mod camera;
 mod configuration;
 mod focus;
@@ -147,7 +150,7 @@ fn task_context() -> TaskContext {
 
 fn system() -> (
     DesktopSystem,
-    UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) {
     system_from(CONFIG)
 }
@@ -156,7 +159,7 @@ fn system_from(
     config: &str,
 ) -> (
     DesktopSystem,
-    UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) {
     let (_sender, receiver) = unbounded_channel();
     let environment = DesktopEnvironment {
@@ -177,7 +180,7 @@ fn system_from(
 }
 
 fn instance_manager(
-    _receiver: &UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    _receiver: &UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) -> InstanceManager {
     let (sender, _receiver) = unbounded_channel();
     InstanceManager::new(InstanceEnvironment::new(

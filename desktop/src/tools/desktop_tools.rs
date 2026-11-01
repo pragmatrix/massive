@@ -1,5 +1,5 @@
 //! The desktop as a tool provider (ADR 0036): binding a tool connection to the MCP root that covers
-//! its target, and carrying out the desktop's tools. `docs/mcp-desktop-tools.md` specifies every
+//! its target, carrying out the desktop's tools, and checking the calls it forwards to instances. `docs/mcp-desktop-tools.md` specifies every
 //! tool, and [`schema`] holds the types an agent sees.
 
 mod schema;
@@ -7,15 +7,17 @@ mod schema;
 use std::sync::LazyLock;
 
 use serde::Serialize;
+use serde_json::{Map, Value};
 
 use massive_applications::{
     AccessScope, AccessScopes, InstanceId, McpId, ToolDeclaration, ToolError, ToolErrorCode,
-    ToolResultJson, decode_arguments, encode_result, tool_name,
+    ToolName, ToolResultJson, decode_arguments, encode_result, tool_name,
 };
 use massive_protocol::Target;
 use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
 
 use self::schema::*;
+use super::{ApplicationTool, ToolCatalog};
 use crate::desktop_system::{
     ConfigurationCommand, DesktopCommand, DesktopSystem, FocusIntent, RunningInstances,
 };
@@ -25,7 +27,8 @@ use crate::projects::{
     SlotContent, SlotPosition,
 };
 use crate::security::{
-    self, CallingTool, ConnectingToTarget, CreatingLauncher, NamingSlot, NamingTarget,
+    self, CallingTool, ConnectingToTarget, CreatingLauncher, ForwardingCall, NamingSlot,
+    NamingTarget,
 };
 
 /// The MCP root a tool connection is bound to, and the tools its access scopes grant.
@@ -49,6 +52,15 @@ pub enum ToolCallPlan {
     },
 }
 
+/// A checked call of an application's tool, which goes to `instance`. `arguments` no longer contain
+/// the `instance_id` that routed it.
+#[derive(Debug)]
+pub struct InstanceCall {
+    pub instance: InstanceId,
+    pub tool: ToolName,
+    pub arguments: String,
+}
+
 /// The desktop's tools over the desktop state they read. The desktop system plans and carries out
 /// the commands a tool issues, so this view only reads.
 #[derive(Debug)]
@@ -62,7 +74,11 @@ impl<'a> DesktopTools<'a> {
     }
 
     /// Binds a tool connection to the MCP root that covers `target`, or `None` to decline it.
-    pub fn bind_connection(&self, target: &Target) -> Option<ToolConnectionRoot> {
+    pub fn bind_connection(
+        &self,
+        target: &Target,
+        catalog: &ToolCatalog,
+    ) -> Option<ToolConnectionRoot> {
         let covering_mcp_root = self
             .target_project(target)
             .and_then(|project| self.system.configuration().mcp_root_of(project));
@@ -70,19 +86,9 @@ impl<'a> DesktopTools<'a> {
             ConnectingToTarget::Bind(root) => root,
             ConnectingToTarget::Decline => return None,
         };
-        let granted = self.granted_access_scopes(root);
         Some(ToolConnectionRoot {
             root,
-            tools: DESKTOP_TOOLS
-                .iter()
-                .filter(|(_, declaration)| granted.contains(&declaration.access_scope))
-                .map(|(_, declaration)| ToolDescription {
-                    name: declaration.name.to_string(),
-                    description: declaration.description.clone(),
-                    input_schema: declaration.input_schema.as_value().to_string(),
-                    output_schema: declaration.output_schema.as_value().to_string(),
-                })
-                .collect(),
+            tools: catalog.granted(self.granted_access_scopes(root)),
         })
     }
 
@@ -95,6 +101,38 @@ impl<'a> DesktopTools<'a> {
                 code: code.name().into(),
                 message,
             }),
+        }
+    }
+
+    /// Checks a call of an application's tool on the MCP root `root`. The call may reach the
+    /// instance its `instance_id` names, if the MCP root covers it and it runs the application that
+    /// declares the tool.
+    pub fn forward_call(
+        &self,
+        root: ProjectId,
+        tool: &ApplicationTool,
+        arguments: &str,
+    ) -> Result<InstanceCall, ToolError> {
+        self.allow_scope(root, tool.access_scope, "the tool needs it")?;
+        let mut arguments: Map<String, Value> = decode_arguments(arguments)?;
+        let Some(Value::String(instance_id)) = arguments.remove("instance_id") else {
+            return Err(invalid_argument(
+                "The argument 'instance_id' names the instance to call.",
+            ));
+        };
+        let instance = self.covered_instance(root, &instance_id)?;
+        let runs_declaring_application =
+            self.system.instance_application(instance) == tool.application;
+        match security::forwarding_call(runs_declaring_application) {
+            ForwardingCall::Forward => Ok(InstanceCall {
+                instance,
+                tool: tool.name,
+                arguments: Value::Object(arguments).to_string(),
+            }),
+            ForwardingCall::RefuseOtherApplication => Err(invalid_argument(&format!(
+                "The instance '{instance_id}' does not provide the tool '{}'.",
+                tool.name
+            ))),
         }
     }
 
@@ -483,6 +521,11 @@ fn invalid_argument(message: &str) -> ToolError {
         code: ToolErrorCode::InvalidArgument,
         message: message.into(),
     }
+}
+
+/// The declarations of the desktop's tools, for the [`ToolCatalog`].
+pub fn declarations() -> impl Iterator<Item = &'static ToolDeclaration> {
+    DESKTOP_TOOLS.iter().map(|(_, declaration)| declaration)
 }
 
 /// The desktop's tools, declared once, because their schemas never change.

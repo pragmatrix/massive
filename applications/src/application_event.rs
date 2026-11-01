@@ -4,7 +4,9 @@ use winit::event::DeviceId;
 
 use massive_util::CoalescingKey;
 
-use crate::{InstanceId, PresentationId, PresentationTick, ViewEvent, ViewId};
+use crate::{
+    InstanceId, PresentationId, PresentationTick, ToolCall, ToolCallId, ViewEvent, ViewId,
+};
 
 #[derive(Debug, Clone)]
 pub enum ApplicationEvent<T> {
@@ -12,6 +14,10 @@ pub enum ApplicationEvent<T> {
     ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
+    /// Only instances receive tool calls (ADR 0036). The shell never sends them to its application.
+    ToolCall(ToolCall),
+    /// The agent cancelled the call, or its tool connection closed. The instance may still answer.
+    CancelToolCall(ToolCallId),
     Custom(T),
 }
 
@@ -21,6 +27,8 @@ pub enum ApplicationMessage {
     ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
+    ToolCall(ToolCall),
+    CancelToolCall(ToolCallId),
 }
 
 impl<T> From<ApplicationMessage> for ApplicationEvent<T> {
@@ -30,6 +38,8 @@ impl<T> From<ApplicationMessage> for ApplicationEvent<T> {
             ApplicationMessage::ApplyAnimations(tick) => Self::ApplyAnimations(tick),
             ApplicationMessage::FullscreenRequested => Self::FullscreenRequested,
             ApplicationMessage::Shutdown(instance_id) => Self::Shutdown(instance_id),
+            ApplicationMessage::ToolCall(call) => Self::ToolCall(call),
+            ApplicationMessage::CancelToolCall(call_id) => Self::CancelToolCall(call_id),
         }
     }
 }
@@ -60,7 +70,9 @@ impl CoalescingKey for ApplicationMessage {
             ApplicationMessage::ApplyAnimations(tick) => Some(
                 ApplicationEventCoalescingKey::ApplyAnimations(tick.presentation_id),
             ),
-            ApplicationMessage::Shutdown(_) => None,
+            ApplicationMessage::Shutdown(_)
+            | ApplicationMessage::ToolCall(_)
+            | ApplicationMessage::CancelToolCall(_) => None,
         }
     }
 }

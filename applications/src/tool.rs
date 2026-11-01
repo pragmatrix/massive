@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use derive_more::Into;
+use derive_more::{From, Into};
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -61,6 +61,10 @@ impl ToolName {
             "a tool name joined from its provider's MCP id and its own is at most 48 characters"
         );
         Self { provider, tool }
+    }
+
+    pub fn provider(self) -> McpId {
+        self.provider
     }
 
     /// Whether `name` is this tool name, as a tool call names it.
@@ -150,6 +154,36 @@ macro_rules! mcp_id {
     };
 }
 
+/// A call of one of an application's tools, which the desktop forwards to the instance it names
+/// (ADR 0036). The desktop has already checked the call, so the instance only matches `tool` and
+/// decodes the arguments. It answers with [`crate::InstanceContext::answer_tool_call`].
+#[derive(Debug, Clone)]
+pub struct ToolCall {
+    pub id: ToolCallId,
+    pub tool: ToolName,
+    arguments: String,
+}
+
+impl ToolCall {
+    /// `arguments` is a JSON object as text, without the `instance_id` that routed the call.
+    pub fn new(id: ToolCallId, tool: ToolName, arguments: String) -> Self {
+        Self {
+            id,
+            tool,
+            arguments,
+        }
+    }
+
+    pub fn decode<Params: DeserializeOwned>(&self) -> Result<Params, ToolError> {
+        decode_arguments(&self.arguments)
+    }
+}
+
+/// Identifies a tool call the desktop forwarded to an instance. The desktop chooses it, because the
+/// call ids of different tool connections may collide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
+pub struct ToolCallId(u64);
+
 /// Decodes a tool call's arguments into the tool's parameter type. serde_json keeps its default
 /// nesting limit, so deeply nested arguments fail instead of exhausting the stack.
 pub fn decode_arguments<Params: DeserializeOwned>(arguments: &str) -> Result<Params, ToolError> {
@@ -203,5 +237,34 @@ impl ToolErrorCode {
 impl fmt::Display for ToolErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::*;
+
+    #[derive(Debug, Deserialize)]
+    struct Params {
+        #[expect(dead_code)]
+        text: String,
+    }
+
+    /// An agent controls the arguments, so no input may panic or exhaust the stack. Deep nesting
+    /// in an ignored field still recurses, and serde_json's nesting limit stops it.
+    #[test]
+    fn malformed_arguments_fail_with_invalid_argument() {
+        let deeply_nested = format!(r#"{{"text":"","x":{}}}"#, "[".repeat(100_000));
+        for arguments in ["", "not json", r#"{"text":1}"#, &deeply_nested] {
+            let call = ToolCall::new(
+                7.into(),
+                tool_name!(McpId::DESKTOP, "test"),
+                arguments.into(),
+            );
+            let error = call.decode::<Params>().expect_err(arguments);
+            assert_eq!(error.code, ToolErrorCode::InvalidArgument);
+        }
     }
 }

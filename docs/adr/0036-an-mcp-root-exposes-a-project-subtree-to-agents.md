@@ -261,15 +261,20 @@ therefore reorganize a project next to the user without pulling the user's view 
 
 ### Applications answer calls
 
-**A tool call reaches the application as a message, and its result returns as an instance
-change.** The desktop delivers `ApplicationMessage::ToolCall { call_id, tool, arguments }` to the
-instance. That message is never coalesced and stays ordered with the instance's input events. The
-tool API decodes it before the application sees it. The application answers through the tool API,
-which submits `InstanceChange::ToolResult { call_id, outcome }` immediately.
+**A tool call reaches the application as a message, and its result returns with the instance's
+output.** The desktop delivers `ApplicationMessage::ToolCall` to the instance. The desktop chooses
+the call's id, because the call ids of different tool connections may collide. That message is never
+coalesced and stays ordered with the instance's input events. The tool API decodes the arguments
+into the tool's parameter type when the application asks for them. The application answers through
+`InstanceContext::answer_tool_call`, which sends `InstanceOutput::ToolResult { call_id, outcome }`
+at once, on the channel that carries the instance's submissions. The result therefore stays ordered
+with everything the instance submitted before it. The desktop loop hands the result to the tool
+host, so the desktop system never sees it.
 
 **A tool call may take as long as it needs.** The desktop sets no deadline. A call ends when the
-application answers, when the agent cancels it, or when the tool connection closes. The desktop
-sends `ApplicationMessage::CancelToolCall { call_id }` in the last two cases. A tool that waits takes
+application answers, when the instance ends, or when the tool connection closes. The desktop sends
+`ApplicationMessage::CancelToolCall { call_id }` when the agent cancels the call and when the tool
+connection closes. After the agent's cancel, the application may still answer. A tool that waits takes
 its own `timeout_ms` argument, and the application enforces a maximum. An application keeps a
 waiting call pending without blocking its event loop, and several calls may be in flight per
 instance. Detecting an application that hangs belongs to the out-of-process applications plan.
