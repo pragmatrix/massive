@@ -578,9 +578,17 @@ impl DesktopSystem {
             DesktopChange::Project(project_change) => {
                 // A change elsewhere leaves the selection's slots where they are, so an agent
                 // working in another project does not take the user's selection away (ADR 0036).
+                // Ungrouping also moves the slots of the project it removes.
+                let ungrouped = match &project_change {
+                    ConfigurationChange::Ungroup { parent, slot } => {
+                        self.aggregates.configuration.content_at(*parent, *slot)
+                    }
+                    _ => None,
+                };
                 let under_selection = !project_change.keeps_selection()
                     && self.project_holding_selection().is_some_and(|holding| {
                         project_change.touched_projects().contains(&holding)
+                            || ungrouped == Some(SlotContent::Project(holding))
                     });
                 let configuration_impact = if under_selection {
                     ConfigurationImpact::ChangedUnderSelection

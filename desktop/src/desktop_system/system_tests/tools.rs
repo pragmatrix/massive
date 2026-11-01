@@ -535,6 +535,86 @@ async fn a_slot_tool_leaves_a_selection_in_another_project_alone() -> Result<()>
     .await
 }
 
+/// An agent that ungroups the project holding the user's selection moves the selected slots, so
+/// the selection collapses, even though the agent keeps the focus where it is.
+#[tokio::test]
+async fn ungrouping_the_project_that_holds_the_selection_collapses_it() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let ToolCallPlan::Issue { command, result } = assign_project(&system, labs_a, labs_a, 1)
+        else {
+            panic!("assigning inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+        let inner = created_project(&result);
+        for column in [0, 1] {
+            let arguments = serde_json::json!({
+                "slot": {
+                    "project_id": uuid::Uuid::from(inner).to_string(),
+                    "position": { "column": column, "row": 0 }
+                },
+                "content": { "launcher": { "name": "shell" } }
+            });
+            let ToolCallPlan::Issue { command, .. } = DesktopTools::new(&system).call(
+                labs_a,
+                "desktop_assign_slot",
+                &tool_arguments(arguments),
+            ) else {
+                panic!("assigning a launcher inside the MCP root issues a command");
+            };
+            run(&mut system, &mut instance_manager, command)?;
+        }
+        let Some(SlotContent::Launcher(first)) = system
+            .aggregates
+            .configuration
+            .content_at(inner, SlotPosition { column: 0, row: 0 })
+        else {
+            panic!("the first launcher sits in the inner project");
+        };
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Launcher(first)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        run(
+            &mut system,
+            &mut instance_manager,
+            DesktopCommand::ExtendSelection(Direction::Right),
+        )?;
+        assert_eq!(
+            system.selection,
+            Selection::from_diagonal(euclid::vec2(1, 0)),
+            "the selection covers both launchers"
+        );
+
+        let arguments = serde_json::json!({ "project_id": uuid::Uuid::from(inner).to_string() });
+        let ToolCallPlan::Issue { command, .. } =
+            DesktopTools::new(&system).call(labs_a, "desktop_ungroup", &tool_arguments(arguments))
+        else {
+            panic!("ungrouping inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+
+        assert_eq!(system.selection, Selection::default());
+        Ok(())
+    })
+    .await
+}
+
 /// A slot tool refuses a call that would change nothing, so an agent never takes a no-op for a
 /// success: clearing an unassigned slot, and pushing past the matrix's edge.
 #[tokio::test]
