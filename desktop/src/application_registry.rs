@@ -16,7 +16,7 @@ impl ApplicationRegistry {
     ///
     /// Fails when two applications share a name or an MCP id, or when one uses the desktop's MCP id
     /// (ADR 0036). The applications come from the client's crate, such as mt's, so a mistake in them
-    /// is the client's error, which startup reports with a message instead of a panic.
+    /// is the client's, and startup reports it as an error the client can show.
     pub fn new(applications: Vec<Application>) -> Result<Self> {
         let mut providers = HashMap::new();
         for application in &applications {

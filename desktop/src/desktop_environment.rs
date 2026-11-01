@@ -11,7 +11,7 @@ use crate::{Application, application_registry::ApplicationRegistry, desktop::Des
 #[derive(Debug)]
 pub struct DesktopEnvironment {
     pub primary_application: String,
-    pub applications: ApplicationRegistry,
+    pub(crate) applications: ApplicationRegistry,
     /// Every tool agents can call, built from `applications` (ADR 0036).
     pub(crate) tool_catalog: ToolCatalog,
     /// The directory pointing to the project directory. This is usually a subdirectory under the

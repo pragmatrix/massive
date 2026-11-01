@@ -525,11 +525,14 @@ pub fn declarations() -> impl Iterator<Item = (ToolName, &'static ToolDeclaratio
         .map(|(_, name, declaration)| (*name, declaration))
 }
 
-/// The desktop's tools, declared once, because their schemas never change. Their names come from
-/// massive itself, so one too long for the limit is a bug of massive.
+/// The desktop's tools, declared once, because their schemas never change.
 static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolName, ToolDeclaration)>> =
-    LazyLock::new(|| {
-        [
+    LazyLock::new(desktop_tools);
+
+/// Declares the desktop's tools and joins their names. Their names come from massive itself, so one
+/// too long for the limit is a bug of massive.
+fn desktop_tools() -> Vec<(DesktopTool, ToolName, ToolDeclaration)> {
+    let declarations = [
         (
             DesktopTool::Describe,
             ToolDeclaration::new::<DescribeParams, ProjectDescription>(
@@ -615,15 +618,16 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolName, ToolDeclaration)>> =
                  its way.",
             ),
         ),
-    ]
-    .into_iter()
-    .map(|(tool, declaration)| {
-        let name = ToolName::join(McpId::DESKTOP, declaration.tool)
-            .expect("the desktop's tool names fit the length limit");
-        (tool, name, declaration)
-    })
-    .collect()
-    });
+    ];
+    declarations
+        .into_iter()
+        .map(|(tool, declaration)| {
+            let name = ToolName::join(McpId::DESKTOP, declaration.tool)
+                .expect("the desktop's tool names fit the length limit");
+            (tool, name, declaration)
+        })
+        .collect()
+}
 
 #[derive(Debug, Clone, Copy)]
 enum DesktopTool {

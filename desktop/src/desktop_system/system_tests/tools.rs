@@ -747,10 +747,10 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
     .await
 }
 
-/// A tool that names an instance reaches only the instances its MCP root covers, and the MCP root itself cannot
-/// be ungrouped, because its slots would leave the covered subtree (ADR 0036).
+/// A tool that names an instance reaches only the instances its MCP root covers, and the MCP root
+/// itself cannot be ungrouped, because its slots would leave the covered subtree (ADR 0036).
 #[tokio::test]
-async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
+async fn a_tool_that_names_an_instance_reaches_only_covered_instances() -> Result<()> {
     task_context::with_context(task_context(), async {
         let NestedSiblings {
             mut system,

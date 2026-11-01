@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
-use massive_applications::{AccessScope, AccessScopes, ToolDeclaration, ToolName};
+use massive_applications::{AccessScope, AccessScopes, ToolDeclaration, ToolName, ToolNameTooLong};
 use massive_protocol::tools::v1::ToolDescription;
 
 use super::desktop_tools;
@@ -15,8 +15,8 @@ use crate::application_registry::ApplicationRegistry;
 /// Every tool the desktop offers agents, the desktop's and the applications'.
 ///
 /// A tool connection lists the part that [`ToolCatalog::granted`] grants. The desktop's tools come
-/// first, in a fixed order. The applications' tools follow in the
-/// registry's order, which may change between starts. Nothing depends on that order yet.
+/// first, in a fixed order. The applications' tools follow in the registry's order, which may
+/// change between starts. Nothing depends on that order yet.
 #[derive(Debug)]
 pub struct ToolCatalog {
     tools: Vec<(ToolDescription, AccessScope)>,
@@ -55,15 +55,13 @@ impl ToolCatalog {
         let mut application_tools = HashMap::new();
         for (application, provider) in applications.tool_providers() {
             for declaration in &provider.declarations {
-                let Some(name) = ToolName::join(provider.mcp_id, declaration.tool) else {
-                    bail!(
-                        "the application '{application}' declares the tool '{}', whose name \
-                         '{}_{}' is longer than {} characters",
-                        declaration.tool.as_str(),
-                        provider.mcp_id.as_str(),
-                        declaration.tool.as_str(),
+                let name = match ToolName::join(provider.mcp_id, declaration.tool) {
+                    Ok(name) => name,
+                    Err(ToolNameTooLong(name)) => bail!(
+                        "the application '{application}' declares the tool name '{name}', which is \
+                         longer than {} characters",
                         ToolName::MAX_LEN
-                    );
+                    ),
                 };
                 let input_schema = with_instance_id(name, declaration)?;
                 tools.push((

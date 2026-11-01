@@ -64,12 +64,13 @@ pub enum ToolRequest {
 /// Where the desktop loop sends a call's answer. The connection encodes it for the wire.
 type CallReplySender = oneshot::Sender<Result<Value, CallFailure>>;
 
-/// Why a call failed: the tool failed, or the call's tool connection ended first. The second never
-/// comes from a tool, so it stays out of [`ToolErrorCode`], and the connection names it with the
-/// tool protocol's own code.
+/// Why a call failed. A tool's own failure carries a [`ToolErrorCode`]. A tool connection that
+/// ended first is no failure of any tool, so the connection names it with the tool protocol's
+/// `connection_closed` code instead.
 #[derive(Debug, From)]
 pub enum CallFailure {
     Tool(ToolError),
+    #[from(ignore)]
     ConnectionClosed(String),
 }
 

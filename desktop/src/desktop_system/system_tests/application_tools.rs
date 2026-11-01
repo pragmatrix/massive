@@ -129,11 +129,17 @@ async fn an_instance_gets_at_most_one_cancel_per_call() -> Result<()> {
             .await;
         assert_eq!(counted, echoed(8, "1"));
 
-        // Ending the connection cancels its calls that still wait, the held one included.
+        // Ending the connection drops the held call without telling the instance again, because
+        // the agent already cancelled it.
         let root = desktop.system.project_of_instance(instance).unwrap();
         desktop
             .tool_host
             .mcp_roots_changed(&CollectingSet::from(root), &desktop.echo_instances);
+        let held_call = ToolCallId::from(0);
+        assert!(
+            !desktop.tool_host.forwards(held_call),
+            "the root change ended the held call"
+        );
         let counted = desktop
             .serve(async {
                 let (mut frames, _) = connect(&socket, "/labs-a").await;

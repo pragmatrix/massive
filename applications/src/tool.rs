@@ -13,8 +13,8 @@ use serde_json::{Map, Value};
 
 use crate::AccessScope;
 
-/// A declared tool, as MCP's tool list shows it. Its provider joins its MCP id to `tool` (see
-/// [`ToolName`]).
+/// A tool that the desktop or an application declares. The desktop joins its provider's MCP id and
+/// `tool` into the [`ToolName`] that MCP's tool list shows.
 #[derive(Debug, Clone)]
 pub struct ToolDeclaration {
     /// The tool's own MCP id, such as `describe`.
@@ -55,10 +55,14 @@ impl ToolName {
     /// put a prefix in front, such as Claude Code's `mcp__<server>__`.
     pub const MAX_LEN: usize = 48;
 
-    /// Joins the provider's MCP id and the tool's, or `None` when the joined name is longer than
+    /// Joins the provider's MCP id and the tool's, and refuses a joined name longer than
     /// [`Self::MAX_LEN`].
-    pub fn join(provider: McpId, tool: McpId) -> Option<Self> {
-        (provider.0.len() + 1 + tool.0.len() <= Self::MAX_LEN).then_some(Self { provider, tool })
+    pub fn join(provider: McpId, tool: McpId) -> Result<Self, ToolNameTooLong> {
+        let name = Self { provider, tool };
+        if provider.0.len() + 1 + tool.0.len() > Self::MAX_LEN {
+            return Err(ToolNameTooLong(name));
+        }
+        Ok(name)
     }
 
     /// The tool's own MCP id.
@@ -79,6 +83,11 @@ impl fmt::Display for ToolName {
         write!(f, "{}_{}", self.provider.as_str(), self.tool.as_str())
     }
 }
+
+/// A joined name that [`ToolName::join`] refused, because it is longer than
+/// [`ToolName::MAX_LEN`]. It displays as the name it would have been.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolNameTooLong(pub ToolName);
 
 /// A name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*` (ADR 0036). These characters
 /// pass both MCP's tool name rules and the stricter rules of LLM APIs.
