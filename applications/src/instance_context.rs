@@ -169,10 +169,6 @@ impl InstanceContext {
         self.environment.primary_monitor_scale_factor
     }
 
-    pub async fn wait_for_event(&mut self) -> Result<InstanceEvent<std::convert::Infallible>> {
-        Ok(self.events.recv().await?.into())
-    }
-
     /// Waits for the next events, all that are pending, and treats custom events of type `T`.
     ///
     /// On an animation tick, the task's animation cycle starts at the tick's vblank time and the

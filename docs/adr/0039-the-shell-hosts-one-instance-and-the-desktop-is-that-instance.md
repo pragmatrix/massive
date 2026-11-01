@@ -30,9 +30,9 @@ Every program is an `Application`, and every running program is an instance with
 - The shell runs its instance like the desktop runs one (ADR 0009): on a dedicated thread, under the
   runtime its application names, with the panic handling both hosts share. The shell's thread runs
   at user-interactive priority, which the desktop had on the shell's worker pool before.
-- `InstanceContext::wait_for_events` receives a batch of events and starts an animation cycle at
-  each tick's vblank time, advancing the movements. Movement completion events arrive as
-  `ApplicationEvent::Custom`.
+- `InstanceContext::wait_for_events` is the one way an instance receives events. It receives a
+  batch and starts an animation cycle at each tick's vblank time, advancing the movements, so
+  movements work under both hosts. Movement completion events arrive as `InstanceEvent::Custom`.
 
 ## Considered Options
 
