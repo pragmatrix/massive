@@ -137,10 +137,10 @@ impl ConfigurationPlanning<'_> {
                     .max()
                     .unwrap_or(0),
             ),
+            // An agent names the source, so it may be unassigned. That moves nothing, and the
+            // planner refuses it below.
             ConfigurationCommand::MoveSlot { source, dest } if source.0 != dest.0 => {
-                let content = configuration
-                    .content_at(source.0, source.1)
-                    .expect("a move starts at an assigned slot");
+                let content = configuration.content_at(source.0, source.1)?;
                 placed_under(dest.0, configuration.nesting_height(content))
             }
             _ => None,

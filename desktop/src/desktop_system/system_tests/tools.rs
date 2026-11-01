@@ -439,6 +439,58 @@ async fn moving_onto_an_assigned_slot_swaps_only_within_one_project() -> Result<
     .await
 }
 
+/// A move into another project from an unassigned slot is refused. The planner checks the nesting
+/// depth before its refusals, and an agent names the slots, so that check cannot assume an assigned
+/// source.
+#[tokio::test]
+async fn moving_from_an_unassigned_slot_into_another_project_is_refused() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            ..
+        } = nested_siblings()?;
+        configure_mcp(
+            &mut system,
+            &mut instance_manager,
+            "/labs-a",
+            &[AccessScope::Organize],
+        )?;
+        let labs_a = project_at(&system, "/labs-a");
+        let slot = |project: ProjectId, column: u32| {
+            serde_json::json!({
+                "project_id": uuid::Uuid::from(project).to_string(),
+                "position": { "column": column, "row": 0 }
+            })
+        };
+        let assign =
+            serde_json::json!({ "slot": slot(labs_a, 1), "content": { "project": "inner" } });
+        let ToolCallPlan::Issue { command, .. } =
+            DesktopTools::new(&system).call(labs_a, "desktop_assign_slot", &tool_arguments(assign))
+        else {
+            panic!("assigning inside the MCP root issues a command");
+        };
+        run(&mut system, &mut instance_manager, command)?;
+        let Some(SlotContent::Project(inner)) = system
+            .aggregates
+            .configuration
+            .content_at(labs_a, SlotPosition { column: 1, row: 0 })
+        else {
+            panic!("the assigned project sits in the slot");
+        };
+
+        let arguments = serde_json::json!({ "from": slot(labs_a, 2), "to": slot(inner, 0) });
+        let plan = DesktopTools::new(&system).call(
+            labs_a,
+            "desktop_move_slot",
+            &tool_arguments(arguments),
+        );
+        assert_eq!(error_code(&system, plan), "refused");
+        Ok(())
+    })
+    .await
+}
+
 /// A slot tool changes nothing outside the projects it edits. The user's selection in another
 /// project survives, because the change leaves its slots where they are (ADR 0036).
 #[tokio::test]
