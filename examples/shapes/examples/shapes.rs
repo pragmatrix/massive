@@ -4,39 +4,33 @@ use std::sync::Arc;
 use anyhow::Result;
 use winit::dpi::LogicalSize;
 
-use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
-use massive_geometry::{Color, Rect, Size, TextureBox, TexturePoint};
+use massive_applications::{Application, ApplicationEvent, InstanceContext, ViewEvent};
+use massive_geometry::{Color, Rect, Size, SizePx, TextureBox, TexturePoint};
 use massive_scene::prelude::*;
 use massive_shapes::{
     BeveledRect, Circle, Ellipse, FontPolicy, Image, ImagePixels, ImageSource, Rect as FilledRect,
     RoundRect, Shape, ShapingEngineKind, StrokeRect,
 };
-use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
 use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    shell::run_application(run, FontPolicy::bare(ShapingEngineKind::Parley))
+fn main() -> Result<()> {
+    shell::run(
+        Application::new("Shapes", run),
+        FontPolicy::bare(ShapingEngineKind::Parley),
+    )
 }
 
-async fn run(mut ctx: ApplicationContext) -> Result<()> {
-    // Window
+async fn run(mut ctx: InstanceContext) -> Result<()> {
+    // View
     let window_size =
         LogicalSize::new(1024.0, 768.0).to_physical(ctx.primary_monitor_scale_factor());
-    let window = ctx
-        .new_window((window_size.width, window_size.height))
-        .await?;
-    let view_id = window.view_id();
-
-    let mut renderer = window
-        .renderer()
-        .with_shapes()
-        .with_images()
-        .build()
-        .await?;
+    let view_size = SizePx::new(window_size.width, window_size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
     // Scene & application
     let mut gestures = GestureTransform::default();
@@ -260,32 +254,36 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     }
 
     let transform = gestures.get_transform((page_width, page_height)).submit();
-    let location = transform.to_location().submit();
+    let location = transform
+        .to_location()
+        .relative_to(center.location())
+        .submit();
 
     let _visual = shapes.at(&location).with_decal_order(0).submit();
 
     loop {
+        transform.update_if_changed(gestures.get_transform((page_width, page_height)));
+        ctx.submit(begin_frame().submission())?;
+
         for event in ctx.wait_for_events::<Infallible>().await? {
             match event {
-                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                ApplicationEvent::View(_, view_event) => {
+                    if let ViewEvent::Resized(size) = view_event {
+                        center.resize(&view, size);
+                    }
                     match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    transform.update_if_changed(gestures.get_transform((page_width, page_height)));
-                    renderer.resize_redraw(&view_event)?;
                 }
-                ApplicationEvent::View(..)
-                | ApplicationEvent::ApplyAnimations(_)
+                ApplicationEvent::Shutdown(_) => return Ok(()),
+                ApplicationEvent::ApplyAnimations(_)
                 | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_)
                 | ApplicationEvent::ToolCall(_)
                 | ApplicationEvent::CancelToolCall(_) => {}
                 ApplicationEvent::Custom(event) => match event {},
             }
         }
-
-        begin_frame().render_to(&mut renderer)?;
     }
 }
 
