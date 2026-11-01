@@ -24,7 +24,7 @@ decodes and checks everything that arrives on a tool connection.
 
 | Surface | Who uses it | Decided in |
 |---|---|---|
-| The desktop socket in `~/.massive/run/` | The MCP bridge, and any tool client | [ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md) |
+| The desktop socket in `~/.massive/run/` | The MCP bridge, and any tool client. A second desktop that finds the socket served leaves it alone, offers no tools, and logs why. | [ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md) |
 | The file descriptor an instance inherits | The CLI | [ADR 0011](adr/0011-desktop-is-a-fractal-of-projects-in-slots.md), [ADR 0024](adr/0024-configuration-operations-are-one-command-vocabulary.md) |
 | `~/.massive/desktop.json` | The user, any same-user process | [ADR 0013](adr/0013-desktop-configuration-is-json-derived-from-the-aggregate.md) |
 

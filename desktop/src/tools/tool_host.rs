@@ -154,10 +154,11 @@ enum ForwardedCallState {
     Cancelled,
 }
 
+/// Serves tool connections and keeps their bindings and forwarded calls. The desktop loop reaches
+/// MCP only through it (ADR 0036).
 #[derive(Debug)]
 pub struct ToolHost {
-    socket_path: PathBuf,
-    listener: JoinHandle<()>,
+    socket: Socket,
     /// The requests the connections send to the desktop loop.
     requests: UnboundedReceiver<ToolRequest>,
     bindings: HashMap<BindingId, Binding>,
@@ -166,8 +167,23 @@ pub struct ToolHost {
     next_call: u64,
 }
 
+/// Whether this desktop serves the desktop socket.
+#[derive(Debug)]
+enum Socket {
+    Served {
+        path: PathBuf,
+        listener: JoinHandle<()>,
+    },
+    /// Another desktop serves the socket, so this one offers no tools and leaves the socket alone.
+    /// The sender keeps the requests open, so the desktop loop waits for none.
+    ServedByAnother {
+        _requests: UnboundedSender<ToolRequest>,
+    },
+}
+
 impl ToolHost {
-    /// Creates the desktop socket and listens on it.
+    /// Creates the desktop socket and listens on it. When another desktop already serves the
+    /// socket, this desktop offers no tools, and its agents' tool clients reach the other one.
     pub fn listen(socket_path: PathBuf) -> Result<Self> {
         let run_dir = socket_path
             .parent()
@@ -175,6 +191,20 @@ impl ToolHost {
         fs::create_dir_all(run_dir).with_context(|| format!("creating {}", run_dir.display()))?;
         // Only the user may enter the directory, so other users cannot reach the socket.
         fs::set_permissions(run_dir, fs::Permissions::from_mode(0o700))?;
+        let (sender, requests) = unbounded_channel();
+        // A desktop that serves the socket accepts the connection. Taking the socket over would cut
+        // its agents off, and its drop would delete this desktop's socket.
+        if std::os::unix::net::UnixStream::connect(&socket_path).is_ok() {
+            warn!(
+                "Another desktop serves the desktop socket {}. This desktop offers no MCP tools, \
+                 and tool clients reach the other desktop.",
+                socket_path.display()
+            );
+            return Ok(Self::new(
+                Socket::ServedByAnother { _requests: sender },
+                requests,
+            ));
+        }
         // A socket file left by a desktop that crashed would make binding fail.
         if socket_path.exists() {
             fs::remove_file(&socket_path)?;
@@ -182,17 +212,22 @@ impl ToolHost {
         let listener = UnixListener::bind(&socket_path)
             .with_context(|| format!("binding {}", socket_path.display()))?;
         info!("Desktop socket listening at {}", socket_path.display());
-
-        let (sender, requests) = unbounded_channel();
-        Ok(Self {
-            socket_path,
+        let socket = Socket::Served {
+            path: socket_path,
             listener: tokio::spawn(accept_connections(listener, sender)),
+        };
+        Ok(Self::new(socket, requests))
+    }
+
+    fn new(socket: Socket, requests: UnboundedReceiver<ToolRequest>) -> Self {
+        Self {
+            socket,
             requests,
             bindings: HashMap::new(),
             next_binding: 0,
             forwarded: HashMap::new(),
             next_call: 0,
-        })
+        }
     }
 
     /// The next request of a tool connection, for the desktop loop to [`Self::answer`]. The
@@ -413,11 +448,14 @@ impl ToolHost {
 
 impl Drop for ToolHost {
     fn drop(&mut self) {
-        self.listener.abort();
-        if let Err(error) = fs::remove_file(&self.socket_path) {
+        let Socket::Served { path, listener } = &self.socket else {
+            return;
+        };
+        listener.abort();
+        if let Err(error) = fs::remove_file(path) {
             warn!(
                 "Failed to remove the desktop socket {}: {error}",
-                self.socket_path.display()
+                path.display()
             );
         }
     }
@@ -445,5 +483,28 @@ async fn accept_connections(listener: UnixListener, requests: UnboundedSender<To
             }
             Err(error) => warn!("Failed to accept a tool connection: {error}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A second desktop leaves the socket to the desktop that serves it, also when it quits, so the
+    /// first desktop's agents keep their tools.
+    #[tokio::test]
+    async fn a_second_desktop_leaves_the_served_socket_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("run").join("desktop.sock");
+        let _first = ToolHost::listen(socket.clone()).unwrap();
+
+        let second = ToolHost::listen(socket.clone()).unwrap();
+        assert!(matches!(second.socket, Socket::ServedByAnother { .. }));
+        drop(second);
+
+        assert!(
+            tokio::net::UnixStream::connect(&socket).await.is_ok(),
+            "the first desktop still serves the socket"
+        );
     }
 }
