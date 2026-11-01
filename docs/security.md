@@ -71,6 +71,11 @@ until it is closed.
    launchers and projects, and params of up to 1 MiB per call with `act`. Every call rewrites the
    whole configuration file on the desktop loop, so a loop of calls grows the file and slows the
    desktop down. Names are limited to 1000 characters.
+7. **Nothing bounds tool connections.** A same-user process can open connections that never send
+   their `Connect` frame, and each holds a file descriptor of the desktop. After an accept error,
+   such as running out of descriptors, the tool host retries at once, so the log fills up. Any
+   same-user process can already connect to any MCP root (gap 3), so this is accepted for now.
+
 Access scopes are therefore a hard limit for agents whose only reach is MCP, and a statement of the
 user's intent for agents that also have a shell. They are not a sandbox.
 
