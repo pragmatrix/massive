@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 
 use massive_applications::{
-    AccessScope, ApplicationEvent, CreationMode, McpId, ToolDeclaration, mcp_id, tool_name,
+    AccessScope, ApplicationEvent, CreationMode, McpId, ToolCallId, ToolDeclaration, mcp_id,
+    tool_name,
 };
 use massive_protocol::Frames;
 use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage, ToolOutcome};
@@ -75,6 +76,34 @@ async fn a_cancelled_call_reaches_its_instance_which_may_still_answer() -> Resul
     .await
 }
 
+/// An instance answers only the calls forwarded to it, so another instance's answer with the same
+/// call id never reaches the agent.
+#[tokio::test]
+async fn an_answer_from_another_instance_does_not_complete_a_call() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let mut desktop = EchoDesktop::new()?;
+        let socket = desktop.socket.clone();
+        let instance = desktop.instance;
+        let other_instance = desktop.other_instance;
+        let client = async {
+            let (mut frames, _) = connect(&socket, "/labs-a").await;
+            call_echo(&mut frames, 7, instance, WAIT).await;
+            send(&mut frames, &ClientMessage::CancelTool { call_id: 7 }).await;
+            receive::<HostMessage>(&mut frames).await
+        };
+        let answer = desktop
+            .serve_with(client, |tool_host| {
+                // The first forwarded call gets the id 0.
+                let forged = serde_json::json!({ "text": "forged" });
+                tool_host.tool_result(other_instance, ToolCallId::from(0), Ok(forged));
+            })
+            .await;
+        assert_eq!(answer, echoed(7, CANCELLED));
+        Ok(())
+    })
+    .await
+}
+
 const ECHO: McpId = mcp_id!("echo");
 /// The text the echo instance does not answer until the call is cancelled.
 const WAIT: &str = "wait";
@@ -98,6 +127,8 @@ struct Echo {
 struct EchoDesktop {
     system: DesktopSystem,
     instance: InstanceId,
+    /// Another instance the MCP root does not cover, which no task runs.
+    other_instance: InstanceId,
     echo_instances: InstanceManager,
     outputs: UnboundedReceiver<(InstanceId, InstanceOutput)>,
     tool_host: ToolHost,
@@ -111,7 +142,7 @@ impl EchoDesktop {
             mut system,
             mut instance_manager,
             instance_a,
-            ..
+            instance_b,
         } = nested_siblings()?;
         configure_mcp(
             &mut system,
@@ -139,6 +170,7 @@ impl EchoDesktop {
         Ok(Self {
             system,
             instance: instance_a,
+            other_instance: instance_b,
             echo_instances,
             outputs,
             tool_host,
@@ -149,6 +181,16 @@ impl EchoDesktop {
 
     /// Runs the desktop loop's part for tool calls until `client` is done.
     async fn serve<T>(&mut self, client: impl Future<Output = T>) -> T {
+        self.serve_with(client, |_| {}).await
+    }
+
+    /// Runs the desktop loop's part for tool calls until `client` is done, and calls
+    /// `after_request` after each request the tool host answered.
+    async fn serve_with<T>(
+        &mut self,
+        client: impl Future<Output = T>,
+        mut after_request: impl FnMut(&mut ToolHost),
+    ) -> T {
         tokio::pin!(client);
         loop {
             tokio::select! {
@@ -156,6 +198,7 @@ impl EchoDesktop {
                 Some(request) = self.tool_host.next_request() => {
                     let issued = self.tool_host.answer(request, &self.system, &self.echo_instances);
                     assert!(issued.is_none(), "a forwarded call issues no command");
+                    after_request(&mut self.tool_host);
                 }
                 Some((instance, output)) = self.outputs.recv() => {
                     if let InstanceOutput::ToolResult { call_id, outcome } = output {

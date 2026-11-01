@@ -277,10 +277,11 @@ host, so the desktop system never sees it.
 **A tool call may take as long as it needs.** The desktop sets no deadline. A call ends when the
 application answers, when the instance ends, or when the tool connection closes. The desktop sends
 `ApplicationMessage::CancelToolCall { call_id }` when the agent cancels the call and when the tool
-connection closes. After the agent's cancel, the application may still answer. A tool that waits takes
-its own `timeout_ms` argument, and the application enforces a maximum. An application keeps a
-waiting call pending without blocking its event loop, and several calls may be in flight per
-instance. Detecting an application that hangs belongs to the out-of-process applications plan.
+connection closes. An instance gets at most one cancel per call, and after the agent's cancel,
+the application may still answer. A tool that waits takes its own `timeout_ms` argument, and the
+application enforces a maximum. An application keeps a waiting call pending without blocking its
+event loop, and several calls may be in flight per instance. Detecting an application that hangs
+belongs to the out-of-process applications plan.
 
 ### MCP roots are visible
 

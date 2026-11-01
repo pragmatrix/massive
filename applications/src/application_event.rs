@@ -16,7 +16,8 @@ pub enum ApplicationEvent<T> {
     Shutdown(InstanceId),
     /// Only instances receive tool calls (ADR 0036). The shell never sends them to its application.
     ToolCall(ToolCall),
-    /// The agent cancelled the call, or its tool connection closed. The instance may still answer.
+    /// The agent cancelled the call, or its tool connection closed. An instance gets at most one
+    /// cancel per call, and it may still answer.
     CancelToolCall(ToolCallId),
     Custom(T),
 }

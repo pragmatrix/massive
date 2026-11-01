@@ -172,3 +172,22 @@ pub fn forwarding_call(runs_declaring_application: bool) -> ForwardingCall {
     }
     ForwardingCall::RefuseOtherApplication
 }
+
+/// Whether an instance's answer completes a forwarded call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnsweringCall {
+    Accept,
+    /// An instance answers only the calls forwarded to it, so it cannot complete another
+    /// instance's call with an answer of its own.
+    RefuseOtherInstance,
+}
+
+/// `answered_by_called_instance` tells whether the answer comes from the instance the call was
+/// forwarded to.
+#[must_use]
+pub fn answering_call(answered_by_called_instance: bool) -> AnsweringCall {
+    if answered_by_called_instance {
+        return AnsweringCall::Accept;
+    }
+    AnsweringCall::RefuseOtherInstance
+}

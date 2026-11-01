@@ -13,6 +13,7 @@
 
 mod connection;
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -37,7 +38,7 @@ use super::{DesktopTools, InstanceCall, ToolCallPlan, ToolCatalog};
 use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal};
 use crate::instance_manager::InstanceManager;
 use crate::projects::ProjectId;
-use crate::security;
+use crate::security::{self, AnsweringCall};
 
 /// A request a tool connection sends to the desktop loop, which answers through `reply`.
 #[derive(Debug)]
@@ -125,10 +126,19 @@ struct Binding {
 #[derive(Debug)]
 struct ForwardedCall {
     binding: BindingId,
-    /// The id the tool client chose, which only its connection knows.
-    client_call_id: u64,
+    state: ForwardedCallState,
     instance: InstanceId,
     reply: CallReplySender,
+}
+
+/// The state of a forwarded call. It waits for the instance's answer in either state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ForwardedCallState {
+    /// The agent may cancel the call by the id its tool client chose, which only its connection
+    /// knows.
+    Open { client_call_id: u64 },
+    /// The agent cancelled the call, and the instance was told, which happens only once.
+    Cancelled,
 }
 
 #[derive(Debug)]
@@ -247,11 +257,15 @@ impl ToolHost {
             }
             ToolRequest::CancelTool { binding, call_id } => {
                 // The instance may still answer, so the call stays forwarded until it does.
+                let open = ForwardedCallState::Open {
+                    client_call_id: call_id,
+                };
                 let cancelled = self
                     .forwarded
-                    .iter()
-                    .find(|(_, call)| call.binding == binding && call.client_call_id == call_id);
+                    .iter_mut()
+                    .find(|(_, call)| call.binding == binding && call.state == open);
                 if let Some((id, call)) = cancelled {
+                    call.state = ForwardedCallState::Cancelled;
                     cancel(instances, call.instance, *id);
                 }
                 None
@@ -272,35 +286,26 @@ impl ToolHost {
         call_id: ToolCallId,
         outcome: Result<Value, ToolError>,
     ) {
-        match self.forwarded.get(&call_id) {
-            Some(call) if call.instance == instance => {}
-            Some(_) => {
-                warn!("Instance {instance:?} answered a call it did not receive");
-                return;
+        let Entry::Occupied(call) = self.forwarded.entry(call_id) else {
+            return;
+        };
+        match security::answering_call(call.get().instance == instance) {
+            AnsweringCall::Accept => {
+                let _ = call.remove().reply.send(outcome);
             }
-            None => return,
+            AnsweringCall::RefuseOtherInstance => {
+                warn!("Instance {instance:?} answered a call it did not receive");
+            }
         }
-        let call = self
-            .forwarded
-            .remove(&call_id)
-            .expect("the answered call is forwarded");
-        let _ = call.reply.send(outcome);
     }
 
     /// Fails the calls forwarded to `instance`, which ended before it answered them. The desktop
     /// loop calls this after it received the instance's last output, so no answer is lost.
     pub fn instance_ended(&mut self, instance: InstanceId) {
-        let ended: Vec<ToolCallId> = self
+        for (_, call) in self
             .forwarded
-            .iter()
-            .filter(|(_, call)| call.instance == instance)
-            .map(|(id, _)| *id)
-            .collect();
-        for id in ended {
-            let call = self
-                .forwarded
-                .remove(&id)
-                .expect("an ended call is forwarded");
+            .extract_if(|_, call| call.instance == instance)
+        {
             let _ = call.reply.send(instance_ended());
         }
     }
@@ -362,31 +367,24 @@ impl ToolHost {
         }
         let forwarded = ForwardedCall {
             binding,
-            client_call_id,
+            state: ForwardedCallState::Open { client_call_id },
             instance,
             reply,
         };
         self.forwarded.insert(id, forwarded);
     }
 
-    /// Stops waiting for the forwarded calls that `ends` selects, and tells their instances.
+    /// Stops waiting for the forwarded calls that `ends` selects, and tells their instances, unless
+    /// the agent's cancel already did.
     fn cancel_forwarded(
         &mut self,
         instances: &InstanceManager,
         ends: impl Fn(&ForwardedCall) -> bool,
     ) {
-        let cancelled: Vec<ToolCallId> = self
-            .forwarded
-            .iter()
-            .filter(|(_, call)| ends(call))
-            .map(|(id, _)| *id)
-            .collect();
-        for id in cancelled {
-            let call = self
-                .forwarded
-                .remove(&id)
-                .expect("a cancelled call is forwarded");
-            cancel(instances, call.instance, id);
+        for (id, call) in self.forwarded.extract_if(|_, call| ends(call)) {
+            if let ForwardedCallState::Open { .. } = call.state {
+                cancel(instances, call.instance, id);
+            }
         }
     }
 
