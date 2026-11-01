@@ -19,13 +19,13 @@ Every program is an `Application`, and every running program is an instance with
 - The desktop runs many instances. The shell runs exactly one, through `shell::run(application,
   font_policy)`. Both hosts take the same `Application` value, which now lives in
   `massive-applications`.
-- An application declares who renders its instances' content. With `Rendering::Host`, the default,
+- An application declares who renders its instances' content. With `DrawTarget::Views`, the default,
   the instance creates views and its host draws them. The shell draws the instance's one view into a
   window of the view's size, so an example runs on its own as well as in the desktop. With
-  `Rendering::Instance`, the instance opens its own windows through
+  `DrawTarget::Windows`, the instance opens its own windows through
   `InstanceContext::new_window` (the `InstanceWindows` trait of `massive-shell`) and renders into
   them. Only the shell runs such an instance, and the desktop's registry rejects one.
-- The desktop is the shell's instance with `Rendering::Instance`. `DesktopEnvironment::run` wraps it
+- The desktop is the shell's instance with `DrawTarget::Windows`. `DesktopEnvironment::run` wraps it
   into an `Application` and calls `shell::run`, so mt never sees the shell.
 - The shell runs its instance like the desktop runs one (ADR 0009): on a dedicated thread, under the
   runtime its application names, with the panic handling both hosts share. The shell's thread runs

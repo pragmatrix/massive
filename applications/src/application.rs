@@ -18,7 +18,7 @@ use crate::{InstanceContext, McpId, ToolDeclaration};
 pub struct Application {
     name: String,
     runtime_kind: RuntimeKind,
-    rendering: Rendering,
+    draw_target: DrawTarget,
     tools: Option<ApplicationTools>,
     #[debug(skip)]
     run: RunInstanceBox,
@@ -47,15 +47,15 @@ pub enum RuntimeKind {
     MultiThread,
 }
 
-/// Who renders the content of an application's instances.
+/// Where an application's instances draw their content.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Rendering {
-    /// The host renders: the instance creates views and submits instance changes, and its host
-    /// draws them. Every host runs such an instance.
-    Host,
-    /// The instance renders: it opens its own windows and renders scene changes into them. Only
-    /// the shell runs such an instance, and the desktop is one.
-    Instance,
+pub enum DrawTarget {
+    /// Views: the instance creates views and submits instance changes, and its host draws them in
+    /// windows or panels of its own. Every host runs such an instance.
+    Views,
+    /// Windows of its own: the instance opens them and renders scene changes into them. Only the
+    /// shell runs such an instance, and the desktop is one.
+    Windows,
 }
 
 impl RuntimeKind {
@@ -82,7 +82,7 @@ impl Application {
         Self {
             name,
             runtime_kind: RuntimeKind::CurrentThread,
-            rendering: Rendering::Host,
+            draw_target: DrawTarget::Views,
             tools: None,
             run: run_boxed,
         }
@@ -95,10 +95,10 @@ impl Application {
         self
     }
 
-    /// Select who renders the content of this application's instances. Default is
-    /// [`Rendering::Host`].
-    pub fn with_rendering(mut self, rendering: Rendering) -> Self {
-        self.rendering = rendering;
+    /// Select where this application's instances draw their content. Default is
+    /// [`DrawTarget::Views`].
+    pub fn with_draw_target(mut self, draw_target: DrawTarget) -> Self {
+        self.draw_target = draw_target;
         self
     }
 
@@ -120,8 +120,8 @@ impl Application {
         self.runtime_kind
     }
 
-    pub fn rendering(&self) -> Rendering {
-        self.rendering
+    pub fn draw_target(&self) -> DrawTarget {
+        self.draw_target
     }
 
     pub fn tools(&self) -> Option<&ApplicationTools> {

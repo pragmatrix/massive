@@ -41,14 +41,14 @@ pub struct InstanceContext {
     id: InstanceId,
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
-    presentation: Presentation,
+    draw_target: DrawTargetState,
     events: CoalescingReceiver<InstanceMessage>,
 }
 
 /// How the instance's content reaches the screen, following the application's
-/// [`Rendering`](crate::Rendering).
+/// [`DrawTarget`](crate::DrawTarget).
 #[derive(Debug)]
-enum Presentation {
+enum DrawTargetState {
     /// The instance's views hang below `view_parent`, and the host draws the instance changes the
     /// instance submits.
     Views {
@@ -68,7 +68,7 @@ pub type HostWindows = Arc<dyn Any + Send + Sync>;
 
 impl Drop for InstanceContext {
     fn drop(&mut self) {
-        let Presentation::Views { view_parent, .. } = &self.presentation else {
+        let DrawTargetState::Views { view_parent, .. } = &self.draw_target else {
             return;
         };
         warn!("Submitting final instance changes: instance={:?}", self.id);
@@ -99,7 +99,7 @@ impl InstanceContext {
             id,
             creation_mode,
             environment,
-            presentation: Presentation::Views {
+            draw_target: DrawTargetState::Views {
                 view_parent,
                 last_submitted_pacing: RenderPacing::Fast,
             },
@@ -120,16 +120,16 @@ impl InstanceContext {
             id,
             creation_mode,
             environment,
-            presentation: Presentation::Windows(windows),
+            draw_target: DrawTargetState::Windows(windows),
             events: events.into(),
         }
     }
 
     /// The host's window factory, if the instance draws its own windows.
     pub fn host_windows(&self) -> Option<&HostWindows> {
-        match &self.presentation {
-            Presentation::Views { .. } => None,
-            Presentation::Windows(windows) => Some(windows),
+        match &self.draw_target {
+            DrawTargetState::Views { .. } => None,
+            DrawTargetState::Windows(windows) => Some(windows),
         }
     }
 
@@ -201,7 +201,7 @@ impl InstanceContext {
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
-        let Presentation::Views { view_parent, .. } = &self.presentation else {
+        let DrawTargetState::Views { view_parent, .. } = &self.draw_target else {
             panic!("an instance that draws its own windows has no views");
         };
         ViewBuilder::new(view_parent.clone(), extent.into().into())
@@ -244,10 +244,10 @@ impl InstanceContext {
         changes: ChangeSet<InstanceChange>,
         pacing: RenderPacing,
     ) -> Result<()> {
-        let Presentation::Views {
+        let DrawTargetState::Views {
             last_submitted_pacing,
             ..
-        } = &mut self.presentation
+        } = &mut self.draw_target
         else {
             panic!("an instance that draws its own windows renders its changes itself");
         };

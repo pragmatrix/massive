@@ -1,5 +1,5 @@
 //! The shell's host for an instance that presents views
-//! ([`Rendering::Host`](massive_applications::Rendering::Host)). It draws the instance's
+//! ([`DrawTarget::Views`](massive_applications::DrawTarget::Views)). It draws the instance's
 //! one view into a window of the view's size, so an application written for the desktop also runs
 //! on its own.
 
