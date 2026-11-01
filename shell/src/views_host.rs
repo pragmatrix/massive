@@ -23,7 +23,7 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::instance_windows::ShellWindows;
 use crate::shell::{
-    ShellCommand, Startup, application_task_context, report_application_end, spawn_instance_thread,
+    ShellCommand, Startup, rendering_task_context, report_application_end, spawn_instance_thread,
 };
 use crate::{AsyncWindowRenderer, ShellWindow};
 
@@ -48,7 +48,7 @@ pub fn start(application: Application, startup: Startup) -> Result<()> {
         MovementRuntime::default(),
         font_manager.new_shaping_context(),
     );
-    let host_task_context = application_task_context(font_manager);
+    let host_task_context = rendering_task_context(font_manager);
     let windows = ShellWindows::new(proxy.clone(), event_sender);
 
     tokio::spawn(task_context::with_context(host_task_context, async move {

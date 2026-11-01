@@ -119,9 +119,11 @@ fn run_with_tokio(application: Application, font_policy: FontPolicy) -> Result<(
     final_result
 }
 
-/// The contexts of the application task: its change queue, animation clock, movement runtime
-/// and a shaping context over the supplied font manager (ADR 0008).
-pub(crate) fn application_task_context(font_manager: FontManager) -> TaskContext {
+/// The contexts of a task that renders scene changes itself: an instance that renders into its own
+/// windows, or the host task of an instance whose host renders. They are its change queue,
+/// animation clock, movement runtime and a shaping context over the supplied font manager
+/// (ADR 0008).
+pub(crate) fn rendering_task_context(font_manager: FontManager) -> TaskContext {
     TaskContext::new(
         AnyCollector::for_type::<SceneChange>(),
         AnimationCoordinator::new(),
@@ -171,7 +173,7 @@ fn start_instance_drawing_windows(application: Application, startup: Startup) ->
     spawn_instance_thread(
         application.runtime_kind(),
         application.run(context),
-        application_task_context(font_manager),
+        rendering_task_context(font_manager),
         proxy,
     )
 }
