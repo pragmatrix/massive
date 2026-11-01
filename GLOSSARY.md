@@ -161,7 +161,7 @@ An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cm
 _Avoid_: aux instance, sidecar, secondary instance
 
 **Application**:
-The program an instance runs, such as the Markdown viewer. It runs in its own task and draws into the instance's views. The desktop reaches it only through the instance manager, by sending view events. It cannot report back whether it used an event. A key that no desktop level consumed is forwarded to the application.
+The program an instance runs, such as the Markdown viewer. It runs in its own task and draws into the instance's views. The desktop reaches it through the instance manager, with view events and with calls of its application tools. It answers tool calls, but cannot report back whether it used an event. A key that no desktop level consumed is forwarded to the application.
 _Avoid_: app
 
 **Instance**:
@@ -271,6 +271,22 @@ _Avoid_: control host, tool server, MCP server
 **Tool connection**:
 The connection between a tool client and the desktop over the desktop socket. It is bound to the MCP root that covers its target for its whole life and speaks the tool protocol (ADR 0036).
 _Avoid_: control connection, session (collides with the desktop session), MCP connection
+
+**Tool catalog**:
+Every tool the desktop offers agents: its own tools and the application tools of every application with an MCP id. A tool connection lists the part that its MCP root's access scopes grant (ADR 0036).
+_Avoid_: tool registry, tool list (what a tool connection receives)
+
+**Application tool**:
+A tool an application declares. A call of it names the instance it acts on by `instance_id`, and that instance answers it (ADR 0036).
+_Avoid_: instance tool
+
+**Forwarded call**:
+A call of an application tool that the desktop passed on to the named instance, waiting for the instance's answer. It ends when the instance answers, when the instance ends, or when its tool connection closes (ADR 0036).
+_Avoid_: pending call, proxied call
+
+**Instance output**:
+What an instance sends to the desktop, in the order it sends it: its submissions and its answers to forwarded calls (ADR 0036).
+_Avoid_: instance submission (one kind of output)
 
 **Desktop socket**:
 The Unix socket `~/.massive/run/desktop.sock` through which processes connect to the desktop. Its path reaches processes as `MASSIVE_SOCKET`. It exists while the desktop runs, and only the user can reach it (ADR 0036).
