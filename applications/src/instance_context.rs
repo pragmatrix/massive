@@ -128,9 +128,11 @@ impl InstanceContext {
         submit(InstanceChange::Configuration(request));
     }
 
-    /// Answers a tool call. The answer is sent at once, apart from the collected changes, so a
-    /// waiting agent does not depend on the next frame. A call may be answered long after it arrived
-    /// (ADR 0036).
+    /// Answers a tool call.
+    ///
+    /// The answer is sent at once, apart from the collected changes, so a waiting agent does not
+    /// depend on the next frame. A tool that changes views therefore submits them before it
+    /// answers. A call may be answered long after it arrived (ADR 0036).
     pub fn answer_tool_call(
         &self,
         call_id: ToolCallId,

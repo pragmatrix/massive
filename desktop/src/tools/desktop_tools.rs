@@ -1,6 +1,8 @@
-//! The desktop as a tool provider (ADR 0036): binding a tool connection to the MCP root that covers
-//! its target, carrying out the desktop's tools, and checking the calls it forwards to instances. `docs/mcp-desktop-tools.md` specifies every
-//! tool, and [`schema`] holds the types an agent sees.
+//! The desktop as a tool provider (ADR 0036).
+//!
+//! It binds a tool connection to the MCP root that covers its target, carries out the desktop's
+//! tools, and checks the calls the tool host forwards to instances. `docs/mcp-desktop-tools.md`
+//! specifies every tool, and [`schema`] holds the types an agent sees.
 
 mod schema;
 

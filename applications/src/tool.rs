@@ -156,8 +156,10 @@ macro_rules! mcp_id {
 }
 
 /// A call of one of an application's tools, which the desktop forwards to the instance it names
-/// (ADR 0036). The desktop has already checked the call, so the instance only matches `tool` and
-/// decodes the arguments. It answers with [`crate::InstanceContext::answer_tool_call`].
+/// (ADR 0036).
+///
+/// The desktop has already checked the call, so the instance only matches `tool` and decodes the
+/// arguments. It answers with [`crate::InstanceContext::answer_tool_call`].
 #[derive(Debug, Clone)]
 pub struct ToolCall {
     pub id: ToolCallId,
