@@ -121,8 +121,8 @@ Consequences:
 - **Blockers for a remote `mt`:**
   - winit types in `ViewEvent` and in `ViewChange::SetCursor`;
   - `FaceId` is local to the process, while `mt` uses system font fallback;
-  - the `mt` binary is the desktop (`shell::run` → `DesktopEnvironment::run_desktop`
-    in `src/main.rs`), and there is no client entry point;
+  - the `mt` binary is the desktop (`DesktopEnvironment::run` in `src/main.rs`, which runs
+    the desktop as the shell's instance, ADR 0039), and there is no client entry point;
   - not verified: `arboard` (clipboard) and `opener` (hyperlinks) are expected to
     work unchanged from `mt`'s own process, because they only need the user session.
 

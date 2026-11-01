@@ -161,12 +161,16 @@ An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cm
 _Avoid_: aux instance, sidecar, secondary instance
 
 **Application**:
-The program an instance runs, such as the Markdown viewer, in its own task, drawing into the instance's views. The desktop reaches it with view events, which include the keys no desktop level consumed. The desktop also sends it animation ticks while it animates, calls of its application tools and their cancellations, and the shutdown request that a close request or stopping the instance sends. It answers only the tool calls.
+The program an instance runs, such as the Markdown viewer, in its own task, drawing into the instance's views. The desktop and the shell both run applications, and only the shell runs one that renders into windows of its own, such as the desktop itself. The desktop reaches it with view events, which include the keys no desktop level consumed. The desktop also sends it animation ticks while it animates, calls of its application tools and their cancellations, and the shutdown request that a close request or stopping the instance sends. It answers only the tool calls.
 _Avoid_: app
 
 **Instance**:
-A single running application session owned by a launcher. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
+A single running application session, owned by a launcher in the desktop or run alone by the shell. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
 _Avoid_: session, tab, process
+
+**Shell**:
+The host that owns the native event loop and runs exactly one instance: the desktop, or an application on its own in a window of its view's size.
+_Avoid_: shell application, application context
 
 **Full Screen Mode**:
 An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its primary instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when keyboard focus is fully in and resolves to an instance: a primary instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` zooms to `Focus` before its usual action; when fully in, it starts an instance only from a launcher. `Cmd+T` starts an instance from a launcher or an existing instance. Starting an instance focuses it at the `Focus` zoom level. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
@@ -332,7 +336,7 @@ _Avoid_: empty manager, registry-only collection
 
 **Font policy**:
 The pair of a shaping engine and whether system fonts are available for selection. Named by the
-client and passed to `shell::run`, which builds the application task's font manager from it and
+client and passed to `shell::run`, which builds its instance's font manager from it and
 installs the task's shaping context in the same step. A face is only meaningful within the manager
 that issued it, so the manager a task shapes with cannot change after that.
 _Avoid_: font settings, font config
@@ -345,8 +349,8 @@ The contexts installed for one Tokio task: its change queue, animation coordinat
 
 **Change queue**:
 The changes one task submits together, in the order their writers produced them. Each UI
-task owns exactly one queue; its change type (`SceneChange` for the application task's
-render queue, `InstanceChange` for an instance's submission queue) is fixed at install
+task owns exactly one queue; its change type (`SceneChange` for a task that renders itself,
+such as the desktop's, `InstanceChange` for an instance's submission queue) is fixed at install
 time, and the frame drains the queue into a submission at animation-cycle end (ADR 0008).
 _Avoid_: change stream
 
