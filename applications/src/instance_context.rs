@@ -41,17 +41,25 @@ pub struct InstanceContext {
     id: InstanceId,
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
-    view_parent: Ref<Location>,
-
-    /// This is here so that we don't submit empty instance submissions when the pacing did not
-    /// change.
-    last_submitted_pacing: RenderPacing,
-
+    content: Content,
     events: CoalescingReceiver<ApplicationMessage>,
+}
 
-    /// The shell's window factory, present when the instance draws its own windows
-    /// ([`Presentation::Windows`](crate::Presentation::Windows)).
-    host_windows: Option<HostWindows>,
+/// How the instance's content reaches the screen, following the application's
+/// [`Presentation`](crate::Presentation).
+#[derive(Debug)]
+enum Content {
+    /// The instance's views hang below `view_parent`, and the host draws the instance changes the
+    /// instance submits.
+    Views {
+        view_parent: Ref<Location>,
+        /// This is here so that we don't submit empty instance submissions when the pacing did
+        /// not change.
+        last_submitted_pacing: RenderPacing,
+    },
+    /// The instance opens its own windows through the host's window factory and renders its scene
+    /// changes into them itself.
+    Windows(HostWindows),
 }
 
 /// The window factory of the host, kept opaque here because the shell that defines it depends on
@@ -60,15 +68,13 @@ pub type HostWindows = Arc<dyn Any + Send + Sync>;
 
 impl Drop for InstanceContext {
     fn drop(&mut self) {
-        // An instance that draws its own windows collects scene changes and renders them itself,
-        // so it has no instance changes to submit.
-        if self.host_windows.is_some() {
+        let Content::Views { view_parent, .. } = &self.content else {
             return;
-        }
+        };
         warn!("Submitting final instance changes: instance={:?}", self.id);
         // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
         // the desktop observes it behind every pending change of this submission.
-        submit(InstanceChange::End(self.view_parent.clone()));
+        submit(InstanceChange::End(view_parent.clone()));
         // Teardown runs after the run loop returned, so no frame is live. The detached frame end
         // witnesses animation access for this one teardown (joining, not replacing, a frame held
         // across a panic unwind), flushes queued movement actions, closes the cycle and never
@@ -81,6 +87,7 @@ impl Drop for InstanceContext {
 }
 
 impl InstanceContext {
+    /// The context of an instance whose views hang below `view_parent` and whose host draws them.
     pub fn new(
         id: InstanceId,
         creation_mode: CreationMode,
@@ -92,21 +99,38 @@ impl InstanceContext {
             id,
             creation_mode,
             environment,
-            view_parent,
-            last_submitted_pacing: RenderPacing::Fast,
+            content: Content::Views {
+                view_parent,
+                last_submitted_pacing: RenderPacing::Fast,
+            },
             events: events.into(),
-            host_windows: None,
         }
     }
 
-    /// Lets the instance draw its own windows through `windows`. Only the shell does this.
-    pub fn with_host_windows(mut self, windows: HostWindows) -> Self {
-        self.host_windows = Some(windows);
-        self
+    /// The context of an instance that opens its own windows through `windows`. Only the shell
+    /// creates one.
+    pub fn drawing_windows(
+        id: InstanceId,
+        creation_mode: CreationMode,
+        environment: InstanceEnvironment,
+        windows: HostWindows,
+        events: UnboundedReceiver<ApplicationMessage>,
+    ) -> Self {
+        Self {
+            id,
+            creation_mode,
+            environment,
+            content: Content::Windows(windows),
+            events: events.into(),
+        }
     }
 
+    /// The host's window factory, if the instance draws its own windows.
     pub fn host_windows(&self) -> Option<&HostWindows> {
-        self.host_windows.as_ref()
+        match &self.content {
+            Content::Views { .. } => None,
+            Content::Windows(windows) => Some(windows),
+        }
     }
 
     pub fn id(&self) -> InstanceId {
@@ -127,12 +151,15 @@ impl InstanceContext {
     /// The environment variables an instance sets for every process it starts, so that a tool
     /// client started there connects to this desktop and names this instance as its target
     /// (ADR 0036).
-    pub fn process_environment(&self) -> [(&'static str, String); 2] {
-        [
-            (
-                "MASSIVE_SOCKET",
-                self.environment.desktop_socket.display().to_string(),
-            ),
+    ///
+    /// Under the shell, which has no desktop socket, there are none, so a tool client started
+    /// there finds the desktop the way any other process does.
+    pub fn process_environment(&self) -> Vec<(&'static str, String)> {
+        let Some(desktop_socket) = &self.environment.desktop_socket else {
+            return Vec::new();
+        };
+        vec![
+            ("MASSIVE_SOCKET", desktop_socket.display().to_string()),
             // The instance id as a hyphenated UUID, which the desktop parses back.
             ("MASSIVE_INSTANCE", self.id.to_string()),
         ]
@@ -178,11 +205,10 @@ impl InstanceContext {
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
-        assert!(
-            self.host_windows.is_none(),
-            "an instance that draws its own windows has no views"
-        );
-        ViewBuilder::new(self.view_parent.clone(), extent.into().into())
+        let Content::Views { view_parent, .. } = &self.content else {
+            panic!("an instance that draws its own windows has no views");
+        };
+        ViewBuilder::new(view_parent.clone(), extent.into().into())
     }
 
     /// Design: This may interfere with animations and requires a final submit()!
@@ -222,16 +248,22 @@ impl InstanceContext {
         changes: ChangeSet<InstanceChange>,
         pacing: RenderPacing,
     ) -> Result<()> {
-        assert!(
-            self.host_windows.is_none(),
-            "an instance that draws its own windows renders its changes itself"
-        );
+        let Content::Views {
+            last_submitted_pacing,
+            ..
+        } = &mut self.content
+        else {
+            panic!("an instance that draws its own windows renders its changes itself");
+        };
         let change_count = changes.len();
         // Desktop needs empty submissions to observe pacing transitions, but repeated pacing has
         // no effect.
-        if change_count == 0 && pacing == self.last_submitted_pacing {
+        if change_count == 0 && pacing == *last_submitted_pacing {
             return Ok(());
         }
+        // Recording the pacing before the send changes nothing, because a failed send ends the
+        // instance.
+        *last_submitted_pacing = pacing;
 
         trace!(
             "Submitting instance changes: instance={:?}, changes={change_count}, pacing={pacing:?}",
@@ -240,9 +272,7 @@ impl InstanceContext {
 
         self.send(InstanceOutput::Submission(InstanceSubmission::new(
             changes, pacing,
-        )))?;
-        self.last_submitted_pacing = pacing;
-        Ok(())
+        )))
     }
 
     fn send(&self, output: InstanceOutput) -> Result<()> {

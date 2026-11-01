@@ -37,6 +37,13 @@ pub use view_event::*;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From, Display)]
 pub struct InstanceId(Uuid);
 
+impl InstanceId {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
 pub struct ViewId(Uuid);
 

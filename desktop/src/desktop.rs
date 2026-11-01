@@ -85,7 +85,7 @@ impl Desktop {
         let environment = InstanceEnvironment::new(
             outputs_tx,
             context.primary_monitor_scale_factor(),
-            socket_path.clone(),
+            Some(socket_path.clone()),
         );
         let mut instance_manager = InstanceManager::new(environment);
 

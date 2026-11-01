@@ -207,7 +207,7 @@ impl EchoDesktop {
         let mut echo_instances = InstanceManager::new(InstanceEnvironment::new(
             sender,
             1.0,
-            Path::new("desktop.sock").into(),
+            Some(Path::new("desktop.sock").into()),
         ));
         // instance_a is presented, but no task runs it, so the echo instance takes its id.
         echo_instances.spawn(

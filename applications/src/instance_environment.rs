@@ -23,8 +23,8 @@ pub struct InstanceEnvironment {
     pub primary_monitor_scale_factor: f64,
     pub parameters: Map<String, Value>,
     /// The path of the desktop socket (ADR 0036). An instance passes it to the processes it starts,
-    /// so that a tool client among them can find the desktop.
-    pub desktop_socket: PathBuf,
+    /// so that a tool client among them can find the desktop. The shell has no desktop socket.
+    pub desktop_socket: Option<PathBuf>,
 }
 
 pub type InstanceParameters = Map<String, Value>;
@@ -33,7 +33,7 @@ impl InstanceEnvironment {
     pub fn new(
         output_sender: UnboundedSender<(InstanceId, InstanceOutput)>,
         primary_monitor_scale_factor: f64,
-        desktop_socket: PathBuf,
+        desktop_socket: Option<PathBuf>,
     ) -> Self {
         Self {
             output_sender,

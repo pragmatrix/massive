@@ -207,7 +207,7 @@ fn instance_manager(
     InstanceManager::new(InstanceEnvironment::new(
         sender,
         1.0,
-        Path::new("desktop.sock").into(),
+        Some(Path::new("desktop.sock").into()),
     ))
 }
 
