@@ -39,7 +39,8 @@ impl ToolCatalog {
     /// is longer than [`ToolName::MAX_LEN`], or when two tools have the same name. A joined name can
     /// collide even though MCP ids differ, such as the application `desktop_assign`'s tool `slot`
     /// with `desktop_assign_slot`. It also fails when an application tool's params are not a struct
-    /// or declare `instance_id`.
+    /// or declare `instance_id`, or when its result is not a struct, because MCP requires an object
+    /// as a tool's structured result.
     /// Like the [`ApplicationRegistry`], it reports these mistakes of the client's declarations as
     /// errors.
     pub fn new(applications: &ApplicationRegistry) -> Result<Self> {
@@ -64,6 +65,9 @@ impl ToolCatalog {
                     ),
                 };
                 let input_schema = with_instance_id(name, declaration)?;
+                if !is_struct(declaration.output_schema.as_value()) {
+                    bail!("the result of the tool '{name}' is not a struct");
+                }
                 tools.push((
                     description(name, declaration, input_schema),
                     declaration.access_scope,
@@ -119,12 +123,12 @@ fn description(
 /// application never sees that argument, so its parameter type must not declare it.
 fn with_instance_id(name: ToolName, declaration: &ToolDeclaration) -> Result<Value> {
     let mut schema = declaration.input_schema.as_value().clone();
-    let Some(object) = schema
+    if !is_struct(&schema) {
+        bail!("the params of the tool '{name}' are not a struct");
+    }
+    let object = schema
         .as_object_mut()
-        .filter(|object| object.get("type") == Some(&json!("object")))
-    else {
-        bail!("the params of the tool '{}' are not a struct", name);
-    };
+        .expect("a struct's schema is an object");
     let properties = object
         .entry("properties")
         .or_insert_with(|| json!({}))
@@ -150,6 +154,11 @@ fn with_instance_id(name: ToolName, declaration: &ToolDeclaration) -> Result<Val
         .expect("a schema's required properties are an array")
         .push(json!("instance_id"));
     Ok(schema)
+}
+
+/// Whether `schema` describes a struct, which JSON Schema calls an object.
+fn is_struct(schema: &Value) -> bool {
+    matches!(schema.get("type"), Some(Value::String(kind)) if kind == "object")
 }
 
 #[cfg(test)]
@@ -213,5 +222,19 @@ mod tests {
         let applications = ApplicationRegistry::new(vec![application]).unwrap();
         let error = ToolCatalog::new(&applications).unwrap_err();
         assert!(error.to_string().contains("longer than 48"), "{error}");
+    }
+
+    /// MCP requires an object as a tool's structured result, so a result type that is not a struct
+    /// fails at startup instead of at the agent.
+    #[test]
+    fn a_result_that_is_not_a_struct_fails() {
+        const PROVIDER: McpId = mcp_id!("echo");
+        let declaration =
+            ToolDeclaration::new::<NoParams, String>(mcp_id!("say"), AccessScope::Read, "");
+        let application =
+            Application::new("a", |_| async { Ok(()) }).with_mcp_id(PROVIDER, vec![declaration]);
+        let applications = ApplicationRegistry::new(vec![application]).unwrap();
+        let error = ToolCatalog::new(&applications).unwrap_err();
+        assert!(error.to_string().contains("is not a struct"), "{error}");
     }
 }
