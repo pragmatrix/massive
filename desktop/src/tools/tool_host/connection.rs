@@ -17,7 +17,7 @@ use massive_protocol::tools::v1::{
 };
 use massive_protocol::{Connect, Frames, MAX_FRAME_LENGTH, decode, encode, frames};
 
-use super::{BindingId, ConnectOutcome, ToolRequest};
+use super::{BindingId, CallFailure, ConnectOutcome, ToolRequest};
 
 /// Serves one tool connection until either side ends it. Malformed input ends the connection with a
 /// log line, never with a panic.
@@ -101,7 +101,7 @@ async fn serve_calls(
                                 pending.push(async move { (call_id, outcome.await) });
                             }
                             Err(error) => {
-                                frames.send(Bytes::from(result_frame(call_id, Err(error))?)).await?;
+                                frames.send(Bytes::from(result_frame(call_id, Err(error.into()))?)).await?;
                             }
                         }
                     }
@@ -111,10 +111,9 @@ async fn serve_calls(
                 }
             }
             Some((call_id, outcome)) = pending.next() => {
-                let outcome = outcome.unwrap_or_else(|_| Err(ToolError {
-                    code: ToolErrorCode::ConnectionClosed,
-                    message: "The desktop ended the call.".into(),
-                }));
+                let outcome = outcome.unwrap_or_else(|_| Err(CallFailure::ConnectionClosed(
+                    "The desktop ended the call.".into(),
+                )));
                 frames.send(Bytes::from(result_frame(call_id, outcome)?)).await?;
             }
             reason = &mut closing => {
@@ -133,18 +132,22 @@ async fn serve_calls(
 fn parse_arguments(arguments: &str) -> Result<ToolArguments, ToolError> {
     serde_json::from_str(arguments).map_err(|error| ToolError {
         code: ToolErrorCode::InvalidArgument,
-        message: format!("The arguments are no JSON object: {error}."),
+        message: format!("The arguments are not a JSON object: {error}."),
     })
 }
 
 /// The frame that carries a call's result, encoded as text for the wire. A result too large for
 /// one frame fails only its call, because the codec would refuse to write it and end the
 /// connection.
-fn result_frame(call_id: u64, outcome: Result<Value, ToolError>) -> Result<Vec<u8>> {
+fn result_frame(call_id: u64, outcome: Result<Value, CallFailure>) -> Result<Vec<u8>> {
     let outcome = match outcome {
         Ok(result) => ToolOutcome::Ok(result.to_string()),
-        Err(ToolError { code, message }) => ToolOutcome::Err {
+        Err(CallFailure::Tool(ToolError { code, message })) => ToolOutcome::Err {
             code: code.name().into(),
+            message,
+        },
+        Err(CallFailure::ConnectionClosed(message)) => ToolOutcome::Err {
+            code: v1::CONNECTION_CLOSED.into(),
             message,
         },
     };
@@ -176,8 +179,8 @@ async fn send(frames: &mut Frames, message: &impl serde::Serialize) -> Result<()
 mod tests {
     use super::*;
 
-    /// A tool client controls the arguments, so no text may panic or exhaust the stack. Only a JSON
-    /// object is arguments.
+    /// A tool client controls the arguments, so no text may panic or exhaust the stack. Arguments
+    /// must be a JSON object, so an array or a number fails too.
     #[test]
     fn arguments_that_are_no_json_object_fail_with_invalid_argument() {
         let deeply_nested = format!(r#"{{"x":{}}}"#, "[".repeat(100_000));

@@ -1,15 +1,19 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use anyhow::bail;
 use log::error;
 use massive_shell::{ApplicationContext, Result};
 
+use crate::tools::ToolCatalog;
 use crate::{Application, application_registry::ApplicationRegistry, desktop::Desktop};
 
 #[derive(Debug)]
 pub struct DesktopEnvironment {
     pub primary_application: String,
     pub applications: ApplicationRegistry,
+    /// Every tool agents can call, built from `applications` (ADR 0036).
+    pub(crate) tool_catalog: ToolCatalog,
     /// The directory pointing to the project directory. This is usually a subdirectory under the
     /// user's home directory.
     ///
@@ -20,15 +24,19 @@ pub struct DesktopEnvironment {
 const DEFAULT_PROJECT_DIR: &str = ".massive";
 
 impl DesktopEnvironment {
-    /// Fails when the applications' MCP tools are declared inconsistently (ADR 0036).
+    /// Fails without applications, because the first one is the primary application, and when the
+    /// [`ApplicationRegistry`] or the [`ToolCatalog`] refuses them. Every mistake in the
+    /// applications' declarations therefore shows before the desktop starts.
     pub fn new(applications: Vec<Application>) -> Result<Self> {
+        let Some(primary) = applications.first() else {
+            bail!("the desktop needs at least one application, the primary one");
+        };
+        let primary_application = primary.name.clone();
+        let applications = ApplicationRegistry::new(applications)?;
         Ok(Self {
-            primary_application: applications
-                .first()
-                .expect("No primary application")
-                .name
-                .clone(),
-            applications: ApplicationRegistry::new(applications)?,
+            primary_application,
+            tool_catalog: ToolCatalog::new(&applications)?,
+            applications,
             projects_dir: None,
         })
     }

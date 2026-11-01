@@ -131,8 +131,9 @@ impl InstanceContext {
     /// Answers a tool call.
     ///
     /// The answer is sent at once, apart from the collected changes, so a waiting agent does not
-    /// depend on the next frame. A tool that changes views therefore submits them before it
-    /// answers. A call may be answered long after it arrived (ADR 0036).
+    /// depend on the next frame. The answer stays ordered behind everything sent with
+    /// [`Self::submit`] before, so a tool whose answer reports view changes submits them first. A
+    /// call may be answered long after it arrived (ADR 0036).
     pub fn answer_tool_call(
         &self,
         call_id: ToolCallId,

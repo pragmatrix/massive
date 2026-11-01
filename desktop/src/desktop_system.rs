@@ -523,6 +523,11 @@ impl DesktopSystem {
             .unwrap_or_default()
     }
 
+    /// The environment the desktop was started with: its applications and their tools.
+    pub fn environment(&self) -> &DesktopEnvironment {
+        &self.env
+    }
+
     /// The name of the application `instance` runs. Every instance runs the primary application,
     /// because instances are spawned from it.
     pub fn instance_application(&self, _instance: InstanceId) -> &str {

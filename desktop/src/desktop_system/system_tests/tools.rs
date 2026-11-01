@@ -5,10 +5,9 @@ use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolOutcome;
 
 use super::*;
-use crate::application_registry::ApplicationRegistry;
 use crate::desktop_system::change::DesktopSystemEffect;
 use crate::desktop_system::selection::Selection;
-use crate::tools::{DesktopTools, ToolCallPlan, ToolCatalog};
+use crate::tools::{DesktopTools, ToolCallPlan};
 
 use self::tool_client::{connect, receive, send};
 
@@ -58,25 +57,24 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
 
         let inside = Target::Instance(instance_a.to_string());
         let outside = Target::Instance(instance_b.to_string());
-        let catalog = desktop_catalog();
         let missing = Target::Path("/nowhere".into());
         let bound = DesktopTools::new(&system)
-            .bind_connection(&inside, &catalog)
+            .bind_connection(&inside)
             .expect("labs-a covers instance a");
         assert!(bound.tools.is_empty(), "nothing is granted yet");
         assert!(
             DesktopTools::new(&system)
-                .bind_connection(&outside, &catalog)
+                .bind_connection(&outside)
                 .is_none()
         );
         assert!(
             DesktopTools::new(&system)
-                .bind_connection(&missing, &catalog)
+                .bind_connection(&missing)
                 .is_none()
         );
         assert_eq!(
             DesktopTools::new(&system)
-                .bind_connection(&Target::Path("/labs-a/shell-a".into()), &catalog)
+                .bind_connection(&Target::Path("/labs-a/shell-a".into()))
                 .map(|bound| bound.root),
             Some(bound.root)
         );
@@ -154,7 +152,7 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
         )?;
         let directory = tempfile::tempdir()?;
         let socket = directory.path().join("run").join("desktop.sock");
-        let mut tool_host = ToolHost::listen(socket.clone(), desktop_catalog())?;
+        let mut tool_host = ToolHost::listen(socket.clone())?;
 
         let (_, declined) = serve_until(
             &mut tool_host,
@@ -749,7 +747,7 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
     .await
 }
 
-/// An instance tool reaches only the instances its MCP root covers, and the MCP root itself cannot
+/// A tool that names an instance reaches only the instances its MCP root covers, and the MCP root itself cannot
 /// be ungrouped, because its slots would leave the covered subtree (ADR 0036).
 #[tokio::test]
 async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
@@ -791,11 +789,6 @@ async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
     .await
 }
 
-/// The catalog of a desktop without applications that declare tools.
-fn desktop_catalog() -> ToolCatalog {
-    ToolCatalog::new(&ApplicationRegistry::new(Vec::new()).unwrap()).unwrap()
-}
-
 /// Calls `tool` through a connection bound to `root` and carries out its command as the desktop
 /// loop does, and returns the result.
 fn carry_out(
@@ -818,10 +811,7 @@ fn carry_out(
 }
 
 fn tool_arguments(arguments: serde_json::Value) -> ToolArguments {
-    let serde_json::Value::Object(arguments) = arguments else {
-        panic!("arguments are a JSON object");
-    };
-    arguments
+    serde_json::from_value(arguments).expect("arguments are a JSON object")
 }
 
 fn created_id(result: &serde_json::Value) -> uuid::Uuid {

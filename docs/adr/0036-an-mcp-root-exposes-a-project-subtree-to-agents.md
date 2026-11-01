@@ -165,8 +165,8 @@ desktop cannot decode a newer variant and closes the connection.
 postcard encoding of one message. A frame may be at most 1 MiB in either direction, which is the
 protocol's only size limit. A tool's arguments and its result travel as JSON text inside the
 messages, so tools can change without a new version of the protocol. JSON is text only on the wire.
-The connection on each side parses the arguments when a call arrives and encodes the result when it
-leaves, and everything in between handles JSON values. Error codes travel as names, so a
+The tool host's connection parses a call's arguments when the call arrives and encodes its result
+when it leaves, and the desktop in between handles JSON values. Error codes travel as names, so a
 new error code needs no new version either. Access scopes never travel. The desktop checks them,
 and the tool list contains only the tools they grant.
 
@@ -220,8 +220,13 @@ id is `desktop`, which no application may use.
 **A tool's name joins the provider's MCP id and the tool's MCP id with `_`.** An application with the MCP id
 `notes` and a tool `read_page` offers `notes_read_page`, for example. The provider of an MCP id decides
 whether it uses `_` or `-` inside it. That makes a name unparseable in general, so the bridge and
-the desktop never split names. They look names up in the tool list instead. The application registry
-rejects a duplicate MCP id and any two tools whose joined names collide.
+the desktop never split names. The bridge looks names up in its tool list, and the desktop looks
+them up in the tool catalog. A provider declares only each tool's own MCP id, and the tool catalog
+joins the two, so a tool cannot carry another provider's MCP id. The application registry rejects
+a duplicate MCP id. The tool catalog rejects a joined name longer than 48 characters, because LLM
+APIs cap tool names and MCP clients prefix them, and any two tools whose joined names collide. Both
+report these as startup errors, because the applications come from the client's crate, so a
+mistake in them is the client's.
 
 ### Tools are declared as Rust types
 
@@ -229,7 +234,7 @@ rejects a duplicate MCP id and any two tools whose joined names collide.
 `massive-applications`.** A tool is a parameter type and a result type, both deriving serde's
 traits and `schemars`' `JsonSchema`, together with the tool's MCP id, its access scope and a
 description. A declaration reads like
-`Tool::new::<ReadPage, ReadPageResult>("read_page", AccessScope::Read, "…")`. A provider's tools are
+`ToolDeclaration::new::<ReadPage, ReadPageResult>(mcp_id!("read_page"), AccessScope::Read, "…")`. A provider's tools are
 fixed for the life of the desktop, so they cannot change during a tool connection.
 
 **The tool API does all the JSON work.** It derives each tool's input and output schemas from the

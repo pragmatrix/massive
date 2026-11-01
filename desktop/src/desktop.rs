@@ -32,7 +32,7 @@ use crate::policy::colors;
 use crate::policy::constants::lifecycle;
 use crate::projects::persistence::{self, ConfigurationPersistence};
 use crate::projects::{RuntimeConfiguration, to_commands};
-use crate::tools::{IssuedCommand, ToolCatalog, ToolHost, ToolRequest};
+use crate::tools::{IssuedCommand, ToolHost, ToolRequest};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -82,7 +82,6 @@ impl Desktop {
 
         let (outputs_tx, mut outputs_rx) = unbounded_channel();
         let socket_path = desktop_socket_path(&projects_dir(&env)?);
-        let catalog = ToolCatalog::new(&env.applications)?;
         let environment = InstanceEnvironment::new(
             outputs_tx,
             context.primary_monitor_scale_factor(),
@@ -190,7 +189,7 @@ impl Desktop {
             &mut renderer,
         )?;
 
-        let tool_host = ToolHost::listen(socket_path, catalog)?;
+        let tool_host = ToolHost::listen(socket_path)?;
 
         let desktop = Self {
             window,

@@ -69,7 +69,12 @@ struct NestedSiblings {
 }
 
 fn nested_siblings() -> Result<NestedSiblings> {
-    let (mut system, receiver) = system_from(NESTED_SIBLINGS_CONFIG);
+    nested_siblings_with(Vec::new())
+}
+
+/// The nested siblings of [`nested_siblings`], with `applications` registered.
+fn nested_siblings_with(applications: Vec<crate::Application>) -> Result<NestedSiblings> {
+    let (mut system, receiver) = system_with_applications(NESTED_SIBLINGS_CONFIG, applications);
     let mut instance_manager = instance_manager(&receiver);
     for command in crate::projects::to_commands(&system.aggregates.configuration) {
         let changes = system.plan(DesktopCommand::Configuration(command))?;
@@ -161,10 +166,24 @@ fn system_from(
     DesktopSystem,
     UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) {
+    system_with_applications(config, Vec::new())
+}
+
+/// A system booted from `config` whose environment registers `applications`, while every instance
+/// runs the primary application `terminal`.
+fn system_with_applications(
+    config: &str,
+    applications: Vec<crate::Application>,
+) -> (
+    DesktopSystem,
+    UnboundedReceiver<(InstanceId, InstanceOutput)>,
+) {
     let (_sender, receiver) = unbounded_channel();
+    let applications = crate::application_registry::ApplicationRegistry::new(applications).unwrap();
     let environment = DesktopEnvironment {
         primary_application: "terminal".into(),
-        applications: crate::application_registry::ApplicationRegistry::new(Vec::new()).unwrap(),
+        tool_catalog: crate::tools::ToolCatalog::new(&applications).unwrap(),
+        applications,
         projects_dir: None,
     };
     let path = Path::new("/config/desktop.json");

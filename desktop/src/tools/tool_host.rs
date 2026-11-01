@@ -20,6 +20,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use derive_more::From;
 use log::{info, warn};
 use serde_json::Value;
 use tokio::net::UnixListener;
@@ -34,7 +35,7 @@ use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolDescription;
 use massive_util::CollectingSet;
 
-use super::{DesktopTools, InstanceCall, ToolCallPlan, ToolCatalog};
+use super::{DesktopTools, InstanceCall, ToolCallPlan};
 use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal};
 use crate::instance_manager::InstanceManager;
 use crate::projects::ProjectId;
@@ -61,7 +62,16 @@ pub enum ToolRequest {
 }
 
 /// Where the desktop loop sends a call's answer. The connection encodes it for the wire.
-type CallReplySender = oneshot::Sender<Result<Value, ToolError>>;
+type CallReplySender = oneshot::Sender<Result<Value, CallFailure>>;
+
+/// Why a call failed: the tool failed, or the call's tool connection ended first. The second never
+/// comes from a tool, so it stays out of [`ToolErrorCode`], and the connection names it with the
+/// tool protocol's own code.
+#[derive(Debug, From)]
+pub enum CallFailure {
+    Tool(ToolError),
+    ConnectionClosed(String),
+}
 
 /// A tool call whose command the desktop loop carries out like a key press, before it answers the
 /// call through `done`.
@@ -90,7 +100,8 @@ impl CallDone {
         let _ = self.reply.send(Err(ToolError {
             code: ToolErrorCode::Refused,
             message: refusal.to_string(),
-        }));
+        }
+        .into()));
     }
 }
 
@@ -137,7 +148,8 @@ enum ForwardedCallState {
     /// The agent may cancel the call by the id its tool client chose, which only its connection
     /// knows.
     Open { client_call_id: u64 },
-    /// The agent cancelled the call, and the instance was told, which happens only once.
+    /// The agent cancelled the call, and the instance was told. A later cancel, a disconnect, or an
+    /// MCP root change does not tell it again.
     Cancelled,
 }
 
@@ -145,7 +157,6 @@ enum ForwardedCallState {
 pub struct ToolHost {
     socket_path: PathBuf,
     listener: JoinHandle<()>,
-    catalog: ToolCatalog,
     /// The requests the connections send to the desktop loop.
     requests: UnboundedReceiver<ToolRequest>,
     bindings: HashMap<BindingId, Binding>,
@@ -156,7 +167,7 @@ pub struct ToolHost {
 
 impl ToolHost {
     /// Creates the desktop socket and listens on it.
-    pub fn listen(socket_path: PathBuf, catalog: ToolCatalog) -> Result<Self> {
+    pub fn listen(socket_path: PathBuf) -> Result<Self> {
         let run_dir = socket_path
             .parent()
             .context("the desktop socket path has a directory")?;
@@ -175,7 +186,6 @@ impl ToolHost {
         Ok(Self {
             socket_path,
             listener: tokio::spawn(accept_connections(listener, sender)),
-            catalog,
             requests,
             bindings: HashMap::new(),
             next_binding: 0,
@@ -203,7 +213,7 @@ impl ToolHost {
         match request {
             ToolRequest::Connect { target, reply } => {
                 let tools = DesktopTools::new(system);
-                let outcome = match tools.bind_connection(&target, &self.catalog) {
+                let outcome = match tools.bind_connection(&target) {
                     Some(bound) => {
                         let (binding, closing) = self.bind(bound.root);
                         ConnectOutcome::Bound {
@@ -228,25 +238,25 @@ impl ToolHost {
             } => {
                 let Some(root) = self.root_of(binding) else {
                     // The MCP root changed after the call was sent, and the connection is ending.
-                    let _ = reply.send(Err(ToolError {
-                        code: ToolErrorCode::ConnectionClosed,
-                        message: "The MCP root's configuration changed.".into(),
-                    }));
+                    let _ = reply.send(Err(CallFailure::ConnectionClosed(
+                        "The MCP root's configuration changed.".into(),
+                    )));
                     return None;
                 };
                 let tools = DesktopTools::new(system);
-                if let Some(application_tool) = self.catalog.application_tool(&tool) {
+                let catalog = &system.environment().tool_catalog;
+                if let Some(application_tool) = catalog.application_tool(&tool) {
                     match tools.forward_call(root, application_tool, arguments) {
                         Ok(call) => self.forward(instances, binding, call_id, call, reply),
                         Err(error) => {
-                            let _ = reply.send(Err(error));
+                            let _ = reply.send(Err(error.into()));
                         }
                     }
                     return None;
                 }
                 match tools.call(root, &tool, &arguments) {
                     ToolCallPlan::Answer(outcome) => {
-                        let _ = reply.send(outcome);
+                        let _ = reply.send(outcome.map_err(CallFailure::from));
                         None
                     }
                     ToolCallPlan::Issue { command, result } => Some(IssuedCommand {
@@ -291,12 +301,18 @@ impl ToolHost {
         };
         match security::answering_call(call.get().instance == instance) {
             AnsweringCall::Accept => {
-                let _ = call.remove().reply.send(outcome);
+                let _ = call.remove().reply.send(outcome.map_err(CallFailure::from));
             }
             AnsweringCall::RefuseOtherInstance => {
                 warn!("Instance {instance:?} answered a call it did not receive");
             }
         }
+    }
+
+    /// Whether the call `call_id` waits for an instance's answer.
+    #[cfg(test)]
+    pub fn forwards(&self, call_id: ToolCallId) -> bool {
+        self.forwarded.contains_key(&call_id)
     }
 
     /// Fails the calls forwarded to `instance`, which ended before it answered them. The desktop
@@ -412,11 +428,12 @@ fn cancel(instances: &InstanceManager, instance: InstanceId, id: ToolCallId) {
     let _ = instances.send_event(instance, ApplicationMessage::CancelToolCall(id));
 }
 
-fn instance_ended() -> Result<Value, ToolError> {
+fn instance_ended() -> Result<Value, CallFailure> {
     Err(ToolError {
         code: ToolErrorCode::UnknownId,
         message: "The instance ended before it answered.".into(),
-    })
+    }
+    .into())
 }
 
 async fn accept_connections(listener: UnixListener, requests: UnboundedSender<ToolRequest>) {

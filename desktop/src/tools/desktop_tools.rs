@@ -13,13 +13,13 @@ use serde_json::Value;
 
 use massive_applications::{
     AccessScope, AccessScopes, InstanceId, McpId, ToolArguments, ToolDeclaration, ToolError,
-    ToolErrorCode, ToolName, decode_arguments, encode_result, tool_name,
+    ToolErrorCode, ToolName, decode_arguments, encode_result, mcp_id,
 };
 use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolDescription;
 
 use self::schema::*;
-use super::{ApplicationTool, ToolCatalog};
+use super::ApplicationTool;
 use crate::desktop_system::{
     ConfigurationCommand, DesktopCommand, DesktopSystem, FocusIntent, RunningInstances,
 };
@@ -54,12 +54,12 @@ pub enum ToolCallPlan {
     },
 }
 
-/// A checked call of an application's tool, which goes to `instance`. `arguments` no longer contain
-/// the `instance_id` that routed it.
+/// A checked call of an application's tool, which goes to `instance`. `arguments` lack the
+/// `instance_id` that routed it.
 #[derive(Debug)]
 pub struct InstanceCall {
     pub instance: InstanceId,
-    pub tool: ToolName,
+    pub tool: McpId,
     pub arguments: ToolArguments,
 }
 
@@ -76,11 +76,7 @@ impl<'a> DesktopTools<'a> {
     }
 
     /// Binds a tool connection to the MCP root that covers `target`, or `None` to decline it.
-    pub fn bind_connection(
-        &self,
-        target: &Target,
-        catalog: &ToolCatalog,
-    ) -> Option<ToolConnectionRoot> {
+    pub fn bind_connection(&self, target: &Target) -> Option<ToolConnectionRoot> {
         let covering_mcp_root = self
             .target_project(target)
             .and_then(|project| self.system.configuration().mcp_root_of(project));
@@ -90,7 +86,11 @@ impl<'a> DesktopTools<'a> {
         };
         Some(ToolConnectionRoot {
             root,
-            tools: catalog.granted(self.granted_access_scopes(root)),
+            tools: self
+                .system
+                .environment()
+                .tool_catalog
+                .granted(self.granted_access_scopes(root)),
         })
     }
 
@@ -122,7 +122,7 @@ impl<'a> DesktopTools<'a> {
         match security::forwarding_call(runs_declaring_application) {
             ForwardingCall::Forward => Ok(InstanceCall {
                 instance,
-                tool: tool.name,
+                tool: tool.name.tool(),
                 arguments,
             }),
             ForwardingCall::RefuseOtherApplication => Err(invalid_argument(&format!(
@@ -138,9 +138,8 @@ impl<'a> DesktopTools<'a> {
         tool: &str,
         arguments: &ToolArguments,
     ) -> Result<ToolCallPlan, ToolError> {
-        let Some((desktop_tool, declaration)) = DESKTOP_TOOLS
-            .iter()
-            .find(|(_, declaration)| declaration.name.is(tool))
+        let Some((desktop_tool, _, declaration)) =
+            DESKTOP_TOOLS.iter().find(|(_, name, _)| name.is(tool))
         else {
             return Err(ToolError {
                 code: ToolErrorCode::UnknownId,
@@ -519,18 +518,22 @@ fn invalid_argument(message: &str) -> ToolError {
     }
 }
 
-/// The declarations of the desktop's tools, for the [`ToolCatalog`].
-pub fn declarations() -> impl Iterator<Item = &'static ToolDeclaration> {
-    DESKTOP_TOOLS.iter().map(|(_, declaration)| declaration)
+/// The desktop's tools with their names, for the [`ToolCatalog`](super::ToolCatalog).
+pub fn declarations() -> impl Iterator<Item = (ToolName, &'static ToolDeclaration)> {
+    DESKTOP_TOOLS
+        .iter()
+        .map(|(_, name, declaration)| (*name, declaration))
 }
 
-/// The desktop's tools, declared once, because their schemas never change.
-static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::new(|| {
-    vec![
+/// The desktop's tools, declared once, because their schemas never change. Their names come from
+/// massive itself, so one too long for the limit is a bug of massive.
+static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolName, ToolDeclaration)>> =
+    LazyLock::new(|| {
+        [
         (
             DesktopTool::Describe,
             ToolDeclaration::new::<DescribeParams, ProjectDescription>(
-                tool_name!(McpId::DESKTOP, "describe"),
+                mcp_id!("describe"),
                 AccessScope::Observe,
                 "Returns the MCP root this connection is bound to and everything it covers: its \
                  slots, nested projects, launchers, and running instances. Ids are valid only \
@@ -540,7 +543,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::AssignSlot,
             ToolDeclaration::new::<AssignSlotParams, CreatedContent>(
-                tool_name!(McpId::DESKTOP, "assign_slot"),
+                mcp_id!("assign_slot"),
                 AccessScope::Organize,
                 "Puts a new launcher or a new, empty project into a slot, and returns its id. \
                  Replacing assigned content with shift \"keep\" removes it and its subtree, and is \
@@ -550,7 +553,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::ClearSlot,
             ToolDeclaration::new::<ClearSlotParams, NoResult>(
-                tool_name!(McpId::DESKTOP, "clear_slot"),
+                mcp_id!("clear_slot"),
                 AccessScope::Organize,
                 "Removes a slot's content and its subtree. The slot stays unassigned unless shift \
                  is \"shift\". It is refused while instances run below the content, so stop them \
@@ -560,7 +563,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::MoveSlot,
             ToolDeclaration::new::<MoveSlotParams, NoResult>(
-                tool_name!(McpId::DESKTOP, "move_slot"),
+                mcp_id!("move_slot"),
                 AccessScope::Organize,
                 "Moves a slot's content to another slot, possibly in another project of the MCP \
                  project. Onto an assigned slot of the same project, it exchanges the two \
@@ -570,7 +573,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::Group,
             ToolDeclaration::new::<GroupParams, CreatedContent>(
-                tool_name!(McpId::DESKTOP, "group"),
+                mcp_id!("group"),
                 AccessScope::Organize,
                 "Wraps assigned slots of one project into a new project, which takes the top-left \
                  slot of their bounding box, and returns its id. Unassigned slots among the \
@@ -580,7 +583,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::Ungroup,
             ToolDeclaration::new::<UngroupParams, NoResult>(
-                tool_name!(McpId::DESKTOP, "ungroup"),
+                mcp_id!("ungroup"),
                 AccessScope::Organize,
                 "Moves a nested project's slots into its parent's matrix and removes the project. \
                  An empty project is removed instead. The MCP root itself cannot be ungrouped.",
@@ -589,7 +592,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::StartInstance,
             ToolDeclaration::new::<StartInstanceParams, CreatedContent>(
-                tool_name!(McpId::DESKTOP, "start_instance"),
+                mcp_id!("start_instance"),
                 AccessScope::Act,
                 "Starts a primary instance of a launcher with the launcher's params, and returns \
                  its id. The user's focus stays where it is.",
@@ -598,7 +601,7 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::StopInstance,
             ToolDeclaration::new::<StopInstanceParams, NoResult>(
-                tool_name!(McpId::DESKTOP, "stop_instance"),
+                mcp_id!("stop_instance"),
                 AccessScope::Act,
                 "Stops an instance and ends its application.",
             ),
@@ -606,14 +609,21 @@ static DESKTOP_TOOLS: LazyLock<Vec<(DesktopTool, ToolDeclaration)>> = LazyLock::
         (
             DesktopTool::PushSlot,
             ToolDeclaration::new::<PushSlotParams, NoResult>(
-                tool_name!(McpId::DESKTOP, "push_slot"),
+                mcp_id!("push_slot"),
                 AccessScope::Organize,
                 "Pushes a slot's content one slot in a direction, together with the contents in \
                  its way.",
             ),
         ),
     ]
-});
+    .into_iter()
+    .map(|(tool, declaration)| {
+        let name = ToolName::join(McpId::DESKTOP, declaration.tool)
+            .expect("the desktop's tool names fit the length limit");
+        (tool, name, declaration)
+    })
+    .collect()
+    });
 
 #[derive(Debug, Clone, Copy)]
 enum DesktopTool {

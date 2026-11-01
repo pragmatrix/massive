@@ -13,10 +13,12 @@ use serde_json::{Map, Value};
 
 use crate::AccessScope;
 
-/// A declared tool, as MCP's tool list shows it.
+/// A declared tool, as MCP's tool list shows it. Its provider joins its MCP id to `tool` (see
+/// [`ToolName`]).
 #[derive(Debug, Clone)]
 pub struct ToolDeclaration {
-    pub name: ToolName,
+    /// The tool's own MCP id, such as `describe`.
+    pub tool: McpId,
     pub access_scope: AccessScope,
     pub description: String,
     pub input_schema: Schema,
@@ -24,14 +26,14 @@ pub struct ToolDeclaration {
 }
 
 impl ToolDeclaration {
-    /// Declares the tool `name`, which takes `Params` and returns `Output`.
+    /// Declares the tool `tool`, which takes `Params` and returns `Output`.
     pub fn new<Params: JsonSchema, Output: JsonSchema>(
-        name: ToolName,
+        tool: McpId,
         access_scope: AccessScope,
         description: &str,
     ) -> Self {
         Self {
-            name,
+            tool,
             access_scope,
             description: description.to_string(),
             input_schema: schema_for!(Params),
@@ -41,8 +43,7 @@ impl ToolDeclaration {
 }
 
 /// A tool's name: its provider's MCP id and its own, joined by `_`, such as `desktop_describe`.
-/// Names are looked up, never split, because an MCP id may contain `_` itself. [`tool_name!`]
-/// checks a name at compile time.
+/// Names are looked up, never split, because an MCP id may contain `_` itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ToolName {
     provider: McpId,
@@ -54,18 +55,15 @@ impl ToolName {
     /// put a prefix in front, such as Claude Code's `mcp__<server>__`.
     pub const MAX_LEN: usize = 48;
 
-    /// Panics when the joined name is longer than [`Self::MAX_LEN`], at compile time in the const
-    /// context [`tool_name!`] provides.
-    pub const fn new(provider: McpId, tool: McpId) -> Self {
-        assert!(
-            provider.0.len() + 1 + tool.0.len() <= Self::MAX_LEN,
-            "a tool name joined from its provider's MCP id and its own is at most 48 characters"
-        );
-        Self { provider, tool }
+    /// Joins the provider's MCP id and the tool's, or `None` when the joined name is longer than
+    /// [`Self::MAX_LEN`].
+    pub fn join(provider: McpId, tool: McpId) -> Option<Self> {
+        (provider.0.len() + 1 + tool.0.len() <= Self::MAX_LEN).then_some(Self { provider, tool })
     }
 
-    pub fn provider(self) -> McpId {
-        self.provider
+    /// The tool's own MCP id.
+    pub fn tool(self) -> McpId {
+        self.tool
     }
 
     /// Whether `name` is this tool name, as a tool call names it.
@@ -80,25 +78,6 @@ impl fmt::Display for ToolName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}_{}", self.provider.as_str(), self.tool.as_str())
     }
-}
-
-/// A [`ToolName`] of the provider `$provider`, a constant [`McpId`], and the tool `$tool`, checked
-/// at compile time.
-///
-/// ```
-/// use massive_applications::{McpId, tool_name};
-/// let name = tool_name!(McpId::DESKTOP, "describe");
-/// ```
-///
-/// ```compile_fail
-/// use massive_applications::{McpId, tool_name};
-/// let name = tool_name!(McpId::DESKTOP, "a_tool_name_so_long_that_it_exceeds_the_limit");
-/// ```
-#[macro_export]
-macro_rules! tool_name {
-    ($provider:expr, $tool:literal) => {
-        const { $crate::ToolName::new($provider, $crate::McpId::new($tool)) }
-    };
 }
 
 /// A name of a tool provider or of a tool, matching `[a-z][a-z0-9_-]*` (ADR 0036). These characters
@@ -158,18 +137,19 @@ macro_rules! mcp_id {
 /// A call of one of an application's tools, which the desktop forwards to the instance it names
 /// (ADR 0036).
 ///
-/// The desktop has already checked the call, so the instance only matches `tool` and decodes the
-/// arguments. It answers with [`crate::InstanceContext::answer_tool_call`].
+/// The desktop has already checked the call, so the instance only matches `tool`, the tool's own
+/// MCP id, and decodes the arguments. It answers with [`crate::InstanceContext::answer_tool_call`].
 #[derive(Debug, Clone)]
 pub struct ToolCall {
     pub id: ToolCallId,
-    pub tool: ToolName,
+    pub tool: McpId,
     arguments: ToolArguments,
 }
 
 impl ToolCall {
-    /// `arguments` no longer contain the `instance_id` that routed the call.
-    pub fn new(id: ToolCallId, tool: ToolName, arguments: ToolArguments) -> Self {
+    /// `arguments` lack the `instance_id` that routed the call, because the desktop removes it
+    /// before forwarding.
+    pub fn new(id: ToolCallId, tool: McpId, arguments: ToolArguments) -> Self {
         Self {
             id,
             tool,
@@ -187,8 +167,8 @@ impl ToolCall {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct ToolCallId(u64);
 
-/// A tool call's arguments, a JSON object. They are text only on the wire, and the tool protocol's
-/// connections parse them, within serde_json's nesting limit.
+/// A tool call's arguments, a JSON object. They are text only on the wire, and the tool host's
+/// connection parses them, within serde_json's nesting limit.
 pub type ToolArguments = Map<String, Value>;
 
 /// Decodes a tool call's arguments into the tool's parameter type.
@@ -201,7 +181,8 @@ pub fn decode_arguments<Params: DeserializeOwned>(
     })
 }
 
-/// Encodes a tool's result as a JSON value.
+/// Encodes a tool's result as a JSON value. Integers in a result type fit in 64 bits, because
+/// serde_json's values hold no wider ones.
 pub fn encode_result(output: &impl Serialize) -> Value {
     serde_json::to_value(output).expect("a tool result type serializes to JSON")
 }
@@ -223,9 +204,6 @@ pub enum ToolErrorCode {
     InvalidArgument,
     /// The desktop refused the command, for example a move onto an assigned slot.
     Refused,
-    /// The tool connection ended before the call was answered, for example because the MCP root's
-    /// configuration changed.
-    ConnectionClosed,
 }
 
 impl ToolErrorCode {
@@ -235,7 +213,6 @@ impl ToolErrorCode {
             Self::ScopeNotGranted => "scope_not_granted",
             Self::InvalidArgument => "invalid_argument",
             Self::Refused => "refused",
-            Self::ConnectionClosed => "connection_closed",
         }
     }
 }

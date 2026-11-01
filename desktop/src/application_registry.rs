@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::pin::Pin;
 
 use anyhow::{Result, bail};
@@ -14,34 +14,35 @@ pub struct ApplicationRegistry {
 impl ApplicationRegistry {
     /// Registers the applications the desktop can run.
     ///
-    /// Fails when an application uses the desktop's MCP id or one another application uses, or
-    /// declares a tool whose name belongs to another MCP id (ADR 0036).
+    /// Fails when two applications share a name or an MCP id, or when one uses the desktop's MCP id
+    /// (ADR 0036). The applications come from the client's crate, such as mt's, so a mistake in them
+    /// is the client's error, which startup reports with a message instead of a panic.
     pub fn new(applications: Vec<Application>) -> Result<Self> {
-        let mut mcp_ids = HashSet::new();
-        for tools in applications.iter().filter_map(|a| a.tools.as_ref()) {
+        let mut providers = HashMap::new();
+        for application in &applications {
+            let Some(tools) = &application.tools else {
+                continue;
+            };
+            let name = &application.name;
             if tools.mcp_id == McpId::DESKTOP {
-                bail!("the MCP id 'desktop' is reserved for the desktop's tools");
+                bail!("the application '{name}' uses the MCP id 'desktop', which is reserved");
             }
-            if !mcp_ids.insert(tools.mcp_id) {
+            if let Some(other) = providers.insert(tools.mcp_id, name) {
                 bail!(
-                    "two applications use the MCP id '{}'",
-                    tools.mcp_id.as_str()
-                );
-            }
-            if let Some(declaration) = tools
-                .declarations
-                .iter()
-                .find(|declaration| declaration.name.provider() != tools.mcp_id)
-            {
-                bail!(
-                    "the tool '{}' does not belong to the MCP id '{}'",
-                    declaration.name,
+                    "the applications '{other}' and '{name}' both use the MCP id '{}'",
                     tools.mcp_id.as_str()
                 );
             }
         }
+        let mut registered = HashMap::new();
+        for application in applications {
+            if registered.contains_key(&application.name) {
+                bail!("two applications are named '{}'", application.name);
+            }
+            registered.insert(application.name.clone(), application);
+        }
         Ok(Self {
-            applications: HashMap::from_iter(applications.into_iter().map(|a| (a.name.clone(), a))),
+            applications: registered,
         })
     }
 
@@ -125,7 +126,8 @@ impl Application {
         self
     }
 
-    /// Declares the MCP tools that agents may call on this application's instances (ADR 0036).
+    /// Declares the MCP tools that agents may call on this application's instances (ADR 0036). The
+    /// desktop joins `mcp_id` with each tool's own MCP id into the tool's name.
     pub fn with_mcp_id(mut self, mcp_id: McpId, declarations: Vec<ToolDeclaration>) -> Self {
         self.tools = Some(ApplicationTools {
             mcp_id,
@@ -156,6 +158,6 @@ mod tests {
         let id = mcp_id!("term");
         let error =
             ApplicationRegistry::new(vec![application("a", id), application("b", id)]).unwrap_err();
-        assert!(error.to_string().contains("two applications"), "{error}");
+        assert!(error.to_string().contains("both use the MCP id"), "{error}");
     }
 }

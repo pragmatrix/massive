@@ -406,13 +406,11 @@ mod tests {
     #[test]
     fn decoding_refuses_a_name_beyond_the_limit() {
         let arguments = |name: String| {
-            let serde_json::Value::Object(arguments) = serde_json::json!({
+            serde_json::from_value(serde_json::json!({
                 "slot": { "project_id": "p", "position": { "column": 0, "row": 0 } },
                 "content": { "project": name }
-            }) else {
-                unreachable!("the arguments are a JSON object");
-            };
-            arguments
+            }))
+            .expect("the arguments are a JSON object")
         };
         let longest = "n".repeat(constants::tools::MAX_NAME_CHARS);
 

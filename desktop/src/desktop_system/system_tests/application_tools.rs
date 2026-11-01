@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use massive_applications::{
     AccessScope, ApplicationEvent, CreationMode, McpId, ToolCallId, ToolDeclaration, mcp_id,
-    tool_name,
 };
 use massive_protocol::Frames;
 use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage, ToolOutcome};
+use massive_util::CollectingSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -16,8 +16,7 @@ use super::tools::configure_mcp;
 use super::tools::tool_client::{connect, receive, send};
 use super::*;
 use crate::Application;
-use crate::application_registry::ApplicationRegistry;
-use crate::tools::{ToolCatalog, ToolHost};
+use crate::tools::ToolHost;
 
 /// A call of an application's tool reaches the instance its `instance_id` names, without that
 /// argument, and the instance's answer returns to the tool client. The connection lists the tool
@@ -91,14 +90,58 @@ async fn an_answer_from_another_instance_does_not_complete_a_call() -> Result<()
             send(&mut frames, &ClientMessage::CancelTool { call_id: 7 }).await;
             receive::<HostMessage>(&mut frames).await
         };
+        let mut forged = false;
         let answer = desktop
             .serve_with(client, |tool_host| {
                 // The first forwarded call gets the id 0.
-                let forged = serde_json::json!({ "text": "forged" });
-                tool_host.tool_result(other_instance, ToolCallId::from(0), Ok(forged));
+                let first_call = ToolCallId::from(0);
+                if tool_host.forwards(first_call) {
+                    let answer = serde_json::json!({ "text": "forged" });
+                    tool_host.tool_result(other_instance, first_call, Ok(answer));
+                    forged = true;
+                }
             })
             .await;
+        assert!(forged, "the forged answer names a forwarded call");
         assert_eq!(answer, echoed(7, CANCELLED));
+        Ok(())
+    })
+    .await
+}
+
+/// An instance gets at most one cancel per call, however often the agent cancels it, and also when
+/// the call's connection ends after the agent's cancel.
+#[tokio::test]
+async fn an_instance_gets_at_most_one_cancel_per_call() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let mut desktop = EchoDesktop::new()?;
+        let socket = desktop.socket.clone();
+        let instance = desktop.instance;
+        let counted = desktop
+            .serve(async {
+                let (mut frames, _) = connect(&socket, "/labs-a").await;
+                call_echo(&mut frames, 7, instance, HOLD).await;
+                send(&mut frames, &ClientMessage::CancelTool { call_id: 7 }).await;
+                send(&mut frames, &ClientMessage::CancelTool { call_id: 7 }).await;
+                call_echo(&mut frames, 8, instance, CANCELS).await;
+                receive::<HostMessage>(&mut frames).await
+            })
+            .await;
+        assert_eq!(counted, echoed(8, "1"));
+
+        // Ending the connection cancels its calls that still wait, the held one included.
+        let root = desktop.system.project_of_instance(instance).unwrap();
+        desktop
+            .tool_host
+            .mcp_roots_changed(&CollectingSet::from(root), &desktop.echo_instances);
+        let counted = desktop
+            .serve(async {
+                let (mut frames, _) = connect(&socket, "/labs-a").await;
+                call_echo(&mut frames, 9, instance, CANCELS).await;
+                receive::<HostMessage>(&mut frames).await
+            })
+            .await;
+        assert_eq!(counted, echoed(9, "1"));
         Ok(())
     })
     .await
@@ -107,6 +150,10 @@ async fn an_answer_from_another_instance_does_not_complete_a_call() -> Result<()
 const ECHO: McpId = mcp_id!("echo");
 /// The text the echo instance does not answer until the call is cancelled.
 const WAIT: &str = "wait";
+/// The text the echo instance never answers, even when the call is cancelled.
+const HOLD: &str = "hold";
+/// The text the echo instance answers with the number of cancels it received.
+const CANCELS: &str = "cancels";
 /// The text the echo instance answers a cancelled call with.
 const CANCELLED: &str = "cancelled";
 
@@ -143,14 +190,13 @@ impl EchoDesktop {
             mut instance_manager,
             instance_a,
             instance_b,
-        } = nested_siblings()?;
+        } = nested_siblings_with(vec![echo_application()])?;
         configure_mcp(
             &mut system,
             &mut instance_manager,
             "/labs-a",
             &[AccessScope::Read],
         )?;
-        let applications = ApplicationRegistry::new(vec![echo_application()])?;
         let (sender, outputs) = unbounded_channel();
         let mut echo_instances = InstanceManager::new(InstanceEnvironment::new(
             sender,
@@ -160,13 +206,17 @@ impl EchoDesktop {
         // instance_a is presented, but no task runs it, so the echo instance takes its id.
         echo_instances.spawn(
             instance_a,
-            applications.get_named("terminal").unwrap(),
+            system
+                .environment()
+                .applications
+                .get_named("terminal")
+                .unwrap(),
             CreationMode::Restore,
             InstanceRoot::new().view_parent(),
         )?;
         let directory = tempfile::tempdir()?;
         let socket = directory.path().join("run").join("desktop.sock");
-        let tool_host = ToolHost::listen(socket.clone(), ToolCatalog::new(&applications)?)?;
+        let tool_host = ToolHost::listen(socket.clone())?;
         Ok(Self {
             system,
             instance: instance_a,
@@ -211,23 +261,35 @@ impl EchoDesktop {
 }
 
 /// The system tests' primary application, which every instance runs. It echoes a call's text, but
-/// answers a call with [`WAIT`] only when it is cancelled.
+/// answers a call with [`WAIT`] only when it is cancelled, never answers one with [`HOLD`], and
+/// answers one with [`CANCELS`] with the number of cancels it received.
 fn echo_application() -> Application {
     Application::new("terminal", |mut ctx| async move {
         let mut waiting = None;
+        let mut cancels = 0;
         loop {
             match ctx.wait_for_event().await? {
                 ApplicationEvent::ToolCall(call) => {
                     match call.decode().map(|EchoParams { text }| Echo { text }) {
                         Ok(Echo { text }) if text == WAIT => waiting = Some(call.id),
+                        Ok(Echo { text }) if text == HOLD => {}
+                        Ok(Echo { text }) if text == CANCELS => {
+                            let counted = Echo {
+                                text: cancels.to_string(),
+                            };
+                            ctx.answer_tool_call(call.id, Ok(counted))?;
+                        }
                         echoed => ctx.answer_tool_call(call.id, echoed)?,
                     }
                 }
-                ApplicationEvent::CancelToolCall(call_id) if waiting == Some(call_id) => {
-                    let cancelled = Echo {
-                        text: CANCELLED.into(),
-                    };
-                    ctx.answer_tool_call(call_id, Ok(cancelled))?;
+                ApplicationEvent::CancelToolCall(call_id) => {
+                    cancels += 1;
+                    if waiting == Some(call_id) {
+                        let cancelled = Echo {
+                            text: CANCELLED.into(),
+                        };
+                        ctx.answer_tool_call(call_id, Ok(cancelled))?;
+                    }
                 }
                 ApplicationEvent::Shutdown(_) => return Ok(()),
                 _ => {}
@@ -237,7 +299,7 @@ fn echo_application() -> Application {
     .with_mcp_id(
         ECHO,
         vec![ToolDeclaration::new::<EchoParams, Echo>(
-            tool_name!(ECHO, "say"),
+            mcp_id!("say"),
             AccessScope::Read,
             "Echoes the text.",
         )],
