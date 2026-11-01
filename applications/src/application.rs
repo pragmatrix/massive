@@ -2,6 +2,7 @@ use std::pin::Pin;
 
 use anyhow::Result;
 use derive_more::Debug;
+use tokio::runtime::Builder;
 
 use crate::{InstanceContext, McpId, ToolDeclaration};
 
@@ -43,6 +44,17 @@ pub enum RuntimeKind {
     /// Work-stealing worker pool for an application whose instance has internal
     /// parallelism (tokio::spawn, timers).
     MultiThread,
+}
+
+impl RuntimeKind {
+    /// The builder of an instance runtime of this kind, which the host completes and passes to
+    /// [`run_instance`](crate::run_instance).
+    pub fn runtime_builder(self) -> Builder {
+        match self {
+            Self::CurrentThread => Builder::new_current_thread(),
+            Self::MultiThread => Builder::new_multi_thread(),
+        }
+    }
 }
 
 impl Application {

@@ -1,22 +1,17 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::io;
-use std::panic::AssertUnwindSafe;
 use std::thread;
 
 use anyhow::{Context, anyhow, bail};
 use derive_more::{Debug, From, Into};
-use futures::FutureExt;
 use log::warn;
-use panic_message::panic_message as panic_payload_message;
-use tokio::runtime::Builder;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
     Application, ApplicationMessage, CreationMode, InstanceChange, InstanceContext,
-    InstanceEnvironment, InstanceId, RuntimeKind, ViewEvent, ViewId,
+    InstanceEnvironment, InstanceFuture, InstanceId, RuntimeKind, ViewEvent, ViewId, run_instance,
 };
 use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
@@ -199,57 +194,23 @@ impl InstanceManager {
 /// The thread is detached: it reports `(InstanceId, result)` on the completion channel and
 /// the manager never joins or aborts it — shutdown is cooperative and the process end reaps
 /// threads that outlive the shutdown deadline.
-fn spawn_instance_thread<F>(
+fn spawn_instance_thread(
     instance_id: InstanceId,
     runtime_kind: RuntimeKind,
-    instance_future: F,
+    instance_future: InstanceFuture,
     instance_task_context: TaskContext,
     completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
-) -> io::Result<thread::JoinHandle<()>>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
+) -> io::Result<thread::JoinHandle<()>> {
     thread::Builder::new()
         .name(format!("{INSTANCE_THREAD_NAME_PREFIX}{instance_id:?}"))
         .spawn(move || {
-            // The send is the only exit: every failure of [run_instance_future] becomes a
-            // completion, so the manager never waits on an instance that cannot report.
-            let result = run_instance_future(runtime_kind, instance_future, instance_task_context);
+            // The send is the only exit: every failure of [run_instance] becomes a completion, so
+            // the manager never waits on an instance that cannot report.
+            let result = run_instance(
+                runtime_kind.runtime_builder(),
+                instance_future,
+                instance_task_context,
+            );
             let _ = completions_tx.send((instance_id, result));
         })
-}
-
-/// Build the instance runtime and drive the instance future to completion, converting a
-/// panic into an error result.
-fn run_instance_future<F>(
-    runtime_kind: RuntimeKind,
-    instance_future: F,
-    instance_task_context: TaskContext,
-) -> Result<()>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
-    // The runtime is built inside the thread closure so its lifetime encloses `block_on`:
-    // dropping a runtime before `spawn_blocking` work completes would abort the pty reader.
-    let runtime = match runtime_kind {
-        RuntimeKind::CurrentThread => Builder::new_current_thread(),
-        RuntimeKind::MultiThread => Builder::new_multi_thread(),
-    }
-    .enable_all()
-    .build()
-    .context("building an instance runtime")?;
-    let result = runtime.block_on(task_context::with_context(
-        instance_task_context,
-        AssertUnwindSafe(instance_future).catch_unwind(),
-    ));
-    match result {
-        Ok(result) => result,
-        // `catch_unwind` yields `Box<dyn Any + Send>`, exactly the payload type
-        // `panic_message` takes — it unpacks `&str`/`String` payloads like rustc's
-        // default handler and falls back to "Box<dyn Any>" for anything else.
-        Err(payload) => Err(anyhow!(
-            "Instance panicked : {}",
-            panic_payload_message(&payload)
-        )),
-    }
 }
