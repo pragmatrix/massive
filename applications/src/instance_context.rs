@@ -1,6 +1,9 @@
 //! The context for an instance.
 
-use anyhow::{Result, bail};
+use std::any::Any;
+use std::sync::Arc;
+
+use anyhow::{Result, anyhow, bail};
 use log::{error, trace, warn};
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -45,10 +48,23 @@ pub struct InstanceContext {
     last_submitted_pacing: RenderPacing,
 
     events: CoalescingReceiver<ApplicationMessage>,
+
+    /// The shell's window factory, present when the instance draws its own windows
+    /// ([`Presentation::Windows`](crate::Presentation::Windows)).
+    host_windows: Option<HostWindows>,
 }
+
+/// The window factory of the host, kept opaque here because the shell that defines it depends on
+/// this crate. The shell's `InstanceWindows` trait reads it back.
+pub type HostWindows = Arc<dyn Any + Send + Sync>;
 
 impl Drop for InstanceContext {
     fn drop(&mut self) {
+        // An instance that draws its own windows collects scene changes and renders them itself,
+        // so it has no instance changes to submit.
+        if self.host_windows.is_some() {
+            return;
+        }
         warn!("Submitting final instance changes: instance={:?}", self.id);
         // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
         // the desktop observes it behind every pending change of this submission.
@@ -79,7 +95,18 @@ impl InstanceContext {
             view_parent,
             last_submitted_pacing: RenderPacing::Fast,
             events: events.into(),
+            host_windows: None,
         }
+    }
+
+    /// Lets the instance draw its own windows through `windows`. Only the shell does this.
+    pub fn with_host_windows(mut self, windows: HostWindows) -> Self {
+        self.host_windows = Some(windows);
+        self
+    }
+
+    pub fn host_windows(&self) -> Option<&HostWindows> {
+        self.host_windows.as_ref()
     }
 
     pub fn id(&self) -> InstanceId {
@@ -119,7 +146,42 @@ impl InstanceContext {
         Ok(self.events.recv().await?.into())
     }
 
+    /// Waits for the next events, all that are pending, and treats custom events of type `T`.
+    ///
+    /// On an animation tick, the task's animation cycle starts at the tick's vblank time and the
+    /// movements advance to it, before the instance opens its next frame. A movement's completion
+    /// event arrives as [`ApplicationEvent::Custom`], and one that is not a `T` is an error.
+    pub async fn wait_for_events<T: Any>(&mut self) -> Result<Vec<ApplicationEvent<T>>> {
+        let messages = self.events.recv_all().await?;
+
+        let mut events = Vec::with_capacity(messages.len());
+        for message in messages {
+            let ApplicationMessage::ApplyAnimations(tick) = message else {
+                events.push(message.into());
+                continue;
+            };
+            let completion_events =
+                task_context::with_animation_and_movement(|animation, movement| {
+                    animation.upgrade_to_apply_animations_cycle(tick.vblank_time);
+                    movement.apply_animations(animation.animation_time())
+                });
+            events.push(ApplicationEvent::ApplyAnimations(tick));
+            for event in completion_events {
+                let event = event
+                    .downcast::<T>()
+                    .map_err(|_| anyhow!("movement completion event has the wrong type"))?;
+                events.push(ApplicationEvent::Custom(*event));
+            }
+        }
+
+        Ok(events)
+    }
+
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
+        assert!(
+            self.host_windows.is_none(),
+            "an instance that draws its own windows has no views"
+        );
         ViewBuilder::new(self.view_parent.clone(), extent.into().into())
     }
 
@@ -160,6 +222,10 @@ impl InstanceContext {
         changes: ChangeSet<InstanceChange>,
         pacing: RenderPacing,
     ) -> Result<()> {
+        assert!(
+            self.host_windows.is_none(),
+            "an instance that draws its own windows renders its changes itself"
+        );
         let change_count = changes.len();
         // Desktop needs empty submissions to observe pacing transitions, but repeated pacing has
         // no effect.

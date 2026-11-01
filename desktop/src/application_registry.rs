@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 
-use massive_applications::{Application, ApplicationTools, McpId};
+use massive_applications::{Application, ApplicationTools, McpId, Presentation};
 
 #[derive(Debug)]
 pub struct ApplicationRegistry {
@@ -12,12 +12,18 @@ pub struct ApplicationRegistry {
 impl ApplicationRegistry {
     /// Registers the applications the desktop can run.
     ///
-    /// Fails when two applications share a name or an MCP id, or when one uses the desktop's MCP id
-    /// (ADR 0036). The applications come from the client's crate, such as mt's, so a mistake in them
+    /// Fails when two applications share a name or an MCP id, when one uses the desktop's MCP id
+    /// (ADR 0036), or when one draws its own windows, which only the shell can host. The applications come from the client's crate, such as mt's, so a mistake in them
     /// is the client's, and startup reports it as an error the client can show.
     pub fn new(applications: Vec<Application>) -> Result<Self> {
         let mut providers = HashMap::new();
         for application in &applications {
+            if application.presentation() == Presentation::Windows {
+                bail!(
+                    "the application '{}' draws its own windows, which only the shell can host",
+                    application.name()
+                );
+            }
             let Some(tools) = application.tools() else {
                 continue;
             };
@@ -64,6 +70,14 @@ mod tests {
 
     fn application(name: &str, mcp_id: McpId) -> Application {
         Application::new(name, |_| async { Ok(()) }).with_mcp_id(mcp_id, Vec::new())
+    }
+
+    #[test]
+    fn the_registry_rejects_an_application_that_draws_its_own_windows() {
+        let application =
+            Application::new("a", |_| async { Ok(()) }).with_presentation(Presentation::Windows);
+        let error = ApplicationRegistry::new(vec![application]).unwrap_err();
+        assert!(error.to_string().contains("only the shell"), "{error}");
     }
 
     #[test]

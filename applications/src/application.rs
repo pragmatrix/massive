@@ -18,6 +18,7 @@ use crate::{InstanceContext, McpId, ToolDeclaration};
 pub struct Application {
     name: String,
     runtime_kind: RuntimeKind,
+    presentation: Presentation,
     tools: Option<ApplicationTools>,
     #[debug(skip)]
     run: RunInstanceBox,
@@ -46,6 +47,17 @@ pub enum RuntimeKind {
     MultiThread,
 }
 
+/// How the instances of an application put their content on the screen.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Presentation {
+    /// The instance creates views and submits instance changes, and its host draws them. Every
+    /// host runs such an instance.
+    Views,
+    /// The instance opens its own windows and renders scene changes into them. Only the shell
+    /// runs such an instance, and the desktop is one.
+    Windows,
+}
+
 impl RuntimeKind {
     /// The builder of an instance runtime of this kind, which the host completes and passes to
     /// [`run_instance`](crate::run_instance).
@@ -70,6 +82,7 @@ impl Application {
         Self {
             name,
             runtime_kind: RuntimeKind::CurrentThread,
+            presentation: Presentation::Views,
             tools: None,
             run: run_boxed,
         }
@@ -79,6 +92,13 @@ impl Application {
     /// Default is [`RuntimeKind::CurrentThread`].
     pub fn with_runtime_kind(mut self, runtime_kind: RuntimeKind) -> Self {
         self.runtime_kind = runtime_kind;
+        self
+    }
+
+    /// Select how instances of this application present their content. Default is
+    /// [`Presentation::Views`].
+    pub fn with_presentation(mut self, presentation: Presentation) -> Self {
+        self.presentation = presentation;
         self
     }
 
@@ -98,6 +118,10 @@ impl Application {
 
     pub fn runtime_kind(&self) -> RuntimeKind {
         self.runtime_kind
+    }
+
+    pub fn presentation(&self) -> Presentation {
+        self.presentation
     }
 
     pub fn tools(&self) -> Option<&ApplicationTools> {
