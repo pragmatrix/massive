@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::io;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -20,23 +21,23 @@ use winit::event::ElementState;
 
 use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
-use massive_applications::{ApplicationEvent, KeyEvent, ViewEvent};
-use massive_geometry::Vector3;
+use massive_applications::{Application, ApplicationEvent, InstanceContext, KeyEvent, ViewEvent};
+use massive_geometry::{SizePx, Vector3};
+use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};
-use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
 use shared::attributed_text;
 use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
 const FADE_DURATION: Duration = Duration::from_millis(400);
 const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
 
 const MAX_LINES: usize = 32;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
 
     let stdout_layer = fmt::layer()
@@ -52,10 +53,17 @@ async fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shell::run_application(
-        |ctx| logs(receiver, ctx),
-        FontPolicy::bare(ShapingEngineKind::Parley),
-    )
+    // The shell runs one instance, so the receiver of the log output is taken out once.
+    let receiver = Mutex::new(Some(receiver));
+    let application = Application::new("Logs", move |ctx| {
+        let receiver = receiver
+            .lock()
+            .expect("the receiver's lock is never poisoned")
+            .take()
+            .expect("the shell runs one instance");
+        logs(receiver, ctx)
+    });
+    shell::run(application, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);
@@ -73,27 +81,26 @@ impl io::Write for Sender {
     }
 }
 
-async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
+async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext) -> Result<()> {
     // The shell built the task's manager from the font policy this application names, so shaping
     // and rendering share one identity world (ADR 0005).
     fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
-    // Window
+    // View
 
     let size = LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
-    let window = ctx.new_window((size.width, size.height)).await?;
-    let view_id = window.view_id();
+    let view_size = SizePx::new(size.width, size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
-    let mut renderer = window.renderer().with_text().build().await?;
-
-    let mut logs = Logs::new();
+    let mut logs = Logs::new(center.location());
 
     // Initial lines informing the user how to interact with the example.
     let frame = begin_frame();
     logs.add_line(b"Press a key in the window to generate more log output.");
     logs.add_line(b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.");
     logs.update_layout()?;
-    frame.render_to(&mut renderer)?;
+    ctx.submit(frame.submission())?;
 
     // Application
 
@@ -114,18 +121,16 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             Wakeup::Events(events) => {
                 for event in events {
                     match event {
-                        ApplicationEvent::View(event_view_id, view_event)
-                            if event_view_id == view_id =>
-                        {
+                        ApplicationEvent::View(_, view_event) => {
+                            if let ViewEvent::Resized(size) = view_event {
+                                center.resize(&view, size);
+                            }
                             if logs.handle_window_event(&view_event) == UpdateResponse::Exit {
                                 return Ok(());
                             }
-                            renderer.resize_redraw(&view_event)?;
                         }
-                        ApplicationEvent::View(..)
-                        | ApplicationEvent::Shutdown(_)
-                        | ApplicationEvent::ToolCall(_)
-                        | ApplicationEvent::CancelToolCall(_) => {}
+                        ApplicationEvent::Shutdown(_) => return Ok(()),
+                        ApplicationEvent::ToolCall(_) | ApplicationEvent::CancelToolCall(_) => {}
                         ApplicationEvent::ApplyAnimations(_)
                         | ApplicationEvent::FullscreenRequested => {}
                         ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
@@ -136,7 +141,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             }
         }
 
-        frame.render_to(&mut renderer)?;
+        ctx.submit(frame.submission())?;
     }
 }
 
@@ -162,12 +167,15 @@ struct Logs {
 }
 
 impl Logs {
-    fn new() -> Self {
+    fn new(view_center: Ref<Location>) -> Self {
         let content_width = 1280;
         let gestures = GestureTransform::default();
 
         let application_transform = gestures.get_transform((0, 0)).submit();
-        let application_location = application_transform.to_location().submit();
+        let application_location = application_transform
+            .to_location()
+            .relative_to(view_center)
+            .submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.
         let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).submit();
