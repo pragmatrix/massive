@@ -128,6 +128,8 @@ pub enum ConnectOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BindingId(u64);
 
+/// What the tool host keeps of a bound connection: its MCP root, and the way to tell it that it
+/// ends.
 #[derive(Debug)]
 struct Binding {
     root: ProjectId,

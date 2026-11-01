@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use tokio::net::UnixStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-/// The size limit of a frame's payload, in both directions. It is the protocol's only size limit:
-/// a tool's arguments or result cannot exceed the frame that carries them.
+/// The size limit of a frame's payload, in both directions. It is the protocol's only size limit.
+/// A tool's arguments or result cannot exceed the frame that carries them.
 pub const MAX_FRAME_LENGTH: usize = 1024 * 1024;
 
 /// A connection on the desktop socket, read as a stream of frame payloads and written as a sink of

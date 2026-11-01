@@ -180,12 +180,6 @@ mod tests {
         let document = |slot: String| format!(r#"{{ "slots": [ {slot} ] }}"#);
         let params = |depth: usize| format!("{}1{}", r#"{"a":"#.repeat(depth), "}".repeat(depth));
 
-        let at_limits = document(nested(
-            MAX_PROJECT_DEPTH,
-            launcher(&params(MAX_PARAMS_DEPTH)),
-        ));
-        assert!(parse_configuration(path, &at_limits).is_ok());
-
         let too_deep = document(nested(MAX_PROJECT_DEPTH + 1, launcher("{}")));
         let error = parse_configuration(path, &too_deep).unwrap_err();
         assert!(

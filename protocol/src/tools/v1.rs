@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The version a client names in [`crate::Connect::Tools`] to speak this module's messages.
 pub const VERSION: u16 = 1;
 
 /// The desktop's answer to [`crate::Connect::Tools`].
@@ -55,17 +56,14 @@ pub enum ClientMessage {
 /// A message from the desktop to the tool client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostMessage {
-    ToolResult {
-        call_id: u64,
-        outcome: ToolOutcome,
-    },
+    /// The answer to the call `call_id`.
+    ToolResult { call_id: u64, outcome: ToolOutcome },
     /// The desktop ends the connection after this message, for example because the MCP root's
     /// access scopes changed. The client fails every call still pending.
-    Closing {
-        reason: String,
-    },
+    Closing { reason: String },
 }
 
+/// How a call ended, as it travels on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolOutcome {
     /// The tool's result, a JSON value as text.

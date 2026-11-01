@@ -28,6 +28,7 @@ pub async fn serve(stream: UnixStream, requests: UnboundedSender<ToolRequest>) {
     }
 }
 
+/// Reads the `Connect` frame, binds the connection or declines it, and serves its calls.
 async fn run(frames: &mut Frames, requests: &UnboundedSender<ToolRequest>) -> Result<()> {
     let Connect::Tools { version, target } = decode(&next_frame(frames).await?)?;
     if version != v1::VERSION {
@@ -60,6 +61,7 @@ async fn run(frames: &mut Frames, requests: &UnboundedSender<ToolRequest>) -> Re
     }
 }
 
+/// Tells the client its tools, then serves its calls until either side ends the connection.
 async fn serve_bound(
     frames: &mut Frames,
     requests: &UnboundedSender<ToolRequest>,
@@ -173,6 +175,7 @@ fn result_frame(call_id: u64, outcome: Result<Value, CallFailure>) -> Result<Vec
     Ok(encode(&HostMessage::ToolResult { call_id, outcome })?)
 }
 
+/// The next frame of a client that has not connected yet, whose leaving is an error.
 async fn next_frame(frames: &mut Frames) -> Result<BytesMut> {
     frames
         .next()
@@ -181,6 +184,7 @@ async fn next_frame(frames: &mut Frames) -> Result<BytesMut> {
         .context("reading a frame")
 }
 
+/// Encodes `message` and writes it as one frame.
 async fn send(frames: &mut Frames, message: &impl serde::Serialize) -> Result<()> {
     frames.send(Bytes::from(encode(message)?)).await?;
     Ok(())

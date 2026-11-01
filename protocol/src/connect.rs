@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Connect {
     /// A tool client asks to call tools on the MCP root that covers `target`. `version` is the
-    /// version of the tool protocol the client speaks for the rest of the connection.
+    /// version of the tool protocol the client speaks for the rest of the connection. The desktop
+    /// decodes this message before it knows the version, so its fields and `Target` keep their
+    /// shape in every version, and a newer client still gets the `Unsupported` answer.
     Tools { version: u16, target: Target },
 }
 

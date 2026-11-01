@@ -525,8 +525,8 @@ async fn a_move_request_onto_an_assigned_neighbor_swaps() -> Result<()> {
     .await
 }
 
-/// The root project is never an MCP root, MCP roots never nest, and a process inside an MCP root cannot configure MCP, not even for an MCP
-/// root that does not cover it (ADR 0036).
+/// The root project is never an MCP root, MCP roots never nest, and a process inside an MCP root
+/// cannot configure MCP, not even for an MCP root that does not cover it (ADR 0036).
 #[tokio::test]
 async fn mcp_is_configured_only_from_outside_every_mcp_root_and_roots_never_nest() -> Result<()> {
     task_context::with_context(task_context(), async {

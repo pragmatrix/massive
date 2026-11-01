@@ -211,7 +211,8 @@ pub enum ToolErrorCode {
     UnknownId,
     ScopeNotGranted,
     InvalidArgument,
-    /// The desktop refused the command, for example a move onto an assigned slot.
+    /// The desktop refused the command, for example a move onto an assigned slot of another
+    /// project.
     Refused,
 }
 

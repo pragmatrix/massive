@@ -220,8 +220,8 @@ id is `desktop`, which no application may use.
 **A tool's name joins the provider's MCP id and the tool's MCP id with `_`.** An application with the MCP id
 `notes` and a tool `read_page` offers `notes_read_page`, for example. The provider of an MCP id decides
 whether it uses `_` or `-` inside it. That makes a name unparseable in general, so the bridge and
-the desktop never split names. The bridge looks names up in its tool list, and the desktop looks
-them up in the tool catalog. A provider declares only each tool's own MCP id, and the tool catalog
+the desktop never split names. The bridge forwards every name unchanged, and the desktop looks it
+up in the tool catalog and answers a name it does not know with `unknown_id`. A provider declares only each tool's own MCP id, and the tool catalog
 joins the two, so a tool cannot carry another provider's MCP id. The application registry rejects
 a duplicate MCP id. The tool catalog rejects a joined name longer than 48 characters, because LLM
 APIs cap tool names and MCP clients prefix them, and any two tools whose joined names collide. Both
