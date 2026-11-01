@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use derive_more::Debug;
 
 use massive_applications::{InstanceContext, McpId, ToolDeclaration};
@@ -12,25 +12,37 @@ pub struct ApplicationRegistry {
 }
 
 impl ApplicationRegistry {
-    /// Panics when an application uses the desktop's MCP id or one another application uses,
-    /// because applications and their MCP ids come from code (ADR 0036).
-    pub fn new(applications: Vec<Application>) -> Self {
+    /// Registers the applications the desktop can run.
+    ///
+    /// Fails when an application uses the desktop's MCP id or one another application uses, or
+    /// declares a tool whose name belongs to another MCP id (ADR 0036).
+    pub fn new(applications: Vec<Application>) -> Result<Self> {
         let mut mcp_ids = HashSet::new();
         for tools in applications.iter().filter_map(|a| a.tools.as_ref()) {
-            assert_ne!(
-                tools.mcp_id,
-                McpId::DESKTOP,
-                "the MCP id 'desktop' is reserved for the desktop's tools"
-            );
-            assert!(
-                mcp_ids.insert(tools.mcp_id),
-                "two applications use the MCP id '{}'",
-                tools.mcp_id.as_str()
-            );
+            if tools.mcp_id == McpId::DESKTOP {
+                bail!("the MCP id 'desktop' is reserved for the desktop's tools");
+            }
+            if !mcp_ids.insert(tools.mcp_id) {
+                bail!(
+                    "two applications use the MCP id '{}'",
+                    tools.mcp_id.as_str()
+                );
+            }
+            if let Some(declaration) = tools
+                .declarations
+                .iter()
+                .find(|declaration| declaration.name.provider() != tools.mcp_id)
+            {
+                bail!(
+                    "the tool '{}' does not belong to the MCP id '{}'",
+                    declaration.name,
+                    tools.mcp_id.as_str()
+                );
+            }
         }
-        Self {
+        Ok(Self {
             applications: HashMap::from_iter(applications.into_iter().map(|a| (a.name.clone(), a))),
-        }
+        })
     }
 
     pub fn get_named(&self, name: &str) -> Option<&Application> {
@@ -49,8 +61,8 @@ impl ApplicationRegistry {
 /// An application the desktop can run instances of.
 ///
 /// The crate exports it, so its fields stay `pub(crate)`. A client builds it only through
-/// [`Application::new`] and the `with_` methods, which check what they set, such as the MCP id of
-/// every tool.
+/// [`Application::new`] and the `with_` methods, and the [`ApplicationRegistry`] checks the result,
+/// such as the MCP id of every tool.
 #[derive(Debug)]
 pub struct Application {
     pub(crate) name: String,
@@ -114,16 +126,7 @@ impl Application {
     }
 
     /// Declares the MCP tools that agents may call on this application's instances (ADR 0036).
-    /// Panics when a tool's name belongs to another MCP id.
     pub fn with_mcp_id(mut self, mcp_id: McpId, declarations: Vec<ToolDeclaration>) -> Self {
-        for declaration in &declarations {
-            assert_eq!(
-                declaration.name.provider(),
-                mcp_id,
-                "the tool '{}' belongs to another MCP id",
-                declaration.name
-            );
-        }
         self.tools = Some(ApplicationTools {
             mcp_id,
             declarations,
@@ -143,15 +146,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "reserved")]
     fn the_registry_rejects_the_desktops_mcp_id() {
-        ApplicationRegistry::new(vec![application("a", McpId::DESKTOP)]);
+        let error = ApplicationRegistry::new(vec![application("a", McpId::DESKTOP)]).unwrap_err();
+        assert!(error.to_string().contains("reserved"), "{error}");
     }
 
     #[test]
-    #[should_panic(expected = "two applications")]
     fn the_registry_rejects_a_duplicate_mcp_id() {
         let id = mcp_id!("term");
-        ApplicationRegistry::new(vec![application("a", id), application("b", id)]);
+        let error =
+            ApplicationRegistry::new(vec![application("a", id), application("b", id)]).unwrap_err();
+        assert!(error.to_string().contains("two applications"), "{error}");
     }
 }

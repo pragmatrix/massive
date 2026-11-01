@@ -119,7 +119,7 @@ impl EchoDesktop {
             "/labs-a",
             &[AccessScope::Read],
         )?;
-        let applications = ApplicationRegistry::new(vec![echo_application()]);
+        let applications = ApplicationRegistry::new(vec![echo_application()])?;
         let (sender, outputs) = unbounded_channel();
         let mut echo_instances = InstanceManager::new(InstanceEnvironment::new(
             sender,
@@ -135,7 +135,7 @@ impl EchoDesktop {
         )?;
         let directory = tempfile::tempdir()?;
         let socket = directory.path().join("run").join("desktop.sock");
-        let tool_host = ToolHost::listen(socket.clone(), ToolCatalog::new(&applications))?;
+        let tool_host = ToolHost::listen(socket.clone(), ToolCatalog::new(&applications)?)?;
         Ok(Self {
             system,
             instance: instance_a,

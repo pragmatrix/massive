@@ -20,16 +20,17 @@ pub struct DesktopEnvironment {
 const DEFAULT_PROJECT_DIR: &str = ".massive";
 
 impl DesktopEnvironment {
-    pub fn new(applications: Vec<Application>) -> Self {
-        Self {
+    /// Fails when the applications' MCP tools are declared inconsistently (ADR 0036).
+    pub fn new(applications: Vec<Application>) -> Result<Self> {
+        Ok(Self {
             primary_application: applications
                 .first()
                 .expect("No primary application")
                 .name
                 .clone(),
-            applications: ApplicationRegistry::new(applications),
+            applications: ApplicationRegistry::new(applications)?,
             projects_dir: None,
-        }
+        })
     }
 
     /// Returns either the set projects dir or the default one if a home directory can be resolved.

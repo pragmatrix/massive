@@ -82,7 +82,7 @@ impl Desktop {
 
         let (outputs_tx, mut outputs_rx) = unbounded_channel();
         let socket_path = desktop_socket_path(&projects_dir(&env)?);
-        let catalog = ToolCatalog::new(&env.applications);
+        let catalog = ToolCatalog::new(&env.applications)?;
         let environment = InstanceEnvironment::new(
             outputs_tx,
             context.primary_monitor_scale_factor(),

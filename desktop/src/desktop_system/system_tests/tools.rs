@@ -791,13 +791,13 @@ async fn an_instance_tool_reaches_only_covered_instances() -> Result<()> {
     .await
 }
 
-/// Calls `tool` through a connection bound to `root` and carries out its command as the desktop
-/// loop does, and returns the result.
 /// The catalog of a desktop without applications that declare tools.
 fn desktop_catalog() -> ToolCatalog {
-    ToolCatalog::new(&ApplicationRegistry::new(Vec::new()))
+    ToolCatalog::new(&ApplicationRegistry::new(Vec::new()).unwrap()).unwrap()
 }
 
+/// Calls `tool` through a connection bound to `root` and carries out its command as the desktop
+/// loop does, and returns the result.
 fn carry_out(
     system: &mut DesktopSystem,
     instance_manager: &mut InstanceManager,

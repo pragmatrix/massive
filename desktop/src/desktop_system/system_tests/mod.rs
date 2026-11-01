@@ -164,7 +164,7 @@ fn system_from(
     let (_sender, receiver) = unbounded_channel();
     let environment = DesktopEnvironment {
         primary_application: "terminal".into(),
-        applications: crate::application_registry::ApplicationRegistry::new(Vec::new()),
+        applications: crate::application_registry::ApplicationRegistry::new(Vec::new()).unwrap(),
         projects_dir: None,
     };
     let path = Path::new("/config/desktop.json");
