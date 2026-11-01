@@ -35,6 +35,7 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["time", "sync", "net", "fs"] }
 tokio-util = { workspace = true, features = ["codec"] }
 log.workspace = true
+panic-message.workspace = true
 schemars.workspace = true
 serde_json.workspace = true
 serde.workspace = true

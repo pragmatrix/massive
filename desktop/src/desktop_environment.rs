@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use anyhow::bail;
 use log::error;
 
-use massive_applications::{Application, DrawTarget, InstanceContext, RuntimeKind};
+use massive_applications::{Application, DrawTarget, InstanceContext};
 use massive_shapes::FontPolicy;
 use massive_shell::{Result, shell};
 
@@ -59,10 +59,8 @@ impl DesktopEnvironment {
         self
     }
 
-    /// Runs the desktop as the shell's instance and blocks until it ends.
-    ///
-    /// The desktop draws its own window and its instances have internal parallelism, such as the
-    /// tool host's connections, so it runs on a work-stealing runtime (ADR 0009).
+    /// Runs the desktop as the shell's instance, which draws its own window, and blocks until it
+    /// ends.
     pub fn run(self, font_policy: FontPolicy) -> Result<()> {
         // The shell creates one instance of its application, but an application's run function
         // may be called many times, so the environment is taken out on that one call.
@@ -75,7 +73,6 @@ impl DesktopEnvironment {
                 .expect("the shell runs one instance of the desktop");
             environment.run_desktop(context)
         })
-        .with_runtime_kind(RuntimeKind::MultiThread)
         .with_draw_target(DrawTarget::Windows);
         shell::run(application, font_policy)
     }

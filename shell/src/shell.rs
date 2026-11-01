@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
 
 use anyhow::Result;
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, WeakUnboundedSender, unbounded_channel,
@@ -17,10 +16,10 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopPr
 use winit::window::{Window, WindowAttributes, WindowId};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_applications::task_context::TaskContext;
+use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
     Application, CreationMode, DrawTarget, InstanceContext, InstanceEnvironment, InstanceFuture,
-    InstanceId, InstanceMessage, RuntimeKind, ViewEvent, ViewId, run_instance,
+    InstanceId, InstanceMessage, ViewEvent, ViewId,
 };
 use massive_renderer::{FontManager, FontPolicy};
 use massive_scene::{AnyCollector, SceneChange};
@@ -31,13 +30,13 @@ use crate::shell_window::ShellWindowShared;
 use crate::views_host;
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
-/// The OS thread name of the shell's instance.
-const INSTANCE_THREAD_NAME: &str = "massive instance";
 
 /// Starts the shell with one instance of `application`.
 ///
-/// The instance runs on a dedicated thread under the runtime its application names (ADR 0009). The
-/// winit event loop runs on the calling thread and blocks until the instance ends. This gives
+/// The instance runs as a task on the shell's tokio runtime, or on the caller's when one is
+/// running. A lone instance needs no thread of its own, because no other instance can starve it
+/// (ADR 0009), so the application's runtime kind applies only in the desktop. The winit event loop
+/// runs on the calling thread and blocks until the instance ends. This gives
 /// clients the option to run the event loop on the main thread, which some platforms require.
 ///
 /// `font_policy` is the shell's construction input for the instance task's font manager. The
@@ -71,30 +70,22 @@ pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
         log::info!("Metrics disabled: MASSIVE_METRICS_PUSHGATEWAY not set");
     }
 
-    // Power up a tokio runtime, if none is running yet.
-
-    match tokio::runtime::Handle::try_current() {
-        Ok(_handle) => {
-            // Already inside a Tokio runtime.
-            run_with_tokio(application, font_policy)
-        }
-        Err(_) => {
-            // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .on_thread_start(|| {
-                    platform::set_current_thread_user_interactive("tokio worker");
-                })
-                .enable_all()
-                .build()?;
-            let _guard = runtime.enter();
-            let r = run_with_tokio(application, font_policy);
-            drop(_guard);
-            r
-        }
+    // Power up a tokio runtime, if none is running yet. The instance, and for an instance whose
+    // host renders also the host task, run on it while the event loop blocks this thread.
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return run_event_loop(application, font_policy);
     }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .on_thread_start(|| {
+            platform::set_current_thread_user_interactive("tokio worker");
+        })
+        .enable_all()
+        .build()?;
+    let _guard = runtime.enter();
+    run_event_loop(application, font_policy)
 }
 
-fn run_with_tokio(application: Application, font_policy: FontPolicy) -> Result<()> {
+fn run_event_loop(application: Application, font_policy: FontPolicy) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
 
     // Proxy for sending events to the event loop from another thread.
@@ -120,7 +111,7 @@ fn run_with_tokio(application: Application, font_policy: FontPolicy) -> Result<(
 }
 
 /// The contexts of a task that renders scene changes itself: an instance that renders into its own
-/// windows, or the host task of an instance whose host renders. They are its change queue,
+/// windows, or the host task of an instance that draws into views. They are its change queue,
 /// animation clock, movement runtime and a shaping context over the supplied font manager
 /// (ADR 0008).
 pub(crate) fn rendering_task_context(font_manager: FontManager) -> TaskContext {
@@ -170,37 +161,28 @@ fn start_instance_drawing_windows(application: Application, startup: Startup) ->
         Arc::new(windows),
         event_receiver,
     );
-    spawn_instance_thread(
-        application.runtime_kind(),
+    // The instance owns its windows, so they are closed before its task reports the end.
+    spawn_instance(
         application.run(context),
         rendering_task_context(font_manager),
-        proxy,
-    )
-}
-
-/// Runs the instance on a dedicated thread (ADR 0009) at the user-interactive priority that the
-/// shell gives its application, and reports the instance's end to the event loop.
-pub(crate) fn spawn_instance_thread(
-    runtime_kind: RuntimeKind,
-    instance: InstanceFuture,
-    task_context: TaskContext,
-    proxy: EventLoopProxy<ShellCommand>,
-) -> Result<()> {
-    thread::Builder::new()
-        .name(INSTANCE_THREAD_NAME.into())
-        .spawn(move || {
-            platform::set_current_thread_user_interactive(INSTANCE_THREAD_NAME);
-            let mut runtime = runtime_kind.runtime_builder();
-            runtime.on_thread_start(|| {
-                platform::set_current_thread_user_interactive("instance worker");
-            });
-            let result = run_instance(runtime, instance, task_context);
-            report_application_end(&proxy, result);
-        })
-        .context("Spawning the instance thread")?;
+        move |result| report_application_end(&proxy, result),
+    );
     Ok(())
 }
 
+/// Runs the instance as a task on the shell's runtime under its task context (ADR 0008), and hands
+/// the instance's result to `report_end`.
+pub(crate) fn spawn_instance(
+    instance: InstanceFuture,
+    task_context: TaskContext,
+    report_end: impl FnOnce(Result<()>) + Send + 'static,
+) {
+    tokio::spawn(async move {
+        report_end(task_context::with_context(task_context, instance).await);
+    });
+}
+
+/// Tells the event loop that the instance ended, so it exits with the instance's result.
 pub(crate) fn report_application_end(proxy: &EventLoopProxy<ShellCommand>, result: Result<()>) {
     if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(result))) =
         proxy.send_event(ShellCommand::ApplicationEnded(result))
@@ -322,10 +304,11 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                 attributes,
                 on_created,
             } => {
+                // Window commands cross threads, so one can arrive after the instance's end was
+                // reported. The shell is ending then and opens no window.
                 let Self::Running { views, .. } = self else {
-                    panic!(
-                        "Received CreateWindow user event while WinitApplicationHandler is not Running"
-                    );
+                    let _ = on_created.send(Err(anyhow!("the shell is ending")));
+                    return;
                 };
                 let r = event_loop.create_window(*attributes);
                 if let Ok(window) = &r {
@@ -336,12 +319,10 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                     .expect("oneshot can send");
             }
             ShellCommand::DestroyWindow { window } => {
-                let Self::Running { views, .. } = self else {
-                    panic!(
-                        "Received DestroyWindow user event while WinitApplicationHandler is not Running"
-                    );
-                };
-                views.remove(&window.id());
+                // A window closed after the instance's end was reported needs no bookkeeping.
+                if let Self::Running { views, .. } = self {
+                    views.remove(&window.id());
+                }
                 info!("Destroying window");
                 drop(window);
             }

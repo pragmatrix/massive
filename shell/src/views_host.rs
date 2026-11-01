@@ -7,6 +7,7 @@ use anyhow::{Result, bail};
 use log::{debug, warn};
 use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::oneshot;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::prelude::*;
@@ -18,18 +19,15 @@ use massive_applications::{
 use massive_geometry::{BoxPx, Rect};
 use massive_scene::AnyCollector;
 use massive_scene::prelude::*;
-use winit::event_loop::EventLoopProxy;
 
 use crate::instance_windows::ShellWindows;
-use crate::shell::{
-    ShellCommand, Startup, rendering_task_context, report_application_end, spawn_instance_thread,
-};
+use crate::shell::{Startup, rendering_task_context, report_application_end, spawn_instance};
 use crate::{AsyncWindowRenderer, ShellWindow};
 
 /// Starts the host task, which starts the instance once the instance's root location exists in the
 /// host's scene.
 ///
-/// The instance collects instance changes on its own thread. The host task collects the scene
+/// The instance collects instance changes in its own task. The host task collects the scene
 /// changes among them and renders them, like the desktop does for its instances.
 pub fn start(application: Application, startup: Startup) -> Result<()> {
     let Startup {
@@ -51,31 +49,31 @@ pub fn start(application: Application, startup: Startup) -> Result<()> {
     let windows = ShellWindows::new(proxy.clone(), event_sender);
 
     tokio::spawn(task_context::with_context(host_task_context, async move {
+        let mut shell_events = event_receiver;
         let result = host(
             application,
             instance_task_context,
             windows,
-            event_receiver,
+            &mut shell_events,
             scale_factor,
-            proxy.clone(),
         )
         .await;
-        // The instance thread reports the instance's end, so only the host's failure is reported
-        // here.
-        if result.is_err() {
-            report_application_end(&proxy, result);
-        }
+        // The shell's events stay received until the end is reported, because a send to a closed
+        // queue ends the event loop without the instance's result.
+        report_application_end(&proxy, result);
     }));
     Ok(())
 }
 
+/// Runs the instance and serves it until it ends. The host is the only party that reports the end,
+/// and it closes the view's window first, so the event loop handles the window's destruction
+/// before it ends.
 async fn host(
     application: Application,
     instance_task_context: TaskContext,
     windows: ShellWindows,
-    mut shell_events: UnboundedReceiver<InstanceMessage>,
+    shell_events: &mut UnboundedReceiver<InstanceMessage>,
     scale_factor: f64,
-    proxy: EventLoopProxy<ShellCommand>,
 ) -> Result<()> {
     // The root stays alive until the host ends, which is after the instance ended.
     let (_root_transform, root) = identity_location().submit();
@@ -90,12 +88,15 @@ async fn host(
         root.to_ref(),
         instance_events_receiver,
     );
-    spawn_instance_thread(
-        application.runtime_kind(),
+    let (end_sender, mut instance_end) = oneshot::channel();
+    spawn_instance(
         application.run(context),
         instance_task_context,
-        proxy,
-    )?;
+        move |result| {
+            // After a failure of the host, nothing waits for the instance's result anymore.
+            let _ = end_sender.send(result);
+        },
+    );
 
     let mut host = ViewsHost {
         instance_id,
@@ -104,17 +105,17 @@ async fn host(
         view: None,
     };
 
-    loop {
-        select! {
-            output = outputs.recv() => {
-                // The channel closes when the instance's context is gone, which is after its last
-                // submission.
-                let Some((_, output)) = output else {
-                    return Ok(());
-                };
-                host.apply_output(output).await?;
-            }
-            Some(message) = shell_events.recv() => host.forward(message)?,
+    match host
+        .serve(&mut outputs, shell_events, &mut instance_end)
+        .await
+    {
+        Ok(instance_result) => {
+            drop(host);
+            instance_result
+        }
+        Err(error) => {
+            host.request_shutdown();
+            Err(error)
         }
     }
 }
@@ -129,9 +130,47 @@ struct ViewsHost {
 }
 
 impl ViewsHost {
+    /// Serves the instance until its task reports its result, and returns that result. The
+    /// outer error is a failure of the host itself.
+    ///
+    /// The outputs that are still queued when the result arrives are applied before it is
+    /// returned, so the instance's last submission is drawn and its views are destroyed.
+    async fn serve(
+        &mut self,
+        outputs: &mut UnboundedReceiver<(InstanceId, InstanceOutput)>,
+        shell_events: &mut UnboundedReceiver<InstanceMessage>,
+        instance_end: &mut oneshot::Receiver<Result<()>>,
+    ) -> Result<Result<()>> {
+        let instance_result = loop {
+            select! {
+                Some((_, output)) = outputs.recv() => self.apply_output(output).await?,
+                Some(message) = shell_events.recv() => self.forward(message)?,
+                result = &mut *instance_end => {
+                    break result.expect("the instance task always reports its result");
+                }
+            }
+        };
+        while let Ok((_, output)) = outputs.try_recv() {
+            self.apply_output(output).await?;
+        }
+        Ok(instance_result)
+    }
+
+    /// Asks the instance to end after the host failed. The shell ends with the host's error and
+    /// does not wait for the instance.
+    fn request_shutdown(&self) {
+        if self
+            .instance_events
+            .send(InstanceMessage::Shutdown(self.instance_id))
+            .is_err()
+        {
+            debug!("The instance ended before the host failed");
+        }
+    }
+
     async fn apply_output(&mut self, output: InstanceOutput) -> Result<()> {
         let InstanceOutput::Submission(submission) = output else {
-            unreachable!("the shell never calls tools, so no tool result arrives");
+            bail!("the instance answered a tool call, but the shell never calls tools");
         };
         let (changes, pacing) = submission.into_parts();
         for change in changes.release() {

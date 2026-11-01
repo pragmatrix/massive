@@ -2,7 +2,6 @@ use std::pin::Pin;
 
 use anyhow::Result;
 use derive_more::Debug;
-use tokio::runtime::Builder;
 
 use crate::{InstanceContext, McpId, ToolDeclaration};
 
@@ -56,17 +55,6 @@ pub enum DrawTarget {
     /// Windows of its own: the instance opens them and renders scene changes into them. Only the
     /// shell runs such an instance, and the desktop is one.
     Windows,
-}
-
-impl RuntimeKind {
-    /// The builder of an instance runtime of this kind, which the host completes and passes to
-    /// [`run_instance`](crate::run_instance).
-    pub fn runtime_builder(self) -> Builder {
-        match self {
-            Self::CurrentThread => Builder::new_current_thread(),
-            Self::MultiThread => Builder::new_multi_thread(),
-        }
-    }
 }
 
 impl Application {
