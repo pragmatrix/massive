@@ -161,7 +161,7 @@ An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cm
 _Avoid_: aux instance, sidecar, secondary instance
 
 **Application**:
-The program an instance runs, such as the Markdown viewer, in its own task, drawing into the instance's views. The desktop and the shell both run applications, and only the shell runs one that renders into windows of its own, such as the desktop itself. The desktop reaches it with view events, which include the keys no desktop level consumed. The desktop also sends it animation ticks while it animates, calls of its application tools and their cancellations, and the shutdown request that a close request or stopping the instance sends. It answers only the tool calls.
+The program an instance runs, such as the Markdown viewer, in its own task, drawing into the instance's views. The desktop and the shell both run applications, and only the shell runs one that renders into windows of its own, such as the desktop itself. The desktop reaches it through its instance with view events, which include the keys no desktop level consumed. The desktop also sends it animation ticks while it animates, calls of its application tools and their cancellations, and the shutdown request that a close request or stopping the instance sends. It answers only the tool calls.
 _Avoid_: app
 
 **Instance**:
