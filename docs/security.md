@@ -30,9 +30,11 @@ decodes and checks everything that arrives on a tool connection.
 
 ## Checks
 
-Every check below lives in the desktop's `security` module (`desktop/src/security.rs`), and nowhere
-else. A check is a pure function that takes the facts it needs and returns an allowance or a refusal
-with a reason. A new check is added to the module and to this table in the same change.
+Every check below lives in the desktop's `security` module (`desktop/src/security.rs`), except the
+first. The tool protocol input is bounded where it is decoded, in `massive_protocol::frames` and the
+tool host's connection. A check is a pure function that takes the facts it needs and returns an
+allowance or a refusal with a reason. A new check is added to the module and to this table in the
+same change.
 
 | Check | Enforces | Status |
 |---|---|---|
