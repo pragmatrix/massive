@@ -1,6 +1,6 @@
 # An MCP root exposes a project's subtree to agents
 
-## Status: accepted, not implemented
+## Status: accepted, implemented
 
 Builds on [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md) (projects and slots),
 [ADR 0024](./0024-configuration-operations-are-one-command-vocabulary.md) (one command vocabulary),
