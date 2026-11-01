@@ -302,11 +302,11 @@ and assistant title bars stay distinguishable inside an MCP root.
 
 **Every security-relevant check of the desktop lives in the `security` module
 (`desktop/src/security.rs`).** This covers bounding tool protocol input, binding a tool connection
-to the MCP root of its target, checking that a call's targets are covered, checking access scopes, refusing `ConfigureMcp`
-from a covered instance, and rejecting nested MCP roots. Each check is a pure function that takes
-the facts it needs and returns an allowance or a refusal with a reason, like the rules of the
-desktop policy (ADR 0029). The code that handles a call gathers the facts, asks the `security`
-module, and carries out the answer.
+to the MCP root of its target, checking that a call's targets are covered, checking access scopes,
+refusing `ConfigureMcp` from a covered instance, and rejecting nested MCP roots. Each check is a
+pure function that takes the facts it needs and returns an allowance or a refusal with a reason,
+like the rules of the desktop policy (ADR 0029). The code that handles a call gathers the facts,
+asks the `security` module, and carries out the answer.
 
 The `security` module is not the desktop policy. A policy rule decides a behavior that could
 reasonably have been decided differently. A security check enforces a boundary that holds

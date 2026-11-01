@@ -85,7 +85,7 @@ impl fmt::Display for ToolName {
 }
 
 /// A joined name that [`ToolName::join`] refused, because it is longer than
-/// [`ToolName::MAX_LEN`]. It displays as the name it would have been.
+/// [`ToolName::MAX_LEN`]. It carries the refused name, so the caller can name it in its error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolNameTooLong(pub ToolName);
 
