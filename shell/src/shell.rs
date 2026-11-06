@@ -5,9 +5,7 @@ use anyhow::Result;
 use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
 use tokio::runtime::RuntimeFlavor;
-use tokio::sync::mpsc::{
-    UnboundedReceiver, UnboundedSender, WeakUnboundedSender, unbounded_channel,
-};
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
 use wgpu::{Surface, SurfaceTarget};
@@ -16,19 +14,12 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_applications::task_context::{self, TaskContext};
-use massive_applications::{
-    Application, CreationMode, DrawTarget, InstanceContext, InstanceEnvironment, InstanceFuture,
-    InstanceId, InstanceMessage, ViewEvent, ViewId,
-};
+use massive_applications::{Application, InstanceMessage, ViewEvent, ViewId};
 use massive_renderer::{FontManager, FontPolicy};
-use massive_scene::{AnyCollector, SceneChange};
 
-use crate::instance_windows::ShellWindows;
+use crate::instance_host::{self, Startup};
 use crate::platform;
 use crate::shell_window::ShellWindowShared;
-use crate::views_host;
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
 
@@ -116,77 +107,6 @@ fn run_event_loop(application: Application, font_policy: FontPolicy) -> Result<(
     };
 
     final_result
-}
-
-/// The contexts of a task that renders scene changes itself: an instance that renders into its own
-/// windows, or the host task of an instance that draws into views. They are its change queue,
-/// animation clock, movement runtime and a shaping context over the supplied font manager
-/// (ADR 0008).
-pub(crate) fn rendering_task_context(font_manager: FontManager) -> TaskContext {
-    TaskContext::new(
-        AnyCollector::for_type::<SceneChange>(),
-        AnimationCoordinator::new(),
-        MovementRuntime::default(),
-        font_manager.new_shaping_context(),
-    )
-}
-
-/// What the shell hands to its instance's start once the event loop runs.
-pub(crate) struct Startup {
-    pub proxy: EventLoopProxy<ShellCommand>,
-    pub event_sender: WeakUnboundedSender<InstanceMessage>,
-    pub event_receiver: UnboundedReceiver<InstanceMessage>,
-    pub scale_factor: f64,
-    pub font_manager: FontManager,
-}
-
-/// Starts the shell's single instance.
-fn start_instance(application: Application, startup: Startup) {
-    match application.draw_target() {
-        DrawTarget::Windows => start_instance_drawing_windows(application, startup),
-        DrawTarget::Views => views_host::start(application, startup),
-    }
-}
-
-/// Starts an instance that opens its own windows and renders scene changes into them, so its task
-/// collects scene changes like the desktop's.
-fn start_instance_drawing_windows(application: Application, startup: Startup) {
-    let Startup {
-        proxy,
-        event_sender,
-        event_receiver,
-        scale_factor,
-        font_manager,
-    } = startup;
-    let windows = ShellWindows::new(proxy.clone(), event_sender);
-    // Nothing receives the instance's output: an instance that draws its own windows sends none.
-    let (output_sender, _) = unbounded_channel();
-    let environment = InstanceEnvironment::new(output_sender, scale_factor, None);
-    let context = InstanceContext::drawing_windows(
-        InstanceId::new(),
-        CreationMode::New(Default::default()),
-        environment,
-        Arc::new(windows),
-        event_receiver,
-    );
-    // The instance owns its windows, so they are closed before its task reports the end.
-    spawn_instance(
-        application.run(context),
-        rendering_task_context(font_manager),
-        move |result| report_application_end(&proxy, result),
-    );
-}
-
-/// Runs the instance as a task on the shell's runtime under its task context (ADR 0008), and hands
-/// the instance's result to `report_end`.
-pub(crate) fn spawn_instance(
-    instance: InstanceFuture,
-    task_context: TaskContext,
-    report_end: impl FnOnce(Result<()>) + Send + 'static,
-) {
-    tokio::spawn(async move {
-        report_end(task_context::with_context(task_context, instance).await);
-    });
 }
 
 /// Tells the event loop that the instance ended, so it exits with the instance's result.
@@ -295,7 +215,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             event_sender,
             views: HashMap::new(),
         };
-        start_instance(application, startup);
+        instance_host::start(application, startup);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
@@ -307,9 +227,12 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             } => {
                 // Window commands cross threads, so one can arrive after the instance's end was
                 // reported. The shell is ending then and opens no window.
-                let Self::Running { views, .. } = self else {
-                    let _ = on_created.send(Err(anyhow!("the shell is ending")));
-                    return;
+                let views = match self {
+                    Self::Running { views, .. } => views,
+                    Self::Initializing { .. } | Self::Ended { .. } | Self::Exited { .. } => {
+                        let _ = on_created.send(Err(anyhow!("the shell is ending")));
+                        return;
+                    }
                 };
                 let r = event_loop.create_window(*attributes);
                 if let Ok(window) = &r {
@@ -321,8 +244,11 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             }
             ShellCommand::DestroyWindow { window } => {
                 // A window closed after the instance's end was reported needs no bookkeeping.
-                if let Self::Running { views, .. } = self {
-                    views.remove(&window.id());
+                match self {
+                    Self::Running { views, .. } => {
+                        views.remove(&window.id());
+                    }
+                    Self::Initializing { .. } | Self::Ended { .. } | Self::Exited { .. } => {}
                 }
                 info!("Destroying window");
                 drop(window);
@@ -342,8 +268,9 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             ShellCommand::FullscreenRequested => {
                 // The menu sends this from outside the instance, so it can arrive after the
                 // instance's end was reported. No instance receives it then.
-                let Self::Running { event_sender, .. } = self else {
-                    return;
+                let event_sender = match self {
+                    Self::Running { event_sender, .. } => event_sender,
+                    Self::Initializing { .. } | Self::Ended { .. } | Self::Exited { .. } => return,
                 };
                 if let Err(error) = event_sender.send(InstanceMessage::FullscreenRequested) {
                     error!("Failed to send fullscreen request to the application: {error:?}");

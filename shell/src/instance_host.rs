@@ -1,9 +1,8 @@
-//! The shell's host for an instance that presents views
-//! ([`DrawTarget::Views`](massive_applications::DrawTarget::Views)). It draws the instance's
-//! one view into a window of the view's size, so an application written for the desktop also runs
-//! on its own.
+//! The shell's one instance: its start, its task, and for an instance that draws into views the
+//! host task that draws its one view into a window of the view's size (ADR 0039).
 
 use std::mem;
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use log::{debug, warn};
@@ -15,23 +14,98 @@ use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::prelude::*;
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    Application, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment, InstanceId,
-    InstanceMessage, InstanceOutput, ViewChange, ViewCreationInfo, ViewEvent, ViewId, begin_frame,
+    Application, CreationMode, DrawTarget, InstanceChange, InstanceContext, InstanceEnvironment,
+    InstanceFuture, InstanceId, InstanceMessage, InstanceOutput, ViewChange, ViewCreationInfo,
+    ViewEvent, ViewId, begin_frame,
 };
 use massive_geometry::{BoxPx, Rect};
-use massive_scene::AnyCollector;
+use massive_renderer::FontManager;
 use massive_scene::prelude::*;
+use massive_scene::{AnyCollector, SceneChange};
+use tokio::sync::mpsc::WeakUnboundedSender;
+use winit::event_loop::EventLoopProxy;
 
 use crate::instance_windows::ShellWindows;
-use crate::shell::{Startup, rendering_task_context, report_application_end, spawn_instance};
+use crate::shell::{ShellCommand, report_application_end};
 use crate::{AsyncWindowRenderer, ShellWindow};
 
-/// Starts the host task, which starts the instance once the instance's root location exists in the
-/// host's scene.
+/// The contexts of a task that renders scene changes itself: an instance that renders into its own
+/// windows, or the host task of an instance that draws into views. They are its change queue,
+/// animation clock, movement runtime and a shaping context over the supplied font manager
+/// (ADR 0008).
+fn rendering_task_context(font_manager: FontManager) -> TaskContext {
+    TaskContext::new(
+        AnyCollector::for_type::<SceneChange>(),
+        AnimationCoordinator::new(),
+        MovementRuntime::default(),
+        font_manager.new_shaping_context(),
+    )
+}
+
+/// What the shell hands to its instance's start once the event loop runs.
+pub(crate) struct Startup {
+    pub proxy: EventLoopProxy<ShellCommand>,
+    pub event_sender: WeakUnboundedSender<InstanceMessage>,
+    pub event_receiver: UnboundedReceiver<InstanceMessage>,
+    pub scale_factor: f64,
+    pub font_manager: FontManager,
+}
+
+/// Starts the shell's single instance, following where its application draws.
+pub(crate) fn start(application: Application, startup: Startup) {
+    match application.draw_target() {
+        DrawTarget::Windows => start_drawing_windows(application, startup),
+        DrawTarget::Views => start_drawing_views(application, startup),
+    }
+}
+
+/// Starts an instance that opens its own windows and renders scene changes into them, so its task
+/// collects scene changes like the desktop's.
+fn start_drawing_windows(application: Application, startup: Startup) {
+    let Startup {
+        proxy,
+        event_sender,
+        event_receiver,
+        scale_factor,
+        font_manager,
+    } = startup;
+    let windows = ShellWindows::new(proxy.clone(), event_sender);
+    // Nothing receives the instance's output: an instance that draws its own windows sends none.
+    let (output_sender, _) = unbounded_channel();
+    let environment = InstanceEnvironment::new(output_sender, scale_factor, None);
+    let context = InstanceContext::drawing_windows(
+        InstanceId::new(),
+        CreationMode::New(Default::default()),
+        environment,
+        Arc::new(windows),
+        event_receiver,
+    );
+    // The instance owns its windows, so they are closed before its task reports the end.
+    spawn_instance(
+        application.run(context),
+        rendering_task_context(font_manager),
+        move |result| report_application_end(&proxy, result),
+    );
+}
+
+/// Runs the instance as a task on the shell's runtime under its task context (ADR 0008), and hands
+/// the instance's result to `report_end`.
+fn spawn_instance(
+    instance: InstanceFuture,
+    task_context: TaskContext,
+    report_end: impl FnOnce(Result<()>) + Send + 'static,
+) {
+    tokio::spawn(async move {
+        report_end(task_context::with_context(task_context, instance).await);
+    });
+}
+
+/// Starts an instance that draws into views. The host task starts the instance once the instance's
+/// root location exists in the host's scene.
 ///
 /// The instance collects instance changes in its own task. The host task collects the scene
 /// changes among them and renders them, like the desktop does for its instances.
-pub fn start(application: Application, startup: Startup) {
+fn start_drawing_views(application: Application, startup: Startup) {
     let Startup {
         proxy,
         event_sender,
@@ -100,7 +174,7 @@ async fn host(
         },
     );
 
-    let mut host = ViewsHost {
+    let mut host = InstanceHost {
         instance_id,
         windows,
         instance_events,
@@ -132,7 +206,7 @@ enum ServeEnd {
 }
 
 #[derive(Debug)]
-struct ViewsHost {
+struct InstanceHost {
     instance_id: InstanceId,
     windows: ShellWindows,
     instance_events: UnboundedSender<InstanceMessage>,
@@ -152,7 +226,7 @@ enum ViewSlot {
     Closed,
 }
 
-impl ViewsHost {
+impl InstanceHost {
     /// Serves the instance until its task reports its result.
     ///
     /// The outputs that are still queued when the result arrives are applied before serving ends,
@@ -198,20 +272,24 @@ impl ViewsHost {
     }
 
     async fn apply_output(&mut self, output: InstanceOutput) -> Result<()> {
-        let InstanceOutput::Submission(submission) = output else {
-            bail!("the instance answered a tool call, but the shell never calls tools");
+        let submission = match output {
+            InstanceOutput::Submission(submission) => submission,
+            InstanceOutput::ToolResult { .. } => {
+                bail!("the instance answered a tool call, but the shell never calls tools")
+            }
         };
         let (changes, pacing) = submission.into_parts();
         for change in changes.release() {
             self.apply_change(change).await?;
         }
-        // Without a view, the scene changes wait in the host's queue until the view's window
-        // renders them.
-        if let ViewSlot::Open(view) = &mut self.view {
-            begin_frame()
+        match &mut self.view {
+            ViewSlot::Open(view) => begin_frame()
                 .render_submission()
                 .with_pacing(pacing)
-                .submit_to(&mut view.renderer)?;
+                .submit_to(&mut view.renderer)?,
+            // Before the view opens, the scene changes wait in the host's queue until its window
+            // renders them. After it closed, the shell ends with the instance.
+            ViewSlot::Awaiting | ViewSlot::Closed => {}
         }
         Ok(())
     }
@@ -220,11 +298,12 @@ impl ViewsHost {
         match change {
             InstanceChange::Scene(change) => submit(change),
             InstanceChange::CreateView(info) => {
-                let ViewSlot::Awaiting = self.view else {
-                    bail!(
+                match self.view {
+                    ViewSlot::Awaiting => {}
+                    ViewSlot::Open(_) | ViewSlot::Closed => bail!(
                         "the shell hosts one view per instance, but the instance created another"
-                    );
-                };
+                    ),
+                }
                 self.view = ViewSlot::Open(Box::new(HostedView::open(&self.windows, &info).await?));
             }
             InstanceChange::View(id, change) => self.hosted_view(id)?.apply(change),
@@ -247,15 +326,18 @@ impl ViewsHost {
     /// join runs in `block_in_place`, so the worker's other tasks, such as the instance, move to
     /// another worker meanwhile.
     fn close_view(&mut self) {
-        if let ViewSlot::Open(view) = mem::replace(&mut self.view, ViewSlot::Closed) {
-            task::block_in_place(|| drop(view));
+        match mem::replace(&mut self.view, ViewSlot::Closed) {
+            ViewSlot::Open(view) => task::block_in_place(|| drop(view)),
+            ViewSlot::Awaiting | ViewSlot::Closed => {}
         }
     }
 
     fn hosted_view(&mut self, id: ViewId) -> Result<&mut HostedView> {
         match &mut self.view {
             ViewSlot::Open(view) if view.id == id => Ok(view),
-            _ => bail!("the instance changed the view {id:?}, which it never created"),
+            ViewSlot::Open(_) | ViewSlot::Awaiting | ViewSlot::Closed => {
+                bail!("the instance changed the view {id:?}, which it never created")
+            }
         }
     }
 
@@ -267,14 +349,19 @@ impl ViewsHost {
                 InstanceMessage::Shutdown(self.instance_id)
             }
             InstanceMessage::View(view_id, event) => {
-                if let ViewSlot::Open(view) = &mut self.view
-                    && view.id == view_id
-                {
-                    view.renderer.resize_redraw(&event)?;
+                match &mut self.view {
+                    ViewSlot::Open(view) if view.id == view_id => {
+                        view.renderer.resize_redraw(&event)?
+                    }
+                    ViewSlot::Open(_) | ViewSlot::Awaiting | ViewSlot::Closed => {}
                 }
                 InstanceMessage::View(view_id, event)
             }
-            message => message,
+            message @ (InstanceMessage::ApplyAnimations(_)
+            | InstanceMessage::FullscreenRequested
+            | InstanceMessage::Shutdown(_)
+            | InstanceMessage::ToolCall(_)
+            | InstanceMessage::CancelToolCall(_)) => message,
         };
         if self.instance_events.send(message).is_err() {
             debug!("The instance ended, so it does not receive the shell's event");

@@ -1,9 +1,9 @@
 pub mod async_window_renderer;
+mod instance_host;
 mod instance_windows;
 mod platform;
 pub mod shell;
 pub mod shell_window;
-mod views_host;
 pub mod window_renderer;
 mod window_renderer_builder;
 
