@@ -3,6 +3,8 @@
 //! one view into a window of the view's size, so an application written for the desktop also runs
 //! on its own.
 
+use std::mem;
+
 use anyhow::{Result, bail};
 use log::{debug, warn};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -58,8 +60,8 @@ pub fn start(application: Application, startup: Startup) {
             scale_factor,
         )
         .await;
-        // The shell's events stay received until the end is reported, because a send to a closed
-        // queue ends the event loop without the instance's result.
+        // The shell's events stay received until the end is reported, so the view's renderer can
+        // still deliver its ticks until the view closes.
         report_application_end(&proxy, result);
     }));
 }
@@ -74,7 +76,8 @@ async fn host(
     shell_events: &mut UnboundedReceiver<InstanceMessage>,
     scale_factor: f64,
 ) -> Result<()> {
-    // The root stays alive until the host ends, which is after the instance ended.
+    // The root stays alive until the host ends, so the instance's views keep their parent while it
+    // is served.
     let (_root_transform, root) = identity_location().submit();
 
     let instance_id = InstanceId::new();
@@ -101,7 +104,7 @@ async fn host(
         instance_id,
         windows,
         instance_events,
-        view: None,
+        view: ViewSlot::Awaiting,
     };
 
     let result = match host
@@ -133,8 +136,20 @@ struct ViewsHost {
     instance_id: InstanceId,
     windows: ShellWindows,
     instance_events: UnboundedSender<InstanceMessage>,
-    /// The instance's one view, once the instance created it.
-    view: Option<HostedView>,
+    /// The instance's one view.
+    view: ViewSlot,
+}
+
+/// The shell's one view per instance.
+///
+/// A view the instance creates after its first one closed is refused, because its new window's
+/// renderer would miss the scene changes the first renderer already consumed.
+#[derive(Debug)]
+enum ViewSlot {
+    /// The instance has not created its view yet. Its scene changes wait in the host's queue.
+    Awaiting,
+    Open(Box<HostedView>),
+    Closed,
 }
 
 impl ViewsHost {
@@ -192,7 +207,7 @@ impl ViewsHost {
         }
         // Without a view, the scene changes wait in the host's queue until the view's window
         // renders them.
-        if let Some(view) = &mut self.view {
+        if let ViewSlot::Open(view) = &mut self.view {
             begin_frame()
                 .render_submission()
                 .with_pacing(pacing)
@@ -205,10 +220,12 @@ impl ViewsHost {
         match change {
             InstanceChange::Scene(change) => submit(change),
             InstanceChange::CreateView(info) => {
-                if self.view.is_some() {
-                    bail!("the shell hosts one view, but the instance created another one");
-                }
-                self.view = Some(HostedView::open(&self.windows, &info).await?);
+                let ViewSlot::Awaiting = self.view else {
+                    bail!(
+                        "the shell hosts one view per instance, but the instance created another"
+                    );
+                };
+                self.view = ViewSlot::Open(Box::new(HostedView::open(&self.windows, &info).await?));
             }
             InstanceChange::View(id, change) => self.hosted_view(id)?.apply(change),
             InstanceChange::DestroyView(id) => {
@@ -224,20 +241,20 @@ impl ViewsHost {
         Ok(())
     }
 
-    /// Closes the view's window, if the instance has a view.
+    /// Closes the view's window, if the view is open.
     ///
     /// Dropping the view's renderer joins its render thread, which can take up to a frame. The
     /// join runs in `block_in_place`, so the worker's other tasks, such as the instance, move to
     /// another worker meanwhile.
     fn close_view(&mut self) {
-        if let Some(view) = self.view.take() {
+        if let ViewSlot::Open(view) = mem::replace(&mut self.view, ViewSlot::Closed) {
             task::block_in_place(|| drop(view));
         }
     }
 
     fn hosted_view(&mut self, id: ViewId) -> Result<&mut HostedView> {
         match &mut self.view {
-            Some(view) if view.id == id => Ok(view),
+            ViewSlot::Open(view) if view.id == id => Ok(view),
             _ => bail!("the instance changed the view {id:?}, which it never created"),
         }
     }
@@ -250,7 +267,7 @@ impl ViewsHost {
                 InstanceMessage::Shutdown(self.instance_id)
             }
             InstanceMessage::View(view_id, event) => {
-                if let Some(view) = &mut self.view
+                if let ViewSlot::Open(view) = &mut self.view
                     && view.id == view_id
                 {
                     view.renderer.resize_redraw(&event)?;
