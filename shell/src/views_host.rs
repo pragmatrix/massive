@@ -5,9 +5,9 @@
 
 use anyhow::{Result, bail};
 use log::{debug, warn};
-use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
+use tokio::{select, task};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::prelude::*;
@@ -231,7 +231,7 @@ impl ViewsHost {
     /// another worker meanwhile.
     fn close_view(&mut self) {
         if let Some(view) = self.view.take() {
-            tokio::task::block_in_place(|| drop(view));
+            task::block_in_place(|| drop(view));
         }
     }
 
