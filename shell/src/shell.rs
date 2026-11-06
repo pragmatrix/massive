@@ -360,7 +360,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        _event_loop: &ActiveEventLoop,
         window_id: WindowId,
         event: WindowEvent,
     ) {
@@ -380,7 +380,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         };
 
         if let Some((view_id, event)) = view_event {
-            self.send_event(event_loop, InstanceMessage::View(view_id, event))
+            self.send_event(InstanceMessage::View(view_id, event))
         }
     }
 
@@ -406,18 +406,17 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 }
 
 impl WinitApplicationHandler {
-    fn send_event(&mut self, event_loop: &ActiveEventLoop, event: InstanceMessage) {
+    fn send_event(&mut self, event: InstanceMessage) {
         let Self::Running { event_sender, .. } = self else {
             error!("Cannot send shell event: application handler must be in the running state.");
             return;
         };
 
-        if let Err(e) = event_sender.send(event) {
-            // Don't log when we are already exiting.
-            if !event_loop.exiting() {
-                info!("Receiver for events dropped, exiting event loop: {e:?}");
-                event_loop.exit();
-            }
+        // The instance's receiver closes when the instance ends, before its end is reported. The
+        // report always follows, so the event loop keeps running until it arrives, and only that
+        // report ends the loop with the instance's result.
+        if event_sender.send(event).is_err() {
+            debug!("The instance ended, so it does not receive the window event");
         }
     }
 }
