@@ -104,9 +104,7 @@ async fn host(
         view: None,
     };
 
-    // The host, and with it the view's window, is dropped when this function returns, so the window
-    // closes before `start` reports the end.
-    match host
+    let result = match host
         .serve(&mut outputs, shell_events, &mut instance_end)
         .await
     {
@@ -115,7 +113,10 @@ async fn host(
             host.request_shutdown();
             Err(error)
         }
-    }
+    };
+    // The view's window closes before `start` reports the end.
+    host.close_view();
+    result
 }
 
 /// How serving an instance ended.
@@ -212,7 +213,7 @@ impl ViewsHost {
             InstanceChange::View(id, change) => self.hosted_view(id)?.apply(change),
             InstanceChange::DestroyView(id) => {
                 self.hosted_view(id)?;
-                self.view = None;
+                self.close_view();
             }
             InstanceChange::Configuration(request) => {
                 warn!("The shell has no desktop configuration, so it drops {request:?}");
@@ -221,6 +222,17 @@ impl ViewsHost {
             InstanceChange::End(_) => {}
         }
         Ok(())
+    }
+
+    /// Closes the view's window, if the instance has a view.
+    ///
+    /// Dropping the view's renderer joins its render thread, which can take up to a frame. The
+    /// join runs in `block_in_place`, so the worker's other tasks, such as the instance, move to
+    /// another worker meanwhile.
+    fn close_view(&mut self) {
+        if let Some(view) = self.view.take() {
+            tokio::task::block_in_place(|| drop(view));
+        }
     }
 
     fn hosted_view(&mut self, id: ViewId) -> Result<&mut HostedView> {
