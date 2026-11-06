@@ -1,13 +1,11 @@
-//! Reproduces a lost instance result for an instance that draws into its own windows.
+//! Checks that the shell returns the instance's result when a window event arrives after the
+//! instance's event receiver closed.
 //!
-//! Such an instance owns its event receiver inside its context, so the receiver closes when the
-//! context drops, before the instance's task reports the end. A window event in that gap makes the
-//! shell's send fail, and the shell ends its event loop without the instance's result. The desktop
+//! An instance that draws into its own windows owns its receiver inside its context, so the
+//! receiver closes when the context drops, before the instance's task reports the end. The desktop
 //! has the same order, with a gap of microseconds. This example widens the gap to half a second and
-//! fills it with a redraw request.
-//!
-//! Expected: `shell::run` returns the instance's own error. Reproduced: it returns "Event loop
-//! exited, but application did not end".
+//! fills it with a redraw request. It prints "regressed" and exits with 1 when the shell returns
+//! anything other than the instance's own error.
 
 use std::time::Duration;
 
@@ -28,10 +26,10 @@ fn main() {
     );
     match result {
         Err(error) if error.to_string() == INSTANCE_ERROR => {
-            println!("not reproduced: the shell returned the instance's result");
+            println!("ok: the shell returned the instance's result");
         }
         other => {
-            println!("reproduced: the shell returned {other:?} instead of the instance's result");
+            println!("regressed: the shell returned {other:?} instead of the instance's result");
             std::process::exit(1);
         }
     }

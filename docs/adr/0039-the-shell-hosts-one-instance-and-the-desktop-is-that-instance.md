@@ -54,12 +54,14 @@ Every program is an `Application`, and every running program is an instance with
 
 ## Consequences
 
-- `InstanceContext::view` and `submit` panic for an instance that draws into its own windows, and
+- `InstanceContext::view`, `submit` and `collect_configuration_request` panic for an instance that
+  draws into its own windows, and
   `new_window` fails for one that draws into views. The type does not separate the two.
-- The shell's host supports one view per instance. A second view ends the shell with an error, and
-  `ViewChange::Resize` is ignored, because the shell does not resize its windows.
+- The shell's host supports one view per instance. A second view, also one created after the first
+  closed, ends the shell with an error, and `ViewChange::Resize` is ignored, because the shell does
+  not resize its windows.
 - Under the shell, an instance has no desktop socket, so `process_environment` is empty and the
-  shell drops configuration requests. No tool calls arrive. The processes the instance starts still
+  shell drops `ConfigurationRequest`s. No tool calls arrive. The processes the instance starts still
   inherit the shell's own environment, so a shell started from a desktop terminal passes that
   terminal's `MASSIVE_SOCKET` and `MASSIVE_INSTANCE` on.
 - A close request of the shell's window reaches an instance that draws into views as the shutdown
