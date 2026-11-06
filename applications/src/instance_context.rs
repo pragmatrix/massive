@@ -49,17 +49,38 @@ pub struct InstanceContext {
 /// [`DrawTarget`](crate::DrawTarget).
 #[derive(Debug)]
 enum DrawTargetState {
-    /// The instance's views hang below `view_parent`, and the host draws the instance changes the
-    /// instance submits.
-    Views {
-        view_parent: Ref<Location>,
-        /// This is here so that we don't submit empty instance submissions when the pacing did
-        /// not change.
-        last_submitted_pacing: RenderPacing,
-    },
+    /// The instance creates views, and the host draws the instance changes the instance submits.
+    Views(ViewsState),
     /// The instance opens its own windows through the host's window factory and renders its scene
     /// changes into them itself.
     Windows(HostWindows),
+}
+
+/// The state of an instance that draws into views.
+#[derive(Debug)]
+struct ViewsState {
+    /// The location the instance's views hang below.
+    view_parent: Ref<Location>,
+    /// This is here so that we don't submit empty instance submissions when the pacing did not
+    /// change.
+    last_submitted_pacing: RenderPacing,
+}
+
+impl DrawTargetState {
+    /// The views' state, if the instance draws into views.
+    fn views(&self) -> Option<&ViewsState> {
+        match self {
+            Self::Views(views) => Some(views),
+            Self::Windows(_) => None,
+        }
+    }
+
+    fn views_mut(&mut self) -> Option<&mut ViewsState> {
+        match self {
+            Self::Views(views) => Some(views),
+            Self::Windows(_) => None,
+        }
+    }
 }
 
 /// The window factory of the host, kept opaque here because the shell that defines it depends on
@@ -68,13 +89,15 @@ pub type HostWindows = Arc<dyn Any + Send + Sync>;
 
 impl Drop for InstanceContext {
     fn drop(&mut self) {
-        let DrawTargetState::Views { view_parent, .. } = &self.draw_target else {
+        // An instance that draws its own windows renders its changes itself.
+        let Some(views) = self.draw_target.views() else {
             return;
         };
+        let view_parent = views.view_parent.clone();
         warn!("Submitting final instance changes: instance={:?}", self.id);
         // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
         // the desktop observes it behind every pending change of this submission.
-        submit(InstanceChange::End(view_parent.clone()));
+        submit(InstanceChange::End(view_parent));
         // Teardown runs after the run loop returned, so no frame is live. The detached frame end
         // witnesses animation access for this one teardown (joining, not replacing, a frame held
         // across a panic unwind), flushes queued movement actions, closes the cycle and never
@@ -99,10 +122,10 @@ impl InstanceContext {
             id,
             creation_mode,
             environment,
-            draw_target: DrawTargetState::Views {
+            draw_target: DrawTargetState::Views(ViewsState {
                 view_parent,
                 last_submitted_pacing: RenderPacing::Fast,
-            },
+            }),
             events: events.into(),
         }
     }
@@ -128,7 +151,7 @@ impl InstanceContext {
     /// The host's window factory, if the instance draws its own windows.
     pub fn host_windows(&self) -> Option<&HostWindows> {
         match &self.draw_target {
-            DrawTargetState::Views { .. } => None,
+            DrawTargetState::Views(_) => None,
             DrawTargetState::Windows(windows) => Some(windows),
         }
     }
@@ -179,21 +202,26 @@ impl InstanceContext {
 
         let mut events = Vec::with_capacity(messages.len());
         for message in messages {
-            let InstanceMessage::ApplyAnimations(tick) = message else {
-                events.push(message.into());
-                continue;
-            };
-            let completion_events =
-                task_context::with_animation_and_movement(|animation, movement| {
-                    animation.upgrade_to_apply_animations_cycle(tick.vblank_time);
-                    movement.apply_animations(animation.animation_time())
-                });
-            events.push(InstanceEvent::ApplyAnimations(tick));
-            for event in completion_events {
-                let event = event
-                    .downcast::<T>()
-                    .map_err(|_| anyhow!("movement completion event has the wrong type"))?;
-                events.push(InstanceEvent::Custom(*event));
+            match message {
+                InstanceMessage::ApplyAnimations(tick) => {
+                    let completion_events =
+                        task_context::with_animation_and_movement(|animation, movement| {
+                            animation.upgrade_to_apply_animations_cycle(tick.vblank_time);
+                            movement.apply_animations(animation.animation_time())
+                        });
+                    events.push(InstanceEvent::ApplyAnimations(tick));
+                    for event in completion_events {
+                        let event = event
+                            .downcast::<T>()
+                            .map_err(|_| anyhow!("movement completion event has the wrong type"))?;
+                        events.push(InstanceEvent::Custom(*event));
+                    }
+                }
+                InstanceMessage::View(..)
+                | InstanceMessage::FullscreenRequested
+                | InstanceMessage::Shutdown(_)
+                | InstanceMessage::ToolCall(_)
+                | InstanceMessage::CancelToolCall(_) => events.push(message.into()),
             }
         }
 
@@ -201,17 +229,21 @@ impl InstanceContext {
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
-        let DrawTargetState::Views { view_parent, .. } = &self.draw_target else {
-            panic!("an instance that draws its own windows has no views");
-        };
-        ViewBuilder::new(view_parent.clone(), extent.into().into())
+        let view_parent = self
+            .draw_target
+            .views()
+            .expect("an instance that draws its own windows has no views")
+            .view_parent
+            .clone();
+        ViewBuilder::new(view_parent, extent.into().into())
     }
 
     /// Design: This may interfere with animations and requires a final submit()!
     pub fn collect_configuration_request(&mut self, request: ConfigurationRequest) {
-        let DrawTargetState::Views { .. } = &self.draw_target else {
-            panic!("an instance that draws its own windows has no host to configure");
-        };
+        assert!(
+            self.draw_target.views().is_some(),
+            "an instance that draws its own windows has no host to configure"
+        );
         submit(InstanceChange::Configuration(request));
     }
 
@@ -247,13 +279,11 @@ impl InstanceContext {
         changes: ChangeSet<InstanceChange>,
         pacing: RenderPacing,
     ) -> Result<()> {
-        let DrawTargetState::Views {
-            last_submitted_pacing,
-            ..
-        } = &mut self.draw_target
-        else {
-            panic!("an instance that draws its own windows renders its changes itself");
-        };
+        let last_submitted_pacing = &mut self
+            .draw_target
+            .views_mut()
+            .expect("an instance that draws its own windows renders its changes itself")
+            .last_submitted_pacing;
         let change_count = changes.len();
         // Desktop needs empty submissions to observe pacing transitions, but repeated pacing has
         // no effect.
