@@ -21,7 +21,7 @@ use shared::view_center::ViewCenter;
 fn main() -> Result<()> {
     shell::run(
         Application::new("Syntax", syntax),
-        FontPolicy::bare(ShapingEngineKind::Parley),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
     )
 }
 

@@ -141,3 +141,18 @@ drop a face from the system catalog — `unregister_font` keys on `(family, widt
 touches only application-registered families, not system faces — so "filter" would mean silently
 keeping a face that cannot be rasterized. Failing closed is the only honest option on the one axis
 where filtering is impossible.
+
+## Amendment: cosmic-text is the clients' engine (2026-11-06)
+
+Later measurements reverse the first results above. On 2026-09-15, parley trailed cosmic-text on
+the per-cluster hot path by 2.3× ([parley shaping optimization](../parley-shaping-optimization.md)).
+On 2026-10-15, the full-screen benchmark took 169 µs with cosmic-text and 596 µs with parley. mt
+therefore names `cosmic-text` in its built-in configuration, and the examples and the desktop
+example name `CosmicText`. Parley stays compiled in and selectable, and there is still no
+library-level default.
+
+Open issue: the engines do not produce the same glyphs for control characters. The cosmic-text
+engine shapes a line break (`\n`) into a glyph that the font lacks, which renders as a box, while
+parley emits none. Until the cosmic-text engine skips control characters, the examples' shared
+`shape_text` cuts the line break before it shapes a line. mt is not affected, because its cells
+hold no line breaks.

@@ -301,7 +301,7 @@ The Unix socket `~/.massive/run/desktop.sock` through which processes connect to
 _Avoid_: control socket, MCP socket
 
 **Shaping engine**:
-The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.
+The selectable implementation that shapes attributed text into glyph runs for rendering. Either `CosmicText` or `Parley`, both behind one shaping contract producing the same neutral glyph data.
 _Avoid_: font system, shaper backend, text layout engine
 
 ## Font identity language

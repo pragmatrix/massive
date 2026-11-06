@@ -20,7 +20,7 @@ use shared::view_center::ViewCenter;
 fn main() -> Result<()> {
     shell::run(
         Application::new("Shapes", run),
-        FontPolicy::bare(ShapingEngineKind::Parley),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
     )
 }
 

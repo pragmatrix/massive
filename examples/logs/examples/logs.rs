@@ -63,7 +63,7 @@ fn main() -> Result<()> {
             .expect("the shell runs one instance");
         logs(receiver, ctx)
     });
-    shell::run(application, FontPolicy::bare(ShapingEngineKind::Parley))
+    shell::run(application, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);

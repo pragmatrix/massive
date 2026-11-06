@@ -60,7 +60,7 @@ fn main() -> Result<()> {
 
     shell::run(
         Application::new("Code", code),
-        FontPolicy::bare(ShapingEngineKind::Parley),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
     )
 }
 

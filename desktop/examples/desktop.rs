@@ -6,7 +6,7 @@ use massive_desktop::{DesktopEnvironment, FontPolicy, ShapingEngineKind};
 
 fn main() -> Result<()> {
     let applications = vec![Application::new("Hello Application", hello_instance)];
-    DesktopEnvironment::new(applications)?.run(FontPolicy::bare(ShapingEngineKind::Parley))
+    DesktopEnvironment::new(applications)?.run(FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn hello_instance(ctx: InstanceContext) -> Result<()> {
