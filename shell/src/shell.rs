@@ -430,3 +430,31 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     info!("{name}: {:?}", start.elapsed());
     r
 }
+
+#[cfg(test)]
+mod tests {
+    use massive_renderer::ShapingEngineKind;
+
+    use super::*;
+
+    /// The event loop blocks the thread `run` is called on. On a current-thread runtime that is the
+    /// runtime's only thread, so the instance would never run, and the shell must refuse instead of
+    /// hanging.
+    #[test]
+    fn run_refuses_a_current_thread_runtime() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let application = Application::new("never runs", |_| async { Ok(()) });
+
+        let result = runtime.block_on(async {
+            run(
+                application,
+                FontPolicy::bare(ShapingEngineKind::available()[0]),
+            )
+        });
+
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("multi-thread"), "{error}");
+    }
+}
