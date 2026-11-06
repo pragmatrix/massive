@@ -29,7 +29,7 @@ use crate::{AsyncWindowRenderer, ShellWindow};
 ///
 /// The instance collects instance changes in its own task. The host task collects the scene
 /// changes among them and renders them, like the desktop does for its instances.
-pub fn start(application: Application, startup: Startup) -> Result<()> {
+pub fn start(application: Application, startup: Startup) {
     let Startup {
         proxy,
         event_sender,
@@ -62,7 +62,6 @@ pub fn start(application: Application, startup: Startup) -> Result<()> {
         // queue ends the event loop without the instance's result.
         report_application_end(&proxy, result);
     }));
-    Ok(())
 }
 
 /// Runs the instance and serves it until it ends. The host is the only party that reports the end,
@@ -105,19 +104,27 @@ async fn host(
         view: None,
     };
 
+    // The host, and with it the view's window, is dropped when this function returns, so the window
+    // closes before `start` reports the end.
     match host
         .serve(&mut outputs, shell_events, &mut instance_end)
         .await
     {
-        Ok(instance_result) => {
-            drop(host);
-            instance_result
-        }
-        Err(error) => {
+        ServeEnd::InstanceEnded(result) => result,
+        ServeEnd::HostFailed(error) => {
             host.request_shutdown();
             Err(error)
         }
     }
+}
+
+/// How serving an instance ended.
+#[derive(Debug)]
+enum ServeEnd {
+    /// The instance ended with this result.
+    InstanceEnded(Result<()>),
+    /// The host failed while the instance may still run.
+    HostFailed(anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -130,30 +137,36 @@ struct ViewsHost {
 }
 
 impl ViewsHost {
-    /// Serves the instance until its task reports its result, and returns that result. The
-    /// outer error is a failure of the host itself.
+    /// Serves the instance until its task reports its result.
     ///
-    /// The outputs that are still queued when the result arrives are applied before it is
-    /// returned, so the instance's last submission is drawn and its views are destroyed.
+    /// The outputs that are still queued when the result arrives are applied before serving ends,
+    /// so the instance's last submission is drawn and its views are destroyed.
     async fn serve(
         &mut self,
         outputs: &mut UnboundedReceiver<(InstanceId, InstanceOutput)>,
         shell_events: &mut UnboundedReceiver<InstanceMessage>,
         instance_end: &mut oneshot::Receiver<Result<()>>,
-    ) -> Result<Result<()>> {
+    ) -> ServeEnd {
         let instance_result = loop {
-            select! {
-                Some((_, output)) = outputs.recv() => self.apply_output(output).await?,
-                Some(message) = shell_events.recv() => self.forward(message)?,
+            let step = select! {
+                Some((_, output)) = outputs.recv() => self.apply_output(output).await,
+                Some(message) = shell_events.recv() => self.forward(message),
+                // An instance that panics aborts the process (`panic = "abort"`), so a running
+                // shell always receives the instance's result.
                 result = &mut *instance_end => {
                     break result.expect("the instance task always reports its result");
                 }
+            };
+            if let Err(error) = step {
+                return ServeEnd::HostFailed(error);
             }
         };
         while let Ok((_, output)) = outputs.try_recv() {
-            self.apply_output(output).await?;
+            if let Err(error) = self.apply_output(output).await {
+                return ServeEnd::HostFailed(error);
+            }
         }
-        Ok(instance_result)
+        ServeEnd::InstanceEnded(instance_result)
     }
 
     /// Asks the instance to end after the host failed. The shell ends with the host's error and

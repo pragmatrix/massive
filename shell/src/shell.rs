@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
+use tokio::runtime::RuntimeFlavor;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, WeakUnboundedSender, unbounded_channel,
 };
@@ -34,10 +35,11 @@ const FALLBACK_SCALE_FACTOR: f64 = 1.;
 /// Starts the shell with one instance of `application`.
 ///
 /// The instance runs as a task on the shell's tokio runtime, or on the caller's when one is
-/// running. A lone instance needs no thread of its own, because no other instance can starve it
-/// (ADR 0009), so the application's runtime kind applies only in the desktop. The winit event loop
-/// runs on the calling thread and blocks until the instance ends. This gives
-/// clients the option to run the event loop on the main thread, which some platforms require.
+/// running, which must then be a multi-thread runtime. One instance needs no thread of its own,
+/// because the multi-thread worker pool keeps the host's work running beside it (ADR 0009,
+/// ADR 0039), so the application's runtime kind applies only in the desktop. The winit event loop
+/// runs on the calling thread and blocks until the instance ends. This gives clients the option to
+/// run the event loop on the main thread, which some platforms require.
 ///
 /// `font_policy` is the shell's construction input for the instance task's font manager. The
 /// instance cannot replace it: faces are only valid inside the manager that issued them, so a
@@ -70,9 +72,15 @@ pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
         log::info!("Metrics disabled: MASSIVE_METRICS_PUSHGATEWAY not set");
     }
 
-    // Power up a tokio runtime, if none is running yet. The instance, and for an instance whose
-    // host renders also the host task, run on it while the event loop blocks this thread.
-    if tokio::runtime::Handle::try_current().is_ok() {
+    // Power up a tokio runtime, if none is running yet. The instance, and for an instance that
+    // draws into views also the host task, run on it while the event loop blocks this thread, so a
+    // caller's runtime needs worker threads.
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if handle.runtime_flavor() != RuntimeFlavor::MultiThread {
+            bail!(
+                "the shell needs a multi-thread runtime, because its event loop blocks this thread"
+            );
+        }
         return run_event_loop(application, font_policy);
     }
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -133,7 +141,7 @@ pub(crate) struct Startup {
 }
 
 /// Starts the shell's single instance.
-fn start_instance(application: Application, startup: Startup) -> Result<()> {
+fn start_instance(application: Application, startup: Startup) {
     match application.draw_target() {
         DrawTarget::Windows => start_instance_drawing_windows(application, startup),
         DrawTarget::Views => views_host::start(application, startup),
@@ -142,7 +150,7 @@ fn start_instance(application: Application, startup: Startup) -> Result<()> {
 
 /// Starts an instance that opens its own windows and renders scene changes into them, so its task
 /// collects scene changes like the desktop's.
-fn start_instance_drawing_windows(application: Application, startup: Startup) -> Result<()> {
+fn start_instance_drawing_windows(application: Application, startup: Startup) {
     let Startup {
         proxy,
         event_sender,
@@ -167,7 +175,6 @@ fn start_instance_drawing_windows(application: Application, startup: Startup) ->
         rendering_task_context(font_manager),
         move |result| report_application_end(&proxy, result),
     );
-    Ok(())
 }
 
 /// Runs the instance as a task on the shell's runtime under its task context (ADR 0008), and hands
@@ -288,13 +295,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             event_sender,
             views: HashMap::new(),
         };
-        if let Err(error) = start_instance(application, startup) {
-            error!("Failed to start the application: {error:#}");
-            *self = Self::Ended {
-                application_result: Err(error),
-            };
-            event_loop.exit();
-        }
+        start_instance(application, startup);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
@@ -339,10 +340,10 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             }
             ShellCommand::ToggleFullscreen => crate::platform::toggle_fullscreen(),
             ShellCommand::FullscreenRequested => {
+                // The menu sends this from outside the instance, so it can arrive after the
+                // instance's end was reported. No instance receives it then.
                 let Self::Running { event_sender, .. } = self else {
-                    panic!(
-                        "Received FullscreenRequested while WinitApplicationHandler is not Running"
-                    );
+                    return;
                 };
                 if let Err(error) = event_sender.send(InstanceMessage::FullscreenRequested) {
                     error!("Failed to send fullscreen request to the application: {error:?}");
