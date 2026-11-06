@@ -209,6 +209,9 @@ impl InstanceContext {
 
     /// Design: This may interfere with animations and requires a final submit()!
     pub fn collect_configuration_request(&mut self, request: ConfigurationRequest) {
+        let DrawTargetState::Views { .. } = &self.draw_target else {
+            panic!("an instance that draws its own windows has no host to configure");
+        };
         submit(InstanceChange::Configuration(request));
     }
 
