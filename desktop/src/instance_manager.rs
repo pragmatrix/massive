@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::thread;
@@ -15,14 +14,12 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    ApplicationMessage, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment,
-    InstanceId, ViewEvent, ViewId,
+    Application, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment,
+    InstanceFuture, InstanceId, InstanceMessage, RuntimeKind, ViewEvent, ViewId,
 };
 use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
 use massive_shell::Result;
-
-use crate::application_registry::{Application, RuntimeKind};
 
 /// Prefix for the OS thread name of each instance thread; the [`InstanceId`] follows
 /// its debug form.
@@ -48,7 +45,7 @@ pub struct InstanceManager {
 struct RunningInstance {
     #[allow(unused)]
     application_name: String,
-    events_tx: UnboundedSender<ApplicationMessage>,
+    events_tx: UnboundedSender<InstanceMessage>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into)]
@@ -80,8 +77,8 @@ impl InstanceManager {
         let environment = self.environment.clone();
         let instance_context =
             InstanceContext::new(instance_id, creation_mode, environment, root, events_rx);
-        let instance_future = (application.run)(instance_context);
-        let runtime_kind = application.runtime_kind;
+        let instance_future = application.run(instance_context);
+        let runtime_kind = application.runtime_kind();
         // Own coordinator per instance: a timestamp from one instance must not affect another's
         // animations when instances run in parallel. The shaping context is a fresh scratch over
         // the manager the task context reaches, so instances shape in parallel on their own
@@ -108,7 +105,7 @@ impl InstanceManager {
         self.instances.insert(
             instance_id,
             RunningInstance {
-                application_name: application.name.clone(),
+                application_name: application.name().to_owned(),
                 events_tx,
             },
         );
@@ -125,7 +122,7 @@ impl InstanceManager {
         Ok(())
     }
 
-    /// Begin the shutdown of an instance by sending [`ApplicationMessage::Shutdown`]. Returns
+    /// Begin the shutdown of an instance by sending [`InstanceMessage::Shutdown`]. Returns
     /// immediately after sending the event
     pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self.instances.get(&instance_id).ok_or_else(|| {
@@ -137,7 +134,7 @@ impl InstanceManager {
 
         instance
             .events_tx
-            .send(ApplicationMessage::Shutdown(instance_id))
+            .send(InstanceMessage::Shutdown(instance_id))
             .map_err(|_| {
                 anyhow!(
                     "Failed to send shutdown event to instance {:?}",
@@ -177,10 +174,10 @@ impl InstanceManager {
 
     pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
         let (instance, view) = path.into().into();
-        self.send_event(instance, ApplicationMessage::View(view, event))
+        self.send_event(instance, InstanceMessage::View(view, event))
     }
 
-    pub fn send_event(&self, instance_id: InstanceId, event: ApplicationMessage) -> Result<()> {
+    pub fn send_event(&self, instance_id: InstanceId, event: InstanceMessage) -> Result<()> {
         let instance = self.get_instance(instance_id)?;
 
         instance
@@ -201,16 +198,13 @@ impl InstanceManager {
 /// The thread is detached: it reports `(InstanceId, result)` on the completion channel and
 /// the manager never joins or aborts it — shutdown is cooperative and the process end reaps
 /// threads that outlive the shutdown deadline.
-fn spawn_instance_thread<F>(
+fn spawn_instance_thread(
     instance_id: InstanceId,
     runtime_kind: RuntimeKind,
-    instance_future: F,
+    instance_future: InstanceFuture,
     instance_task_context: TaskContext,
     completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
-) -> io::Result<thread::JoinHandle<()>>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
+) -> io::Result<thread::JoinHandle<()>> {
     thread::Builder::new()
         .name(format!("{INSTANCE_THREAD_NAME_PREFIX}{instance_id:?}"))
         .spawn(move || {
@@ -223,14 +217,11 @@ where
 
 /// Build the instance runtime and drive the instance future to completion, converting a
 /// panic into an error result.
-fn run_instance_future<F>(
+fn run_instance_future(
     runtime_kind: RuntimeKind,
-    instance_future: F,
+    instance_future: InstanceFuture,
     instance_task_context: TaskContext,
-) -> Result<()>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
+) -> Result<()> {
     // The runtime is built inside the thread closure so its lifetime encloses `block_on`:
     // dropping a runtime before `spawn_blocking` work completes would abort the pty reader.
     let runtime = match runtime_kind {

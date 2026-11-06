@@ -50,6 +50,10 @@ pub fn shape_text(
     let mut height: f64 = 0.;
 
     for (index, (line_offset, line_text)) in syntax::split_lines(text).enumerate() {
+        // The line break is not shaped, because the cosmic-text engine turns it into a glyph the
+        // font lacks, unlike parley (ADR 0005, open issue). Only the end is cut, so the line's
+        // byte offsets stay aligned with the original text.
+        let line_text = line_text.strip_suffix('\n').unwrap_or(line_text);
         let default_attributes = TextAttributes::default()
             .with_family(TextFamily::Monospace)
             .with_weight(TextWeight::NORMAL);

@@ -4,10 +4,11 @@ use derive_more::{Display, From};
 use uuid::Uuid;
 
 mod ambient;
-mod application_event;
+mod application;
 mod frame;
 mod instance_context;
 mod instance_environment;
+mod instance_event;
 mod key_event;
 mod mcp;
 pub mod prelude;
@@ -19,10 +20,11 @@ mod view_builder;
 mod view_event;
 
 pub use ambient::*;
-pub use application_event::*;
+pub use application::*;
 pub use frame::*;
 pub use instance_context::*;
 pub use instance_environment::*;
+pub use instance_event::*;
 pub use key_event::*;
 pub use mcp::*;
 pub use project::*;
@@ -32,6 +34,13 @@ pub use view_event::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From, Display)]
 pub struct InstanceId(Uuid);
+
+impl InstanceId {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
 pub struct ViewId(Uuid);

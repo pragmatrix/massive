@@ -8,7 +8,7 @@ use log::{error, info};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::WeakUnboundedSender;
 
-use massive_applications::{ApplicationMessage, ViewEvent};
+use massive_applications::{InstanceMessage, ViewEvent};
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
@@ -33,7 +33,7 @@ impl AsyncWindowRenderer {
     pub fn new(
         window_renderer: WindowRenderer,
         geometry: RenderGeometry,
-        application_messages: WeakUnboundedSender<ApplicationMessage>,
+        application_messages: WeakUnboundedSender<InstanceMessage>,
     ) -> Self {
         let view_projections = geometry.view_projections();
 
@@ -87,7 +87,14 @@ impl AsyncWindowRenderer {
                 self.post_msg(RendererMessage::Redraw)
             }
             ResizeRedrawMode::Occluded(occluded) => {
-                self.post_msg(RendererMessage::SetSurfaceOccluded(occluded))
+                self.post_msg(RendererMessage::SetSurfaceOccluded(occluded))?;
+                // A window that becomes visible is drawn at once. Every frame requested before was
+                // lost, including the first frame of a window that was not yet on screen, and the
+                // pending submission waits for a redraw that nothing else sends.
+                if !occluded {
+                    self.post_msg(RendererMessage::Redraw)?;
+                }
+                Ok(())
             }
             ResizeRedrawMode::None => Ok(()),
         }

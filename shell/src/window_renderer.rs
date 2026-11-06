@@ -10,7 +10,7 @@ use tokio::sync::mpsc::WeakUnboundedSender;
 use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
-use massive_applications::{ApplicationMessage, PresentationTick};
+use massive_applications::{InstanceMessage, PresentationTick};
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer, ViewProjections};
 use massive_scene::SceneChangeSet;
@@ -75,7 +75,7 @@ impl WindowRenderer {
         mut self,
         msg_receiver: mpsc::Receiver<RendererMessage>,
         submission: Arc<Mutex<RenderThreadSubmission>>,
-        application_messages: WeakUnboundedSender<ApplicationMessage>,
+        application_messages: WeakUnboundedSender<InstanceMessage>,
     ) -> Result<()> {
         let mut messages = Vec::new();
 
@@ -162,7 +162,7 @@ impl WindowRenderer {
     // (`NoSurface`).
     fn render_frame(
         &mut self,
-        apply_animations_to: &WeakUnboundedSender<ApplicationMessage>,
+        apply_animations_to: &WeakUnboundedSender<InstanceMessage>,
         submission: &Arc<Mutex<RenderThreadSubmission>>,
     ) -> Result<FrameOutcome> {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
@@ -192,7 +192,7 @@ impl WindowRenderer {
                 .upgrade()
                 .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for application events anymore, application vanished)"))?;
 
-            sender.send(ApplicationMessage::ApplyAnimations(PresentationTick {
+            sender.send(InstanceMessage::ApplyAnimations(PresentationTick {
                 presentation_id: self.window.presentation_id(),
                 vblank_time,
             }))?;

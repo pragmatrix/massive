@@ -1,9 +1,11 @@
 //! Calls of applications' tools, which the tool host forwards to instances (ADR 0036).
 
+use std::convert::Infallible;
 use std::path::PathBuf;
 
 use massive_applications::{
-    AccessScope, ApplicationEvent, CreationMode, McpId, ToolCallId, ToolDeclaration, mcp_id,
+    AccessScope, Application, CreationMode, InstanceEvent, McpId, ToolCallId, ToolDeclaration,
+    mcp_id,
 };
 use massive_protocol::Frames;
 use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage, ToolOutcome};
@@ -15,7 +17,6 @@ use tempfile::TempDir;
 use super::tools::configure_mcp;
 use super::tools::tool_client::{connect, receive, send};
 use super::*;
-use crate::Application;
 use crate::tools::ToolHost;
 
 /// A call of an application's tool reaches the instance its `instance_id` names, without that
@@ -207,7 +208,7 @@ impl EchoDesktop {
         let mut echo_instances = InstanceManager::new(InstanceEnvironment::new(
             sender,
             1.0,
-            Path::new("desktop.sock").into(),
+            Some(Path::new("desktop.sock").into()),
         ));
         // instance_a is presented, but no task runs it, so the echo instance takes its id.
         echo_instances.spawn(
@@ -274,35 +275,37 @@ fn echo_application() -> Application {
         let mut waiting = None;
         let mut cancels = 0;
         loop {
-            match ctx.wait_for_event().await? {
-                ApplicationEvent::ToolCall(call) => {
-                    match call.decode().map(|EchoParams { text }| Echo { text }) {
-                        Ok(Echo { text }) if text == WAIT => waiting = Some(call.id),
-                        Ok(Echo { text }) if text == HOLD => {}
-                        Ok(Echo { text }) if text == CANCELS => {
-                            let counted = Echo {
-                                text: cancels.to_string(),
-                            };
-                            ctx.answer_tool_call(call.id, Ok(counted))?;
+            for event in ctx.wait_for_events::<Infallible>().await? {
+                match event {
+                    InstanceEvent::ToolCall(call) => {
+                        match call.decode().map(|EchoParams { text }| Echo { text }) {
+                            Ok(Echo { text }) if text == WAIT => waiting = Some(call.id),
+                            Ok(Echo { text }) if text == HOLD => {}
+                            Ok(Echo { text }) if text == CANCELS => {
+                                let counted = Echo {
+                                    text: cancels.to_string(),
+                                };
+                                ctx.answer_tool_call(call.id, Ok(counted))?;
+                            }
+                            echoed => ctx.answer_tool_call(call.id, echoed)?,
                         }
-                        echoed => ctx.answer_tool_call(call.id, echoed)?,
                     }
-                }
-                ApplicationEvent::CancelToolCall(call_id) => {
-                    cancels += 1;
-                    if waiting == Some(call_id) {
-                        let cancelled = Echo {
-                            text: CANCELLED.into(),
-                        };
-                        ctx.answer_tool_call(call_id, Ok(cancelled))?;
+                    InstanceEvent::CancelToolCall(call_id) => {
+                        cancels += 1;
+                        if waiting == Some(call_id) {
+                            let cancelled = Echo {
+                                text: CANCELLED.into(),
+                            };
+                            ctx.answer_tool_call(call_id, Ok(cancelled))?;
+                        }
                     }
+                    InstanceEvent::Shutdown(_) => return Ok(()),
+                    _ => {}
                 }
-                ApplicationEvent::Shutdown(_) => return Ok(()),
-                _ => {}
             }
         }
     })
-    .with_mcp_id(
+    .with_tools(
         ECHO,
         vec![ToolDeclaration::new::<EchoParams, Echo>(
             mcp_id!("say"),

@@ -23,22 +23,21 @@ use inlyne::text::{CachedTextArea, TextCache, TextSystem};
 use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
-use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
+use massive_applications::{Application, InstanceContext, InstanceEvent, ViewEvent};
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::GlyphRun;
 use massive_shapes::{FontPolicy, ShapingEngineKind};
-use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
-use shared::application::{Application, UpdateResponse};
 use shared::fonts;
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
 use markdown::FontBridge;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
     let console_formatter = tracing_subscriber::fmt::Layer::default();
     // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
@@ -60,10 +59,13 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application, FontPolicy::bare(ShapingEngineKind::CosmicText))
+    shell::run(
+        Application::new("Markdown", markdown),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
+    )
 }
 
-async fn application(mut ctx: ApplicationContext) -> Result<()> {
+async fn markdown(mut ctx: InstanceContext) -> Result<()> {
     // Register the bundled font into both databases and build the fontdb::ID -> FaceId map; the
     // task's manager is the one identity world the renderer reads (ADR 0005).
     let bridge = FontBridge::new(
@@ -79,14 +81,11 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let scale_factor = ctx.primary_monitor_scale_factor();
     let physical_size = LogicalSize::new(960, 800).to_physical(scale_factor);
-    let window = ctx
-        .new_window((physical_size.width, physical_size.height))
-        .await?;
-    let view_id = window.view_id();
+    let view_size = SizePx::new(physical_size.width, physical_size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
     let font_system = Arc::new(Mutex::new(font_system));
-
-    let mut renderer = window.renderer().with_text().build().await?;
 
     let markdown = include_str!("replicator.org.md");
 
@@ -98,11 +97,14 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         markdown,
     )?;
 
-    let mut application = Application::default();
-    let page_transform = application.get_transform(content_size);
+    let mut gestures = GestureTransform::default();
+    let page_transform = gestures.get_transform(content_size);
 
     let transform = page_transform.submit();
-    let location = transform.to_location().submit();
+    let location = transform
+        .to_location()
+        .relative_to(center.location())
+        .submit();
 
     // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -115,33 +117,33 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .submit();
 
     loop {
+        transform.update_if_changed(gestures.get_transform(content_size));
+        ctx.submit(begin_frame().submission())?;
+
         for event in ctx.wait_for_events::<Infallible>().await? {
             match event {
-                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                InstanceEvent::View(_, view_event) => {
                     info!("View Event: {view_event:?}");
 
-                    match application.update(&view_event) {
+                    if let ViewEvent::Resized(size) = view_event {
+                        center.resize(&view, size);
+                    }
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => {
                             info!("Exiting Markdown application");
                             return Ok(());
                         }
                         UpdateResponse::Continue => {}
                     }
-
-                    transform.update_if_changed(application.get_transform(content_size));
-                    renderer.resize_redraw(&view_event)?;
                 }
-                ApplicationEvent::View(..)
-                | ApplicationEvent::ApplyAnimations(_)
-                | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_)
-                | ApplicationEvent::ToolCall(_)
-                | ApplicationEvent::CancelToolCall(_) => {}
-                ApplicationEvent::Custom(event) => match event {},
+                InstanceEvent::Shutdown(_) => return Ok(()),
+                InstanceEvent::ApplyAnimations(_)
+                | InstanceEvent::FullscreenRequested
+                | InstanceEvent::ToolCall(_)
+                | InstanceEvent::CancelToolCall(_) => {}
+                InstanceEvent::Custom(event) => match event {},
             }
         }
-
-        begin_frame().render_to(&mut renderer)?;
     }
 }
 

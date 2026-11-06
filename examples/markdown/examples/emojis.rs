@@ -18,24 +18,26 @@ use inlyne::text::{CachedTextArea, TextCache, TextSystem};
 use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
-use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
+use massive_applications::{Application, InstanceContext, InstanceEvent, ViewEvent};
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind};
-use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use shared::application::{Application, UpdateResponse};
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
 use markdown::FontBridge;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     // The markdown bridge builds a cosmic-text manager, so the shell names the same engine.
-    shell::run(emojis, FontPolicy::bare(ShapingEngineKind::CosmicText))
+    shell::run(
+        Application::new("Emojis", emojis),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
+    )
 }
 
-async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
+async fn emojis(mut ctx: InstanceContext) -> Result<()> {
     let markdown = include_str!("emojis.md");
     // The concepts of a current dir does not exist in wasm I guess.
     // let current_dir = env::current_dir().expect("Failed to get current directory");
@@ -60,14 +62,11 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     let initial_size =
         LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
 
-    let window = ctx
-        .new_window((initial_size.width, initial_size.height))
-        .await?;
-    let view_id = window.view_id();
+    let view_size = SizePx::new(initial_size.width, initial_size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
-    let mut renderer = window.renderer().with_text().build().await?;
-
-    let hidpi_scale = window.scale_factor();
+    let hidpi_scale = ctx.primary_monitor_scale_factor();
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
 
     let color_scheme = Some(ResolvedTheme::Light);
@@ -148,12 +147,15 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    // Application
+    // Content
 
     let content_size = SizePx::new(page_width as _, page_height);
-    let mut application = Application::default();
-    let transform = application.get_transform(content_size).submit();
-    let location = transform.to_location().submit();
+    let mut gestures = GestureTransform::default();
+    let transform = gestures.get_transform(content_size).submit();
+    let location = transform
+        .to_location()
+        .relative_to(center.location())
+        .submit();
 
     // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -164,33 +166,31 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .with_decal_order(0)
         .submit();
 
-    begin_frame().render_to(&mut renderer)?;
-
     loop {
+        transform.update_if_changed(gestures.get_transform(content_size));
+        ctx.submit(begin_frame().submission())?;
+
         for event in ctx.wait_for_events::<Infallible>().await? {
             info!("Event: {event:?}");
 
             match event {
-                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
-                    match application.update(&view_event) {
+                InstanceEvent::View(_, view_event) => {
+                    if let ViewEvent::Resized(size) = view_event {
+                        center.resize(&view, size);
+                    }
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    renderer.resize_redraw(&view_event)?;
                 }
-                ApplicationEvent::View(..)
-                | ApplicationEvent::ApplyAnimations(_)
-                | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_)
-                | ApplicationEvent::ToolCall(_)
-                | ApplicationEvent::CancelToolCall(_) => {}
-                ApplicationEvent::Custom(event) => match event {},
+                InstanceEvent::Shutdown(_) => return Ok(()),
+                InstanceEvent::ApplyAnimations(_)
+                | InstanceEvent::FullscreenRequested
+                | InstanceEvent::ToolCall(_)
+                | InstanceEvent::CancelToolCall(_) => {}
+                InstanceEvent::Custom(event) => match event {},
             }
         }
-
-        transform.update_if_changed(application.get_transform(content_size));
-
-        begin_frame().render_to(&mut renderer)?;
     }
 }
 

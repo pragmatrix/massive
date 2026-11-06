@@ -4,23 +4,25 @@ use anyhow::Result;
 use tracing::info;
 use winit::dpi::LogicalSize;
 
-use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
+use massive_applications::{Application, InstanceContext, InstanceEvent, ViewEvent};
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind};
-use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
-use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, AttributedText};
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    shell::run(code_viewer, FontPolicy::bare(ShapingEngineKind::Parley))
+fn main() -> Result<()> {
+    shell::run(
+        Application::new("Code Viewer", code_viewer),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
+    )
 }
 
-async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
+async fn code_viewer(mut ctx: InstanceContext) -> Result<()> {
     // spellcheck: ignore
     // let env_filter = EnvFilter::from_default_env();
     // let console_formatter = tracing_subscriber::fmt::Layer::default();
@@ -62,7 +64,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     // The handle is `!Send` and is dropped at the end of this block, before any await, so the
-    // example's future stays `Send` for the shell.
+    // example's future stays `Send` for `Application::new`.
     let (glyph_runs, height) = {
         let mut shaper = shaper();
         attributed_text::shape_text(
@@ -75,24 +77,20 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         )
     };
 
-    // Application
+    // View
 
     let initial_size = LogicalSize::new(800., 800.).to_physical(ctx.primary_monitor_scale_factor());
-
-    let window = ctx
-        .new_window((initial_size.width, initial_size.height))
-        .await?;
-    let view_id = window.view_id();
-    // Using inner size screws up the renderer initialization, because the window has no size yet.
-    // So we compute the proper physical for now.
-    // spellcheck: ignore
-    // let physical_size = initial_size.to_physical(window.scale_factor());
-    let mut renderer = window.renderer().with_text().build().await?;
+    let view_size = SizePx::new(initial_size.width, initial_size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
     let content_size = SizePx::new(1280, height as u32);
-    let mut application = Application::default();
-    let transform = application.get_transform(content_size).submit();
-    let location = transform.to_location().submit();
+    let mut gestures = GestureTransform::default();
+    let transform = gestures.get_transform(content_size).submit();
+    let location = transform
+        .to_location()
+        .relative_to(center.location())
+        .submit();
 
     // Hold the visual in this context, otherwise it will disappear.
     let _visual = glyph_runs
@@ -103,29 +101,29 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .submit();
 
     loop {
+        transform.update_if_changed(gestures.get_transform(content_size));
+        ctx.submit(begin_frame().submission())?;
+
         for event in ctx.wait_for_events::<Infallible>().await? {
             info!("Event: {event:?}");
 
             match event {
-                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
-                    match application.update(&view_event) {
+                InstanceEvent::View(_, view_event) => {
+                    if let ViewEvent::Resized(size) = view_event {
+                        center.resize(&view, size);
+                    }
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    renderer.resize_redraw(&view_event)?;
                 }
-                ApplicationEvent::View(..)
-                | ApplicationEvent::ApplyAnimations(_)
-                | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_)
-                | ApplicationEvent::ToolCall(_)
-                | ApplicationEvent::CancelToolCall(_) => {}
-                ApplicationEvent::Custom(event) => match event {},
+                InstanceEvent::Shutdown(_) => return Ok(()),
+                InstanceEvent::ApplyAnimations(_)
+                | InstanceEvent::FullscreenRequested
+                | InstanceEvent::ToolCall(_)
+                | InstanceEvent::CancelToolCall(_) => {}
+                InstanceEvent::Custom(event) => match event {},
             }
         }
-
-        transform.update_if_changed(application.get_transform(content_size));
-
-        begin_frame().render_to(&mut renderer)?;
     }
 }

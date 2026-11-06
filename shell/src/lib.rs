@@ -1,13 +1,14 @@
-pub mod application_context;
 pub mod async_window_renderer;
+mod instance_host;
+mod instance_windows;
 mod platform;
 pub mod shell;
 pub mod shell_window;
 pub mod window_renderer;
 mod window_renderer_builder;
 
-pub use application_context::ApplicationContext;
 pub use async_window_renderer::*;
+pub use instance_windows::InstanceWindows;
 // pub use font_system_builder::FontSystemBuilder;
 pub use massive_applications::{Frame, task_context};
 pub use shell_window::ShellWindow;

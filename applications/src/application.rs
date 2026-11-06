@@ -1,0 +1,124 @@
+use std::pin::Pin;
+
+use anyhow::Result;
+use derive_more::Debug;
+
+use crate::{InstanceContext, McpId, ToolDeclaration};
+
+/// An application that a host can run instances of.
+///
+/// The desktop runs many instances of each application it registers. The shell runs exactly one
+/// instance of one application. Both hosts take the same value, so an application is written once
+/// and runs under either.
+///
+/// A client builds it only through [`Application::new`] and the `with_` methods, and the host
+/// checks the result. The desktop's registry checks the MCP id of every tool, for example.
+#[derive(Debug)]
+pub struct Application {
+    name: String,
+    runtime_kind: RuntimeKind,
+    draw_target: DrawTarget,
+    tools: Option<ApplicationTools>,
+    #[debug(skip)]
+    run: RunInstanceBox,
+}
+
+/// The MCP tools an application declares, under its MCP id (ADR 0036).
+#[derive(Debug)]
+pub struct ApplicationTools {
+    pub mcp_id: McpId,
+    pub declarations: Vec<ToolDeclaration>,
+}
+
+/// The future of one running instance, as the host drives it.
+pub type InstanceFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
+
+type RunInstanceBox = Box<dyn Fn(InstanceContext) -> InstanceFuture + Send + Sync + 'static>;
+
+/// The tokio runtime flavor of a desktop instance's dedicated thread (ADR 0009). The shell runs its
+/// one instance on its own runtime and ignores it (ADR 0039).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RuntimeKind {
+    /// Single-threaded default: no current instance has internal parallelism, so this
+    /// keeps instance runtimes cheap.
+    CurrentThread,
+    /// Work-stealing worker pool for an application whose instance has internal
+    /// parallelism (tokio::spawn, timers).
+    MultiThread,
+}
+
+/// Where an application's instances draw their content.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DrawTarget {
+    /// Views: the instance creates views and submits instance changes, and its host draws them in
+    /// windows or panels of its own. Every host runs such an instance.
+    Views,
+    /// Windows of its own: the instance opens them and renders scene changes into them. Only the
+    /// shell runs such an instance, and the desktop is one.
+    Windows,
+}
+
+impl Application {
+    pub fn new<F, R>(name: impl Into<String>, run: F) -> Self
+    where
+        F: Fn(InstanceContext) -> R + Send + Sync + 'static,
+        R: Future<Output = Result<()>> + Send + 'static,
+    {
+        let name = name.into();
+        let run_boxed =
+            Box::new(move |ctx: InstanceContext| -> InstanceFuture { Box::pin(run(ctx)) });
+
+        Self {
+            name,
+            runtime_kind: RuntimeKind::CurrentThread,
+            draw_target: DrawTarget::Views,
+            tools: None,
+            run: run_boxed,
+        }
+    }
+
+    /// Select the runtime flavor this application's instances run under in the desktop
+    /// (ADR 0009). Default is [`RuntimeKind::CurrentThread`].
+    pub fn with_runtime_kind(mut self, runtime_kind: RuntimeKind) -> Self {
+        self.runtime_kind = runtime_kind;
+        self
+    }
+
+    /// Select where this application's instances draw their content. Default is
+    /// [`DrawTarget::Views`].
+    pub fn with_draw_target(mut self, draw_target: DrawTarget) -> Self {
+        self.draw_target = draw_target;
+        self
+    }
+
+    /// Declares the MCP tools that agents may call on this application's instances (ADR 0036). The
+    /// desktop joins `mcp_id` with each tool's own MCP id into the tool's name.
+    pub fn with_tools(mut self, mcp_id: McpId, declarations: Vec<ToolDeclaration>) -> Self {
+        self.tools = Some(ApplicationTools {
+            mcp_id,
+            declarations,
+        });
+        self
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn runtime_kind(&self) -> RuntimeKind {
+        self.runtime_kind
+    }
+
+    pub fn draw_target(&self) -> DrawTarget {
+        self.draw_target
+    }
+
+    pub fn tools(&self) -> Option<&ApplicationTools> {
+        self.tools.as_ref()
+    }
+
+    /// Creates the future of a new instance. The host decides where and on which runtime it runs.
+    pub fn run(&self, ctx: InstanceContext) -> InstanceFuture {
+        (self.run)(ctx)
+    }
+}

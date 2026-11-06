@@ -213,7 +213,7 @@ string that does not match `[a-z][a-z0-9_-]*` is an error, so an invalid MCP id 
 characters pass both MCP's tool name rules and the stricter rules of LLM APIs, which reject dots.
 
 **An application opts into MCP by giving itself an MCP id.** It calls
-`Application::with_mcp_id(McpId)`. An application without an MCP id offers no tools, but
+`Application::with_tools(mcp_id, declarations)`. An application without an MCP id offers no tools, but
 `desktop_describe` still lists its instances. The desktop's own MCP
 id is `desktop`, which no application may use.
 
@@ -324,7 +324,7 @@ and the known ways around it.
   `ConfigurationCommand`, and it never plans changes itself.
 - Applications gain a reply path to the desktop for the first time. It carries only tool results.
 - `massive-applications` gains the typed tool API and with it `serde_json` and `schemars`.
-  `Application` gains `with_mcp_id` and tool declarations. Applications without them are
+  `Application` gains `with_tools` and tool declarations. Applications without them are
   unaffected.
 - `massive-mcp` stays small, because it knows no tool. Adding a tool touches only its provider.
 - `desktop.json` gains the optional `mcp` object on project nodes.

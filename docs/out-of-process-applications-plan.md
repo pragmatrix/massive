@@ -39,11 +39,11 @@ output burst (e.g. `cat` of a large file) at display refresh rate:
   interleaved with view and configuration changes, ADR 0008) plus `RenderPacing`
   through `InstanceEnvironment::submission_sender`
   (`applications/src/instance_environment.rs`). They receive a coalesced
-  `ApplicationMessage` stream: view events, `ApplyAnimations(PresentationTick)`,
-  fullscreen, and shutdown (`applications/src/application_event.rs`).
+  `InstanceMessage` stream: view events, `ApplyAnimations(PresentationTick)`,
+  fullscreen, and shutdown (`applications/src/instance_event.rs`).
 - Applications are registered in-process as closures:
-  `Application { name, runtime_kind, run: Fn(InstanceContext) -> Future }`
-  (`desktop/src/application_registry.rs`). Each instance gets a desktop-owned
+  `Application { name, runtime_kind, draw_target, tools, run: Fn(InstanceContext) -> Future }`
+  (`applications/src/application.rs`). Each instance gets a host-owned
   `view_parent: Ref<Location>` that its views hang under.
 - The payloads are not wire-ready:
   - `Visual` shares shapes and glyph runs through `Arc`.
@@ -121,8 +121,8 @@ Consequences:
 - **Blockers for a remote `mt`:**
   - winit types in `ViewEvent` and in `ViewChange::SetCursor`;
   - `FaceId` is local to the process, while `mt` uses system font fallback;
-  - the `mt` binary is the desktop (`shell::run` → `DesktopEnvironment::run_desktop`
-    in `src/main.rs`), and there is no client entry point;
+  - the `mt` binary is the desktop (`DesktopEnvironment::run` in `src/main.rs`, which runs
+    the desktop as the shell's instance, ADR 0039), and there is no client entry point;
   - not verified: `arboard` (clipboard) and `opener` (hyperlinks) are expected to
     work unchanged from `mt`'s own process, because they only need the user session.
 

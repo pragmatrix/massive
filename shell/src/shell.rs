@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::runtime::RuntimeFlavor;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use tokio::sync::oneshot;
 
 use wgpu::{Surface, SurfaceTarget};
 use winit::application::ApplicationHandler;
@@ -13,31 +14,28 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_applications::task_context::{self, TaskContext};
-use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
+use massive_applications::{Application, InstanceMessage, ViewEvent, ViewId};
 use massive_renderer::{FontManager, FontPolicy};
-use massive_scene::{AnyCollector, SceneChange};
 
-use crate::ApplicationContext;
+use crate::instance_host::{self, Startup};
 use crate::platform;
 use crate::shell_window::ShellWindowShared;
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
 
-/// Starts the shell.
+/// Starts the shell with one instance of `application`.
 ///
-/// This runs `application` with `tokio::spawn` on the tokio threadpool and waits for its
-/// completion. It also executes the winit event loop and blocks until it returns. This gives
-/// clients the option to run the event loop on the main thread, which some platforms require.
+/// The instance runs as a task on the shell's tokio runtime, or on the caller's when one is
+/// running, which must then be a multi-thread runtime. One instance needs no thread of its own,
+/// because the multi-thread worker pool keeps the host's work running beside it (ADR 0009,
+/// ADR 0039), so the application's runtime kind applies only in the desktop. The winit event loop
+/// runs on the calling thread and blocks until the instance ends. This gives clients the option to
+/// run the event loop on the main thread, which some platforms require.
 ///
-/// `font_policy` is the shell's construction input for the application task's font manager. The
-/// application cannot replace it: faces are only valid inside the manager that issued them, so a
+/// `font_policy` is the shell's construction input for the instance task's font manager. The
+/// instance cannot replace it: faces are only valid inside the manager that issued them, so a
 /// live task may not change its face authority (ADR 0005).
-pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
-    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
-    font_policy: FontPolicy,
-) -> Result<()> {
+pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
 
@@ -65,58 +63,38 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
         log::info!("Metrics disabled: MASSIVE_METRICS_PUSHGATEWAY not set");
     }
 
-    // Power up a tokio runtime, if none is running yet.
-
-    match tokio::runtime::Handle::try_current() {
-        Ok(_handle) => {
-            // Already inside a Tokio runtime.
-            run_with_tokio(application, font_policy)
+    // Power up a tokio runtime, if none is running yet. The instance, and for an instance that
+    // draws into views also the host task, run on it while the event loop blocks this thread, so a
+    // caller's runtime needs worker threads.
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if handle.runtime_flavor() != RuntimeFlavor::MultiThread {
+            bail!(
+                "the shell needs a multi-thread runtime, because its event loop blocks this thread"
+            );
         }
-        Err(_) => {
-            // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .on_thread_start(|| {
-                    platform::set_current_thread_user_interactive("tokio worker");
-                })
-                .enable_all()
-                .build()?;
-            let _guard = runtime.enter();
-            let r = run_with_tokio(application, font_policy);
-            drop(_guard);
-            r
-        }
+        return run_event_loop(application, font_policy);
     }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .on_thread_start(|| {
+            platform::set_current_thread_user_interactive("tokio worker");
+        })
+        .enable_all()
+        .build()?;
+    let _guard = runtime.enter();
+    run_event_loop(application, font_policy)
 }
 
-fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
-    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
-    font_policy: FontPolicy,
-) -> Result<()> {
+fn run_event_loop(application: Application, font_policy: FontPolicy) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
-
-    // Spawn application.
 
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
-
-    let spawn_application = |task_context: TaskContext, application_context: ApplicationContext| {
-        let _application_task = tokio::spawn(async move {
-            let event_loop_proxy = application_context.event_loop_proxy.clone();
-            let r =
-                task_context::with_context(task_context, application(application_context)).await;
-            if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(r))) =
-                event_loop_proxy.send_event(ShellCommand::ApplicationEnded(r))
-            {
-                error!("Application ended after the event loop exited: {r:?}");
-            }
-        });
-    };
 
     // Event loop
 
     let mut winit_context = WinitApplicationHandler::Initializing {
         proxy: event_loop_proxy,
-        spawner: Some(Box::new(spawn_application)),
+        application: Some(application),
         font_policy,
     };
 
@@ -131,15 +109,13 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     final_result
 }
 
-/// The contexts of the application task: its change queue, animation clock, movement runtime
-/// and a shaping context over the supplied font manager (ADR 0008).
-fn application_task_context(font_manager: FontManager) -> TaskContext {
-    TaskContext::new(
-        AnyCollector::for_type::<SceneChange>(),
-        AnimationCoordinator::new(),
-        MovementRuntime::default(),
-        font_manager.new_shaping_context(),
-    )
+/// Tells the event loop that the instance ended, so it exits with the instance's result.
+pub(crate) fn report_application_end(proxy: &EventLoopProxy<ShellCommand>, result: Result<()>) {
+    if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(result))) =
+        proxy.send_event(ShellCommand::ApplicationEnded(result))
+    {
+        error!("Application ended after the event loop exited: {result:?}");
+    }
 }
 
 #[derive(Debug)]
@@ -170,13 +146,13 @@ enum WinitApplicationHandler {
     Initializing {
         proxy: EventLoopProxy<ShellCommand>,
         // ADR: Option because we need to move it out.
-        // Robustness: use a replace_with variant, so that we don't need an `Option<Box<..>>` here.
-        spawner: Option<ApplicationSpawner>,
-        /// The policy the shell builds the application task's manager from (ADR 0005).
+        // Robustness: use a replace_with variant, so that we don't need an `Option` here.
+        application: Option<Application>,
+        /// The policy the shell builds the instance task's font manager from (ADR 0005).
         font_policy: FontPolicy,
     },
     Running {
-        event_sender: UnboundedSender<ApplicationMessage>,
+        event_sender: UnboundedSender<InstanceMessage>,
         views: HashMap<WindowId, ViewId>,
     },
     Ended {
@@ -187,14 +163,11 @@ enum WinitApplicationHandler {
     },
 }
 
-/// Type alias for the application spawner closure.
-type ApplicationSpawner = Box<dyn FnOnce(TaskContext, ApplicationContext)>;
-
 impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Self::Initializing {
             proxy,
-            spawner,
+            application,
             font_policy,
         } = self
         else {
@@ -203,7 +176,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 
         crate::platform::initialize_platform_menu(proxy.clone());
 
-        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = unbounded_channel();
 
         let scale_factor = event_loop
             .primary_monitor()
@@ -213,14 +186,9 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                 FALLBACK_SCALE_FACTOR
             });
 
-        let application_context = ApplicationContext::new(
-            event_sender.downgrade(),
-            event_receiver,
-            proxy.clone(),
-            scale_factor,
-        );
-        // The task boundary is here: `resumed` has the event loop, the font policy and the spawner
-        // in one place, and the contexts must exist before the application starts (ADR 0008).
+        // The task boundary is here: `resumed` has the event loop, the font policy and the
+        // application in one place, and the contexts must exist before the application starts
+        // (ADR 0008).
         let font_manager = match FontManager::new(*font_policy) {
             Ok(font_manager) => font_manager,
             Err(error) => {
@@ -232,16 +200,22 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                 return;
             }
         };
-        let task_context = application_task_context(font_manager);
+        let startup = Startup {
+            proxy: proxy.clone(),
+            event_sender: event_sender.downgrade(),
+            event_receiver,
+            scale_factor,
+            font_manager,
+        };
 
         // The application can send CreateWindow as soon as it is spawned, so publish the Running
-        // state before starting its task.
-        let spawner = spawner.take().expect("application spawner is available");
+        // state before starting it.
+        let application = application.take().expect("the application is available");
         *self = Self::Running {
             event_sender,
             views: HashMap::new(),
         };
-        spawner(task_context, application_context);
+        instance_host::start(application, startup);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
@@ -251,10 +225,14 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                 attributes,
                 on_created,
             } => {
-                let Self::Running { views, .. } = self else {
-                    panic!(
-                        "Received CreateWindow user event while WinitApplicationHandler is not Running"
-                    );
+                // Window commands cross threads, so one can arrive after the instance's end was
+                // reported. The shell is ending then and opens no window.
+                let views = match self {
+                    Self::Running { views, .. } => views,
+                    Self::Initializing { .. } | Self::Ended { .. } | Self::Exited { .. } => {
+                        let _ = on_created.send(Err(anyhow!("the shell is ending")));
+                        return;
+                    }
                 };
                 let r = event_loop.create_window(*attributes);
                 if let Ok(window) = &r {
@@ -265,12 +243,13 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                     .expect("oneshot can send");
             }
             ShellCommand::DestroyWindow { window } => {
-                let Self::Running { views, .. } = self else {
-                    panic!(
-                        "Received DestroyWindow user event while WinitApplicationHandler is not Running"
-                    );
-                };
-                views.remove(&window.id());
+                // A window closed after the instance's end was reported needs no bookkeeping.
+                match self {
+                    Self::Running { views, .. } => {
+                        views.remove(&window.id());
+                    }
+                    Self::Initializing { .. } | Self::Ended { .. } | Self::Exited { .. } => {}
+                }
                 info!("Destroying window");
                 drop(window);
             }
@@ -287,12 +266,13 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             }
             ShellCommand::ToggleFullscreen => crate::platform::toggle_fullscreen(),
             ShellCommand::FullscreenRequested => {
-                let Self::Running { event_sender, .. } = self else {
-                    panic!(
-                        "Received FullscreenRequested while WinitApplicationHandler is not Running"
-                    );
+                // The menu sends this from outside the instance, so it can arrive after the
+                // instance's end was reported. No instance receives it then.
+                let event_sender = match self {
+                    Self::Running { event_sender, .. } => event_sender,
+                    Self::Initializing { .. } | Self::Ended { .. } | Self::Exited { .. } => return,
                 };
-                if let Err(error) = event_sender.send(ApplicationMessage::FullscreenRequested) {
+                if let Err(error) = event_sender.send(InstanceMessage::FullscreenRequested) {
                     error!("Failed to send fullscreen request to the application: {error:?}");
                 }
             }
@@ -307,7 +287,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        _event_loop: &ActiveEventLoop,
         window_id: WindowId,
         event: WindowEvent,
     ) {
@@ -327,7 +307,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         };
 
         if let Some((view_id, event)) = view_event {
-            self.send_event(event_loop, ApplicationMessage::View(view_id, event))
+            self.send_event(InstanceMessage::View(view_id, event))
         }
     }
 
@@ -353,18 +333,17 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 }
 
 impl WinitApplicationHandler {
-    fn send_event(&mut self, event_loop: &ActiveEventLoop, event: ApplicationMessage) {
+    fn send_event(&mut self, event: InstanceMessage) {
         let Self::Running { event_sender, .. } = self else {
             error!("Cannot send shell event: application handler must be in the running state.");
             return;
         };
 
-        if let Err(e) = event_sender.send(event) {
-            // Don't log when we are already exiting.
-            if !event_loop.exiting() {
-                info!("Receiver for events dropped, exiting event loop: {e:?}");
-                event_loop.exit();
-            }
+        // The instance's receiver closes when the instance ends, before its end is reported. The
+        // report always follows, so the event loop keeps running until it arrives, and only that
+        // report ends the loop with the instance's result.
+        if event_sender.send(event).is_err() {
+            debug!("The instance ended, so it does not receive the window event");
         }
     }
 }
@@ -376,4 +355,32 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let r = f();
     info!("{name}: {:?}", start.elapsed());
     r
+}
+
+#[cfg(test)]
+mod tests {
+    use massive_renderer::ShapingEngineKind;
+
+    use super::*;
+
+    /// The event loop blocks the thread `run` is called on. On a current-thread runtime that is the
+    /// runtime's only thread, so the instance would never run, and the shell must refuse instead of
+    /// hanging.
+    #[test]
+    fn run_refuses_a_current_thread_runtime() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let application = Application::new("never runs", |_| async { Ok(()) });
+
+        let result = runtime.block_on(async {
+            run(
+                application,
+                FontPolicy::bare(ShapingEngineKind::available()[0]),
+            )
+        });
+
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("multi-thread"), "{error}");
+    }
 }

@@ -7,22 +7,25 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use winit::dpi::LogicalSize;
 
-use massive_applications::ApplicationEvent;
 use massive_applications::prelude::*;
-use massive_geometry::Color;
+use massive_applications::{Application, InstanceContext, InstanceEvent, ViewEvent};
+use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::shell;
 
-use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, TextAttribute};
+use shared::gesture_transform::{GestureTransform, UpdateResponse};
+use shared::view_center::ViewCenter;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    shell::run(syntax, FontPolicy::bare(ShapingEngineKind::Parley))
+fn main() -> Result<()> {
+    shell::run(
+        Application::new("Syntax", syntax),
+        FontPolicy::bare(ShapingEngineKind::CosmicText),
+    )
 }
 
-async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
+async fn syntax(mut ctx: InstanceContext) -> Result<()> {
     let mut final_text = String::new();
     let mut text_attributes = Vec::new();
     {
@@ -66,7 +69,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let line_height = 40.;
 
     // The handle is `!Send` and is dropped at the end of this block, before any await, so the
-    // example's future stays `Send` for the shell.
+    // example's future stays `Send` for `Application::new`.
     let (glyph_runs, height) = {
         let mut shaper = shaper();
         attributed_text::shape_text(
@@ -79,22 +82,22 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         )
     };
 
-    // Window
+    // View
 
     let inner_size = LogicalSize::new(800., 800.).to_physical(ctx.primary_monitor_scale_factor());
-    let window = ctx
-        .new_window((inner_size.width, inner_size.height))
-        .await?;
-    let view_id = window.view_id();
+    let view_size = SizePx::new(inner_size.width, inner_size.height);
+    let view = ctx.view(view_size).build()?;
+    let center = ViewCenter::new(&view, view_size);
 
-    let mut renderer = window.renderer().with_text().build().await?;
-
-    // Application
+    // Content
 
     let content_size = (1280, height as u32);
-    let mut application = Application::default();
-    let transform = application.get_transform(content_size).submit();
-    let position = transform.to_location().submit();
+    let mut gestures = GestureTransform::default();
+    let transform = gestures.get_transform(content_size).submit();
+    let position = transform
+        .to_location()
+        .relative_to(center.location())
+        .submit();
 
     // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -105,29 +108,27 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .submit();
 
     loop {
+        transform.update_if_changed(gestures.get_transform(content_size));
+        ctx.submit(begin_frame().submission())?;
+
         for event in ctx.wait_for_events::<Infallible>().await? {
             match event {
-                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
-                    match application.update(&view_event) {
+                InstanceEvent::View(_, view_event) => {
+                    if let ViewEvent::Resized(size) = view_event {
+                        center.resize(&view, size);
+                    }
+                    match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    renderer.resize_redraw(&view_event)?;
                 }
-                ApplicationEvent::View(..)
-                | ApplicationEvent::ApplyAnimations(_)
-                | ApplicationEvent::FullscreenRequested
-                | ApplicationEvent::Shutdown(_)
-                | ApplicationEvent::ToolCall(_)
-                | ApplicationEvent::CancelToolCall(_) => {}
-                ApplicationEvent::Custom(event) => match event {},
+                InstanceEvent::Shutdown(_) => return Ok(()),
+                InstanceEvent::ApplyAnimations(_)
+                | InstanceEvent::FullscreenRequested
+                | InstanceEvent::ToolCall(_)
+                | InstanceEvent::CancelToolCall(_) => {}
+                InstanceEvent::Custom(event) => match event {},
             }
         }
-
-        // DI: This check has to be done in the renderer and the renderer has to decide when it
-        // needs to redraw.
-        transform.update_if_changed(application.get_transform(content_size));
-
-        begin_frame().render_to(&mut renderer)?;
     }
 }

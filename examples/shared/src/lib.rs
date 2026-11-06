@@ -2,14 +2,15 @@ use std::future::Future;
 
 use anyhow::Result;
 
-pub mod application;
 pub mod attributed_text;
 pub mod fonts;
+pub mod gesture_transform;
 pub mod positioning;
+pub mod view_center;
 
 // Even though not used, this is left here for reference.
 //
-// Everything goes through tokio::main directly now.
+// The shell builds the runtime now.
 pub fn main<Fut>(main: impl FnOnce() -> Fut + 'static) -> Result<()>
 where
     Fut: Future<Output = Result<()>>,
