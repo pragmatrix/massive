@@ -27,11 +27,13 @@ Every program is an `Application`, and every running program is an instance with
   them. Only the shell runs such an instance, and the desktop's registry rejects one.
 - The desktop is the shell's instance with `DrawTarget::Windows`. `DesktopEnvironment::run` wraps it
   into an `Application` and calls `shell::run`, so mt never sees the shell.
-- The shell runs its instance as a task on its own tokio runtime, or on the caller's. ADR 0009 gives
-  every desktop instance a dedicated thread, so that one instance cannot starve the desktop on a
-  shared pool. The shell runs one instance, which nothing can starve, so it needs no thread of its
-  own, and the application's runtime kind applies only in the desktop. The desktop keeps running on
-  the shell's user-interactive worker pool, as it did before.
+- The shell runs its instance as a task on its own tokio runtime, or on the caller's, which must be
+  a multi-thread runtime. ADR 0009 gives every desktop instance a dedicated thread, so that a long
+  instance poll cannot starve the desktop task on a shared pool. Under the shell, the only work
+  beside the instance is the host task of an instance that draws into views, and the multi-thread
+  worker pool keeps it running. So the shell's instance needs no thread of its own, and the
+  application's runtime kind applies only in the desktop. The desktop keeps running on the shell's
+  user-interactive worker pool, as it did before.
 - `InstanceContext::wait_for_events` is the one way an instance receives events. It receives a
   batch and starts an animation cycle at each tick's vblank time, advancing the movements, so
   movements work under both hosts. Movement completion events arrive as `InstanceEvent::Custom`.
@@ -57,7 +59,9 @@ Every program is an `Application`, and every running program is an instance with
 - The shell's host supports one view per instance. A second view ends the shell with an error, and
   `ViewChange::Resize` is ignored, because the shell does not resize its windows.
 - Under the shell, an instance has no desktop socket, so `process_environment` is empty and the
-  shell drops configuration requests. No tool calls arrive.
+  shell drops configuration requests. No tool calls arrive. The processes the instance starts still
+  inherit the shell's own environment, so a shell started from a desktop terminal passes that
+  terminal's `MASSIVE_SOCKET` and `MASSIVE_INSTANCE` on.
 - A close request of the shell's window reaches an instance that draws into views as the shutdown
   request, as the desktop sends it.
 - For an instance that draws into views, the shell's host task is the only party that reports the
@@ -72,3 +76,6 @@ Every program is an `Application`, and every running program is an instance with
   ends with its own error, without waiting for the instance.
 - An instance that draws into views and the shell's host task share the shell's runtime, whose
   worker pool keeps the host responsive while the instance works.
+- The shell does not catch an instance's panic. mt and massive build with `panic = "abort"`, so a
+  panicking instance ends the process. The desktop catches panics only so that its tests, where
+  cargo forces unwinding, see them as the instance's result (ADR 0009).

@@ -35,7 +35,8 @@ pub type InstanceFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'stat
 
 type RunInstanceBox = Box<dyn Fn(InstanceContext) -> InstanceFuture + Send + Sync + 'static>;
 
-/// The tokio runtime flavor an instance runs under (ADR 0009).
+/// The tokio runtime flavor of a desktop instance's dedicated thread (ADR 0009). The shell runs its
+/// one instance on its own runtime and ignores it (ADR 0039).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RuntimeKind {
     /// Single-threaded default: no current instance has internal parallelism, so this
@@ -76,8 +77,8 @@ impl Application {
         }
     }
 
-    /// Select the runtime flavor instances of this application run under (ADR 0009).
-    /// Default is [`RuntimeKind::CurrentThread`].
+    /// Select the runtime flavor this application's instances run under in the desktop
+    /// (ADR 0009). Default is [`RuntimeKind::CurrentThread`].
     pub fn with_runtime_kind(mut self, runtime_kind: RuntimeKind) -> Self {
         self.runtime_kind = runtime_kind;
         self

@@ -257,8 +257,8 @@ impl InstanceContext {
         if change_count == 0 && pacing == *last_submitted_pacing {
             return Ok(());
         }
-        // The pacing is recorded before the send. A failed send ends the instance, so a stale
-        // record is never read.
+        // A failed send ends the instance, so recording the pacing before it leaves no stale
+        // record that is read later.
         *last_submitted_pacing = pacing;
 
         trace!(
@@ -356,7 +356,8 @@ mod tests {
         )
     }
 
-    /// An instance whose one movement animates for [`MOVEMENT_DURATION`] and then completes.
+    /// An instance whose one movement animates for [`MOVEMENT_DURATION`] and then completes. The
+    /// movement is returned, so it stays mounted while the test runs.
     fn instance_with_a_moving_movement() -> (
         InstanceContext,
         UnboundedSender<InstanceMessage>,

@@ -42,7 +42,7 @@ output burst (e.g. `cat` of a large file) at display refresh rate:
   `InstanceMessage` stream: view events, `ApplyAnimations(PresentationTick)`,
   fullscreen, and shutdown (`applications/src/instance_event.rs`).
 - Applications are registered in-process as closures:
-  `Application { name, runtime_kind, rendering, tools, run: Fn(InstanceContext) -> Future }`
+  `Application { name, runtime_kind, draw_target, tools, run: Fn(InstanceContext) -> Future }`
   (`applications/src/application.rs`). Each instance gets a host-owned
   `view_parent: Ref<Location>` that its views hang under.
 - The payloads are not wire-ready:
