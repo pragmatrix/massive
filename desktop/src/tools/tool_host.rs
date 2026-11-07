@@ -17,6 +17,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -196,7 +197,7 @@ impl ToolHost {
         let (sender, requests) = unbounded_channel();
         // A desktop that serves the socket accepts the connection. Taking the socket over would cut
         // its agents off, and its drop would delete this desktop's socket.
-        if std::os::unix::net::UnixStream::connect(&socket_path).is_ok() {
+        if UnixStream::connect(&socket_path).is_ok() {
             warn!(
                 "Another desktop serves the desktop socket {}. This desktop offers no MCP tools, \
                  and tool clients reach the other desktop.",
@@ -490,6 +491,8 @@ async fn accept_connections(listener: UnixListener, requests: UnboundedSender<To
 
 #[cfg(test)]
 mod tests {
+    use tokio::net::UnixStream;
+
     use super::*;
 
     /// A second desktop leaves the socket to the desktop that serves it, also when it quits, so the
@@ -505,7 +508,7 @@ mod tests {
         drop(second);
 
         assert!(
-            tokio::net::UnixStream::connect(&socket).await.is_ok(),
+            UnixStream::connect(&socket).await.is_ok(),
             "the first desktop still serves the socket"
         );
     }

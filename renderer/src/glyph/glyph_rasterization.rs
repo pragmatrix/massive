@@ -1,3 +1,5 @@
+use std::array;
+
 use swash::FontRef;
 use swash::scale::image::Image as SwashImage;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
@@ -202,7 +204,7 @@ fn shear_bitmap(image: SwashImage) -> SwashImage {
             let fraction = position - index;
             let a = premultiplied(source, channels, index as i64);
             let b = premultiplied(source, channels, index as i64 + 1);
-            let mixed: [f32; 4] = std::array::from_fn(|i| a[i] + (b[i] - a[i]) * fraction);
+            let mixed: [f32; 4] = array::from_fn(|i| a[i] + (b[i] - a[i]) * fraction);
             write_straight(pixel, mixed);
         }
     }

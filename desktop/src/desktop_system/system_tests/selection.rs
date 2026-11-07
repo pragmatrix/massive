@@ -41,7 +41,7 @@ fn two_launchers() -> Result<TwoLaunchers> {
 fn boot(config: &str) -> Result<(DesktopSystem, InstanceManager)> {
     let (mut system, receiver) = system_from(config);
     let mut instance_manager = instance_manager(&receiver);
-    for command in crate::projects::to_commands(&system.aggregates.configuration) {
+    for command in projects::to_commands(&system.aggregates.configuration) {
         run(
             &mut system,
             &mut instance_manager,

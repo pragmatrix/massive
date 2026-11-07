@@ -14,7 +14,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
                 slot: SlotPosition { column: 0, row: 0 },
                 content: SlotAssignment::Project {
                     id: ProjectId::ROOT,
-                    name: crate::projects::ROOT_PROJECT_NAME.into(),
+                    name: projects::ROOT_PROJECT_NAME.into(),
                 },
                 shift: SlotShift::default(),
             },
@@ -64,7 +64,7 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
             }"#,
         );
         let mut instance_manager = instance_manager(&receiver);
-        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        for command in projects::to_commands(&system.aggregates.configuration) {
             run(
                 &mut system,
                 &mut instance_manager,

@@ -35,6 +35,9 @@ redundant_field_names = { level = "allow", priority = -1 }
 # The module declaration decides how far an item reaches; `pub(crate)` inside a private module
 # repeats it.
 redundant_pub_crate = "warn"
+# Items of other crates are brought into scope with `use`, so code names them short, as
+# `fs::read_to_string` instead of `std::fs::read_to_string`.
+absolute_paths = "warn"
 
 [workspace.metadata]
 # For trunk

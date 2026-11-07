@@ -150,6 +150,7 @@ pub fn with_changes<R>(f: impl FnOnce(&AnyCollector) -> R) -> R {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{self, AssertUnwindSafe};
     use std::time::Instant;
 
     use massive_animation::CycleEnd;
@@ -234,7 +235,7 @@ mod tests {
 
             // The gated end still refuses without a frame; its panic cannot be confused with
             // re-entry, since no borrow is held here.
-            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(end_frame_cycle));
+            let panic = panic::catch_unwind(AssertUnwindSafe(end_frame_cycle));
             assert!(panic.is_err());
 
             // A live frame still ends through the gated path.
@@ -297,9 +298,7 @@ mod tests {
         with_context(contexts(), async {
             let frame = crate::begin_frame();
             with_frame_animation(|_| {
-                let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    with_frame_animation(|_| ())
-                }));
+                let panic = panic::catch_unwind(AssertUnwindSafe(|| with_frame_animation(|_| ())));
                 assert!(panic.is_err());
             });
             frame.submission::<SceneChange>();

@@ -1,3 +1,5 @@
+use std::mem;
+
 use bytemuck::{Pod, Zeroable};
 use massive_geometry::{Color, Rect};
 use massive_shapes::Shape;
@@ -228,7 +230,7 @@ impl VertexLayout for Vertex {
         ];
 
         wgpu::VertexBufferLayout {
-            array_stride: core::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &ATTRS,
         }

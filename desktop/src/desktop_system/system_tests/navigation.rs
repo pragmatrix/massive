@@ -30,11 +30,7 @@ async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Resu
         let navigate = |system: &mut DesktopSystem, manager: &mut InstanceManager, direction| {
             run(system, manager, DesktopCommand::Navigate(direction))
         };
-        navigate(
-            &mut system,
-            &mut instance_manager,
-            crate::desktop_system::Direction::Right,
-        )?;
+        navigate(&mut system, &mut instance_manager, Direction::Right)?;
         assert_eq!(
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Instance(instance_b))
@@ -47,11 +43,7 @@ async fn navigation_escapes_to_the_parent_and_restores_focus_on_return() -> Resu
             Some(ZoomLevel::Row)
         );
 
-        navigate(
-            &mut system,
-            &mut instance_manager,
-            crate::desktop_system::Direction::Left,
-        )?;
+        navigate(&mut system, &mut instance_manager, Direction::Left)?;
         assert_eq!(
             system.keyboard_focus.focused(),
             Some(FocusableTarget::Instance(instance_a))
@@ -69,7 +61,7 @@ async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
         let frame = massive_applications::begin_frame();
         let (mut system, receiver) = system();
         let mut instance_manager = instance_manager(&receiver);
-        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        for command in projects::to_commands(&system.aggregates.configuration) {
             run(
                 &mut system,
                 &mut instance_manager,

@@ -282,7 +282,10 @@ fn too_large() -> ToolOutcome {
 
 #[cfg(test)]
 pub mod tests {
+    use std::mem;
     use std::time::Duration;
+
+    use tokio::time;
 
     use super::*;
 
@@ -321,7 +324,7 @@ pub mod tests {
 
         // `join!` polls the small call first, so it is sent first and gets the large result.
         let both = async { tokio::join!(call("{}".into()), call(large_text())) };
-        let (small, large) = tokio::time::timeout(Duration::from_secs(5), both)
+        let (small, large) = time::timeout(Duration::from_secs(5), both)
             .await
             .expect("the large call and the large result block each other");
         assert_eq!(small, Some(ToolOutcome::Ok(large_text())));
@@ -361,7 +364,7 @@ pub mod tests {
             let ClientMessage::CallTool { call_id, .. } = decode(&frame.unwrap()).unwrap() else {
                 continue;
             };
-            let outcome = std::mem::replace(&mut outcome, ToolOutcome::Ok("{}".into()));
+            let outcome = mem::replace(&mut outcome, ToolOutcome::Ok("{}".into()));
             send(&mut frames, &HostMessage::ToolResult { call_id, outcome })
                 .await
                 .unwrap();

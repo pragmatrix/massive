@@ -11,7 +11,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
         let (mut system, receiver) = system();
         let mut instance_manager = instance_manager(&receiver);
         let frame = massive_applications::begin_frame();
-        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        for command in projects::to_commands(&system.aggregates.configuration) {
             // Tests at panel size: the system's constructor already
             // committed the 800×600 window state.
             let changes = system.plan(DesktopCommand::Configuration(command))?;
@@ -87,7 +87,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
 
         assert!(
             system.aggregates.configuration[launcher].full_screen_mode
-                == crate::projects::FullScreenMode::FullScreen,
+                == FullScreenMode::FullScreen,
             "the toggle flipped the launcher's Full Screen Mode"
         );
         assert!(
@@ -153,7 +153,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
             .size;
         assert!(
             system.aggregates.configuration[launcher].full_screen_mode
-                == crate::projects::FullScreenMode::Regular,
+                == FullScreenMode::Regular,
             "the second toggle restored the launcher's Regular mode"
         );
         assert!(
@@ -211,7 +211,7 @@ async fn fullscreen_request_enters_native_fullscreen_before_toggling_instance_mo
         )?;
         assert!(matches!(
             output.effects.as_slice(),
-            [crate::desktop_system::change::DesktopSystemEffect::PersistConfiguration]
+            [DesktopSystemEffect::PersistConfiguration]
         ));
 
         drop(frame.submission::<SceneChange>());

@@ -19,7 +19,7 @@ async fn a_project_name_does_not_change_the_project_size() -> Result<()> {
     task_context::with_context(task_context(), async {
         let (mut system, receiver) = system_from(LONG_AND_SHORT_NAMES_CONFIG);
         let mut instance_manager = instance_manager(&receiver);
-        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        for command in projects::to_commands(&system.aggregates.configuration) {
             run(
                 &mut system,
                 &mut instance_manager,
@@ -77,7 +77,7 @@ async fn sibling_projects_lay_out_the_columns_of_the_widest_one() -> Result<()> 
     task_context::with_context(task_context(), async {
         let (mut system, receiver) = system_from(SIBLINGS_OF_DIFFERENT_SHAPES_CONFIG);
         let mut instance_manager = instance_manager(&receiver);
-        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        for command in projects::to_commands(&system.aggregates.configuration) {
             run(
                 &mut system,
                 &mut instance_manager,

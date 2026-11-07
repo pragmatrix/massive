@@ -192,6 +192,8 @@ async fn send(frames: &mut Frames, message: &impl serde::Serialize) -> Result<()
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::mpsc;
+
     use super::*;
 
     /// A tool client controls the arguments, so no text may panic or exhaust the stack. Arguments
@@ -212,7 +214,7 @@ mod tests {
     async fn a_ready_result_goes_out_before_the_closing() {
         for _ in 0..32 {
             let (client_end, host_end) = UnixStream::pair().unwrap();
-            let (requests, mut received) = tokio::sync::mpsc::unbounded_channel();
+            let (requests, mut received) = mpsc::unbounded_channel();
             let (closing, closing_receiver) = oneshot::channel();
             tokio::spawn(async move {
                 let mut frames = frames(host_end);

@@ -113,6 +113,10 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
 #[tokio::test]
 async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_root_changes()
 -> Result<()> {
+    use std::time::Duration;
+
+    use tokio::time;
+
     use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage};
 
     use crate::tools::ToolHost;
@@ -193,12 +197,9 @@ async fn a_tool_connection_calls_through_the_desktop_socket_and_closes_when_its_
         };
         tool_host.mcp_roots_changed(changed, &instance_manager);
         // A connection that is not closed would wait forever, so the wait is bounded.
-        let closing = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            receive::<HostMessage>(&mut frames),
-        )
-        .await
-        .expect("the desktop closes the connection");
+        let closing = time::timeout(Duration::from_secs(5), receive::<HostMessage>(&mut frames))
+            .await
+            .expect("the desktop closes the connection");
         assert!(matches!(closing, HostMessage::Closing { .. }));
 
         Ok(())
@@ -1013,22 +1014,26 @@ pub mod tool_client {
     use std::path::Path;
 
     use futures::{SinkExt, StreamExt};
+    use serde::de::DeserializeOwned;
+    use tokio::net::UnixStream;
+    use tokio_util::bytes::Bytes;
+
     use massive_protocol::tools::v1::{self, ConnectReply};
     use massive_protocol::{Connect, Frames, Target, decode, encode, frames};
 
     pub async fn send(frames: &mut Frames, message: &impl serde::Serialize) {
         frames
-            .send(tokio_util::bytes::Bytes::from(encode(message).unwrap()))
+            .send(Bytes::from(encode(message).unwrap()))
             .await
             .unwrap();
     }
 
-    pub async fn receive<T: serde::de::DeserializeOwned>(frames: &mut Frames) -> T {
+    pub async fn receive<T: DeserializeOwned>(frames: &mut Frames) -> T {
         decode(&frames.next().await.unwrap().unwrap()).unwrap()
     }
 
     pub async fn connect(socket: &Path, target: &str) -> (Frames, ConnectReply) {
-        let stream = tokio::net::UnixStream::connect(socket).await.unwrap();
+        let stream = UnixStream::connect(socket).await.unwrap();
         let mut frames = frames(stream);
         let connect = Connect::Tools {
             version: v1::VERSION,

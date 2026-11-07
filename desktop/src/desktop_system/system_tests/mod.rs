@@ -21,11 +21,13 @@ use super::change::{
 };
 use super::focus_input::pointer_press_focus;
 use super::*;
+use crate::application_registry::ApplicationRegistry;
 use crate::desktop_environment::DesktopEnvironment;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstanceKind, InstanceRoot, InstanceTitleBarMetrics};
 use crate::projects::persistence::parse_configuration;
-use crate::projects::{SlotAssignment, SlotContent, SlotPosition};
+use crate::projects::{self, FullScreenMode, SlotAssignment, SlotContent, SlotPosition};
+use crate::tools::ToolCatalog;
 use crate::window_state::WindowState;
 
 mod application_tools;
@@ -76,7 +78,7 @@ fn nested_siblings() -> Result<NestedSiblings> {
 fn nested_siblings_with(applications: Vec<Application>) -> Result<NestedSiblings> {
     let (mut system, receiver) = system_with_applications(NESTED_SIBLINGS_CONFIG, applications);
     let mut instance_manager = instance_manager(&receiver);
-    for command in crate::projects::to_commands(&system.aggregates.configuration) {
+    for command in projects::to_commands(&system.aggregates.configuration) {
         let changes = system.plan(DesktopCommand::Configuration(command))?;
         system.transact(
             changes,
@@ -179,10 +181,10 @@ fn system_with_applications(
     UnboundedReceiver<(InstanceId, InstanceOutput)>,
 ) {
     let (_sender, receiver) = unbounded_channel();
-    let applications = crate::application_registry::ApplicationRegistry::new(applications).unwrap();
+    let applications = ApplicationRegistry::new(applications).unwrap();
     let environment = DesktopEnvironment {
         primary_application: "terminal".into(),
-        tool_catalog: crate::tools::ToolCatalog::new(&applications).unwrap(),
+        tool_catalog: ToolCatalog::new(&applications).unwrap(),
         applications,
         projects_dir: None,
     };
@@ -215,7 +217,7 @@ fn instance_manager(
 fn fullscreen_system(config: &str) -> Result<(DesktopSystem, InstanceManager, LaunchProfileId)> {
     let (mut system, receiver) = system_from(config);
     let mut instance_manager = instance_manager(&receiver);
-    for command in crate::projects::to_commands(&system.aggregates.configuration) {
+    for command in projects::to_commands(&system.aggregates.configuration) {
         let changes = system.plan(DesktopCommand::Configuration(command))?;
         system.transact(
             changes,

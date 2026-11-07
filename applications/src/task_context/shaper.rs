@@ -32,7 +32,7 @@ pub struct Shaper {
 }
 
 impl fmt::Debug for Shaper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Shaper")
             .field("engine", &self.engine_kind())
             .finish_non_exhaustive()
@@ -127,6 +127,7 @@ impl Shaper {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::panic;
 
     use static_assertions::assert_not_impl_any;
 
@@ -248,7 +249,7 @@ mod tests {
 
             // The context is checked out for the open guard, so `fonts()` cannot read the
             // manager out of the slot while shaping.
-            let result = std::panic::catch_unwind(fonts);
+            let result = panic::catch_unwind(fonts);
             let payload = match result {
                 Err(payload) => payload,
                 Ok(_) => panic!("fonts() must panic while a guard is open"),

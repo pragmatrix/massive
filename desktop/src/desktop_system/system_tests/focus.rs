@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::*;
 
 #[tokio::test]
@@ -6,7 +8,7 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
         let frame = massive_applications::begin_frame();
         let (mut system, receiver) = system_from(CONFIG);
         let mut instance_manager = instance_manager(&receiver);
-        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+        for command in projects::to_commands(&system.aggregates.configuration) {
             let changes = system.plan(DesktopCommand::Configuration(command))?;
             system.transact(
                 changes,
@@ -98,7 +100,7 @@ async fn a_click_on_an_empty_matrix_focuses_its_project_and_navigation_continues
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::Navigate(crate::desktop_system::Direction::Right),
+            DesktopCommand::Navigate(Direction::Right),
         )?;
         assert_eq!(
             system.keyboard_focus.focused(),
@@ -187,7 +189,7 @@ fn change_window_focus(
     let event = events
         .add_event(
             massive_applications::ViewEvent::Focused(focused),
-            std::time::Instant::now(),
+            Instant::now(),
         )
         .expect("a window focus change is not redundant");
     let geometry = massive_renderer::RenderGeometry::new(

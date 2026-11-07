@@ -14,7 +14,7 @@ use rmcp::model::{
     JsonObject, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
-use rmcp::transport::IntoTransport;
+use rmcp::transport::{self, IntoTransport};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
 use massive_protocol::tools::v1::{ToolDescription, ToolOutcome};
@@ -29,7 +29,7 @@ const DEFAULT_PROJECTS_DIR: &str = ".massive";
 /// `target` is a target path from `--target`. Without it, the bridge targets the instance it runs
 /// in, from `MASSIVE_INSTANCE`.
 pub async fn serve(target: Option<String>) -> Result<()> {
-    serve_on(connect(target).await, rmcp::transport::stdio()).await
+    serve_on(connect(target).await, transport::stdio()).await
 }
 
 /// Serves MCP on `transport` for the tool connection `connected`, or offers no tools when the
@@ -207,8 +207,9 @@ fn mcp_result(outcome: ToolOutcome) -> CallToolResult {
 
 #[cfg(test)]
 mod tests {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
+    use tokio::runtime;
 
     use super::*;
     use crate::connection::tests::close_after_one_call;
@@ -219,14 +220,14 @@ mod tests {
     /// behavior, not the race.
     #[test]
     fn pending_calls_are_answered_when_the_desktop_ends() {
-        let (mut agent, bridge_end) = tokio::io::duplex(1 << 16);
+        let (mut agent, bridge_end) = io::duplex(1 << 16);
         let requests = [
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
             r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"t","arguments":{}}}"#,
         ];
         let runtime = || {
-            tokio::runtime::Builder::new_current_thread()
+            runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap()
@@ -243,9 +244,7 @@ mod tests {
             let (connection_end, desktop_end) = UnixStream::pair().unwrap();
             tokio::spawn(close_after_one_call(desktop_end));
             let connected = connection::bind(connection_end, Target::Path("/a".into())).await;
-            serve_on(connected, tokio::io::split(bridge_end))
-                .await
-                .unwrap();
+            serve_on(connected, io::split(bridge_end)).await.unwrap();
         });
         // Dropping the runtime drops every task that still holds the transport, as mt's does.
         drop(bridge_runtime);
