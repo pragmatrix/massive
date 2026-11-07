@@ -19,7 +19,7 @@ use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolDescription;
 
 use self::schema::*;
-use super::ApplicationTool;
+use super::{ApplicationTool, error_code};
 use crate::desktop_system::{
     ConfigurationCommand, DesktopCommand, DesktopSystem, FocusIntent, RunningInstances,
 };
@@ -143,7 +143,7 @@ impl<'a> DesktopTools<'a> {
             DESKTOP_TOOLS.iter().find(|(_, name, _)| name.is(tool))
         else {
             return Err(ToolError {
-                code: ToolErrorCode::UnknownId,
+                code: error_code::UNKNOWN_ID,
                 message: format!("No tool is named '{tool}'."),
             });
         };
@@ -497,14 +497,14 @@ fn issue(command: impl Into<DesktopCommand>, result: &impl Serialize) -> ToolCal
 /// target does not exist or lies outside the root.
 fn unknown_id(kind: &str, id: &str) -> ToolError {
     ToolError {
-        code: ToolErrorCode::UnknownId,
+        code: error_code::UNKNOWN_ID,
         message: format!("No {kind} in the MCP root has the id '{id}'."),
     }
 }
 
 fn scope_not_granted(needed: AccessScope, because: &str) -> ToolError {
     ToolError {
-        code: ToolErrorCode::ScopeNotGranted,
+        code: error_code::SCOPE_NOT_GRANTED,
         message: format!(
             "The MCP root does not grant the access scope '{}', and {because}.",
             needed.name()
@@ -514,7 +514,7 @@ fn scope_not_granted(needed: AccessScope, because: &str) -> ToolError {
 
 fn invalid_argument(message: &str) -> ToolError {
     ToolError {
-        code: ToolErrorCode::InvalidArgument,
+        code: ToolErrorCode::INVALID_ARGUMENT,
         message: message.into(),
     }
 }

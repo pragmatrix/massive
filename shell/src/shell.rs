@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -14,7 +15,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use massive_applications::{Application, InstanceMessage, ViewEvent, ViewId};
+use massive_applications::{Application, InstanceMessage, ViewEvent, ViewId, ime_kind};
 use massive_renderer::{FontManager, FontPolicy};
 
 use crate::instance_host::{self, Startup};
@@ -292,7 +293,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         event: WindowEvent,
     ) {
         if event != WindowEvent::RedrawRequested {
-            debug!("Received: {event:?}");
+            debug!("Received: {:?}", LoggedWindowEvent(&event));
         }
 
         // Don't send Window destroyed events for now, the Window is already gone, no need to handle
@@ -355,6 +356,25 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let r = f();
     info!("{name}: {:?}", start.elapsed());
     r
+}
+
+/// A window event as the debug log shows it. Key events and IME text are what the user types,
+/// passwords at a prompt without echo included, so the log shows only their kind and state
+/// (`docs/security.md`).
+struct LoggedWindowEvent<'a>(&'a WindowEvent);
+
+impl fmt::Debug for LoggedWindowEvent<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            WindowEvent::KeyboardInput { event, .. } => f
+                .debug_struct("KeyboardInput")
+                .field("state", &event.state)
+                .field("repeat", &event.repeat)
+                .finish_non_exhaustive(),
+            WindowEvent::Ime(ime) => write!(f, "Ime({})", ime_kind(ime)),
+            event => event.fmt(f),
+        }
+    }
 }
 
 #[cfg(test)]

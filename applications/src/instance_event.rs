@@ -4,9 +4,7 @@ use winit::event::DeviceId;
 
 use massive_util::CoalescingKey;
 
-use crate::{
-    InstanceId, PresentationId, PresentationTick, ToolCall, ToolCallId, ViewEvent, ViewId,
-};
+use crate::{InstanceId, PresentationId, PresentationTick, ToolEvent, ViewEvent, ViewId};
 
 /// An event an instance receives from
 /// [`InstanceContext::wait_for_events`](crate::InstanceContext::wait_for_events). Next to what its
@@ -17,11 +15,7 @@ pub enum InstanceEvent<T> {
     ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
-    /// Only the desktop sends tool calls (ADR 0036). An instance under the shell never receives one.
-    ToolCall(ToolCall),
-    /// The agent cancelled the call, or its tool connection closed. An instance gets at most one
-    /// cancel per call, and it may still answer.
-    CancelToolCall(ToolCallId),
+    Tool(ToolEvent),
     Custom(T),
 }
 
@@ -32,8 +26,7 @@ pub enum InstanceMessage {
     ApplyAnimations(PresentationTick),
     FullscreenRequested,
     Shutdown(InstanceId),
-    ToolCall(ToolCall),
-    CancelToolCall(ToolCallId),
+    Tool(ToolEvent),
 }
 
 impl<T> From<InstanceMessage> for InstanceEvent<T> {
@@ -43,8 +36,7 @@ impl<T> From<InstanceMessage> for InstanceEvent<T> {
             InstanceMessage::ApplyAnimations(tick) => Self::ApplyAnimations(tick),
             InstanceMessage::FullscreenRequested => Self::FullscreenRequested,
             InstanceMessage::Shutdown(instance_id) => Self::Shutdown(instance_id),
-            InstanceMessage::ToolCall(call) => Self::ToolCall(call),
-            InstanceMessage::CancelToolCall(call_id) => Self::CancelToolCall(call_id),
+            InstanceMessage::Tool(event) => Self::Tool(event),
         }
     }
 }
@@ -73,9 +65,7 @@ impl CoalescingKey for InstanceMessage {
             InstanceMessage::ApplyAnimations(tick) => Some(
                 InstanceEventCoalescingKey::ApplyAnimations(tick.presentation_id),
             ),
-            InstanceMessage::Shutdown(_)
-            | InstanceMessage::ToolCall(_)
-            | InstanceMessage::CancelToolCall(_) => None,
+            InstanceMessage::Shutdown(_) | InstanceMessage::Tool(_) => None,
         }
     }
 }

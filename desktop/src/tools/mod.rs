@@ -7,6 +7,7 @@
 //! and carries out the commands a tool issues.
 
 mod desktop_tools;
+pub mod error_code;
 mod tool_catalog;
 mod tool_host;
 

@@ -11,6 +11,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
+use massive_protocol::tools::v1::{CONNECTION_CLOSED, TOO_LARGE};
+
 use crate::AccessScope;
 
 /// A tool that the desktop or an application declares. The desktop joins its provider's MCP id and
@@ -133,7 +135,7 @@ impl McpId {
 /// let id = massive_applications::mcp_id!("read_page");
 /// ```
 ///
-/// ```compile_fail
+/// ```compile_fail,E0080
 /// let id = massive_applications::mcp_id!("ReadPage");
 /// ```
 #[macro_export]
@@ -171,6 +173,17 @@ impl ToolCall {
     }
 }
 
+/// What the desktop sends an instance about its application's tools (ADR 0036). Only the desktop
+/// sends these, so an instance under the shell never receives one.
+#[derive(Debug, Clone)]
+pub enum ToolEvent {
+    /// A call of one of the application's tools.
+    Call(ToolCall),
+    /// The agent cancelled the call, or its tool connection closed. An instance gets at most one
+    /// cancel per call, and it may still answer.
+    Cancel(ToolCallId),
+}
+
 /// Identifies a tool call the desktop forwarded to an instance. The desktop chooses it, because the
 /// call ids of different tool connections may collide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
@@ -185,7 +198,7 @@ pub fn decode_arguments<Params: DeserializeOwned>(
     arguments: &ToolArguments,
 ) -> Result<Params, ToolError> {
     Params::deserialize(arguments).map_err(|error| ToolError {
-        code: ToolErrorCode::InvalidArgument,
+        code: ToolErrorCode::INVALID_ARGUMENT,
         message: format!("The arguments do not match the tool's input schema: {error}."),
     })
 }
@@ -203,27 +216,51 @@ pub struct ToolError {
     pub message: String,
 }
 
-/// Why a tool call failed. MCP clients see the code's name, so names never change.
+/// Why a tool call failed, as a name that starts the error's text for the agent, such as
+/// `invalid_argument`.
+///
+/// Each tool provider defines the codes of its own failures next to its tools and documents them
+/// for agents. Agents and their documentation match on the name, so a name never changes once
+/// published. The tool protocol reserves the names of its own failures, `connection_closed` and
+/// `too_large`, so no provider can use them. Define codes with [`tool_error_code!`], which checks
+/// them at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolErrorCode {
-    /// An id names nothing the MCP root covers. It may be stale, or it may lie outside the MCP
-    /// root, which the error does not reveal.
-    UnknownId,
-    ScopeNotGranted,
-    InvalidArgument,
-    /// The desktop refused the command, for example a move onto an assigned slot of another
-    /// project.
-    Refused,
-}
+pub struct ToolErrorCode(&'static str);
 
 impl ToolErrorCode {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::UnknownId => "unknown_id",
-            Self::ScopeNotGranted => "scope_not_granted",
-            Self::InvalidArgument => "invalid_argument",
-            Self::Refused => "refused",
+    /// The arguments break the tool's input schema, or a rule the schema cannot express. The tool
+    /// API raises it when it decodes arguments.
+    pub const INVALID_ARGUMENT: Self = Self::new("invalid_argument");
+
+    /// Panics unless `code` matches `[a-z][a-z0-9_]*`, which keeps the `code: ` prefix of the
+    /// error's text unambiguous, and when the tool protocol reserves `code`. In a const context,
+    /// which [`tool_error_code!`] provides, the panic is a compile error at the call. A const panic
+    /// message must be a literal, so it names the rule, not the code.
+    pub const fn new(code: &'static str) -> Self {
+        let bytes = code.as_bytes();
+        assert!(
+            !bytes.is_empty() && bytes[0].is_ascii_lowercase(),
+            "an error code starts with a-z"
+        );
+        let mut index = 1;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            assert!(
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
+                "an error code contains only a-z, 0-9 and _"
+            );
+            index += 1;
         }
+        assert!(
+            !same_bytes(bytes, CONNECTION_CLOSED.as_bytes())
+                && !same_bytes(bytes, TOO_LARGE.as_bytes()),
+            "the tool protocol reserves this error code"
+        );
+        Self(code)
+    }
+
+    pub const fn name(self) -> &'static str {
+        self.0
     }
 }
 
@@ -231,4 +268,41 @@ impl fmt::Display for ToolErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
     }
+}
+
+/// A [`ToolErrorCode`], checked at compile time.
+///
+/// ```
+/// const NOT_READY: massive_applications::ToolErrorCode =
+///     massive_applications::tool_error_code!("not_ready");
+/// ```
+///
+/// ```compile_fail,E0080
+/// let code = massive_applications::tool_error_code!("not-ready");
+/// ```
+///
+/// ```compile_fail,E0080
+/// let code = massive_applications::tool_error_code!("too_large");
+/// ```
+#[macro_export]
+macro_rules! tool_error_code {
+    ($code:literal) => {
+        const { $crate::ToolErrorCode::new($code) }
+    };
+}
+
+/// Whether `a` and `b` hold the same bytes. Comparing slices with `==` is not possible in a const
+/// function.
+const fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < a.len() {
+        if a[index] != b[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }

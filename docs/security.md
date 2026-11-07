@@ -50,6 +50,14 @@ same change.
 | No desktop-wide changes | A tool connection cannot change the focus, the camera or the startup launcher. | Implemented: every tool command that would move the focus carries `FocusIntent::Keep`, and an instance a tool starts takes no position or animation from the user's focus. No tool sets the startup launcher. |
 | Tool ownership | A call to an application tool targets an instance whose application declared that tool, so only that application decodes its arguments. An instance's answer counts only for a call forwarded to it. | Implemented: `security::forwarding_call`, carried out in `desktop/src/tools/desktop_tools.rs`, and `security::answering_call` in the tool host. Every instance runs the primary application today. |
 
+## Typed input in logs
+
+Key events and IME text are what the user types, passwords at a prompt without echo included. Their
+`Debug` output therefore shows only an event's kind and state, never the key or the text. This
+covers `KeyEvent`, `ViewEvent::Ime` (through `ime_kind`), and the shell's debug log of winit's
+window events (`LoggedWindowEvent` in `shell/src/shell.rs`). A new log of input goes through these.
+A test pins the redaction of `KeyEvent` and `ViewEvent::Ime`.
+
 ## Known gaps
 
 These are the known ways around the checks. Each one is accepted for now, and each one stays listed

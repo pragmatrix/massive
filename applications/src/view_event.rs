@@ -11,7 +11,9 @@ use crate::KeyEvent;
 /// The events a view can receive.
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
-#[derive(Debug, Clone)]
+///
+/// Its `Debug` output leaves out typed text, as [`KeyEvent`]'s does (`docs/security.md`).
+#[derive(derive_more::Debug, Clone)]
 pub enum ViewEvent {
     // Both `Resized` and `RedrawRequested` are triggered only in `ShellWindow` views.
     Resized(SizePx),
@@ -34,7 +36,7 @@ pub enum ViewEvent {
     /// Modifiers are not updated when the target has neither pointer nor keyboard focus, but are
     /// updated as soon it gets either of them back.
     ModifiersChanged(event::Modifiers),
-    Ime(event::Ime),
+    Ime(#[debug("{}", ime_kind(_0))] event::Ime),
     // This is in view relative coordinates.
     CursorMoved {
         device_id: DeviceId,
@@ -213,5 +215,16 @@ impl InputEvent for ViewEvent {
             | ViewEvent::MouseInput { device_id, .. } => Some(*device_id),
             _ => None,
         }
+    }
+}
+
+/// The kind of an IME event without its text, which is what the user types, for `Debug` output and
+/// logs (`docs/security.md`).
+pub fn ime_kind(ime: &event::Ime) -> &'static str {
+    match ime {
+        event::Ime::Enabled => "Enabled",
+        event::Ime::Preedit(..) => "Preedit(..)",
+        event::Ime::Commit(_) => "Commit(..)",
+        event::Ime::Disabled => "Disabled",
     }
 }

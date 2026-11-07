@@ -29,13 +29,13 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use massive_applications::{
-    InstanceId, InstanceMessage, ToolArguments, ToolCall, ToolCallId, ToolError, ToolErrorCode,
+    InstanceId, InstanceMessage, ToolArguments, ToolCall, ToolCallId, ToolError, ToolEvent,
 };
 use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolDescription;
 use massive_util::CollectingSet;
 
-use super::{DesktopTools, InstanceCall, ToolCallPlan};
+use super::{DesktopTools, InstanceCall, ToolCallPlan, error_code};
 use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal};
 use crate::instance_manager::InstanceManager;
 use crate::projects::ProjectId;
@@ -99,7 +99,7 @@ impl CallDone {
     /// Answers the call with the reason the planner refused its command.
     pub fn refuse(self, refusal: Refusal) {
         let _ = self.reply.send(Err(ToolError {
-            code: ToolErrorCode::Refused,
+            code: error_code::REFUSED,
             message: refusal.to_string(),
         }
         .into()));
@@ -413,7 +413,7 @@ impl ToolHost {
         self.next_call += 1;
         let call = ToolCall::new(id, tool, arguments);
         if instances
-            .send_event(instance, InstanceMessage::ToolCall(call))
+            .send_event(instance, InstanceMessage::Tool(ToolEvent::Call(call)))
             .is_err()
         {
             let _ = reply.send(instance_ended());
@@ -466,12 +466,12 @@ impl Drop for ToolHost {
 /// Tells `instance` that nobody waits for the call `id` any more. An instance that ended in the
 /// meantime no longer listens.
 fn cancel(instances: &InstanceManager, instance: InstanceId, id: ToolCallId) {
-    let _ = instances.send_event(instance, InstanceMessage::CancelToolCall(id));
+    let _ = instances.send_event(instance, InstanceMessage::Tool(ToolEvent::Cancel(id)));
 }
 
 fn instance_ended() -> Result<Value, CallFailure> {
     Err(ToolError {
-        code: ToolErrorCode::UnknownId,
+        code: error_code::UNKNOWN_ID,
         message: "The instance ended before it answered.".into(),
     }
     .into())

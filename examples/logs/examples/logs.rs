@@ -130,7 +130,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext
                             }
                         }
                         InstanceEvent::Shutdown(_) => return Ok(()),
-                        InstanceEvent::ToolCall(_) | InstanceEvent::CancelToolCall(_) => {}
+                        InstanceEvent::Tool(_) => {}
                         InstanceEvent::ApplyAnimations(_) | InstanceEvent::FullscreenRequested => {}
                         InstanceEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
                             logs.finish_fade_out(line_id);

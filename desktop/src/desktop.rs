@@ -291,7 +291,7 @@ impl Desktop {
                                 info!("Desktop shutdown request received");
                                 return Ok(());
                             }
-                            InstanceEvent::ToolCall(_) | InstanceEvent::CancelToolCall(_) => {
+                            InstanceEvent::Tool(_) => {
                                 unreachable!("the shell never calls tools");
                             }
                             InstanceEvent::Custom(event) => match event {},

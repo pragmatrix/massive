@@ -220,8 +220,7 @@ impl InstanceContext {
                 InstanceMessage::View(..)
                 | InstanceMessage::FullscreenRequested
                 | InstanceMessage::Shutdown(_)
-                | InstanceMessage::ToolCall(_)
-                | InstanceMessage::CancelToolCall(_) => events.push(message.into()),
+                | InstanceMessage::Tool(_) => events.push(message.into()),
             }
         }
 
