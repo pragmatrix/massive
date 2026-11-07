@@ -50,15 +50,16 @@ pub struct InstanceContext {
 #[derive(Debug)]
 enum DrawTargetState {
     /// The instance creates views, and the host draws the instance changes the instance submits.
-    Views(ViewsState),
+    Views(ViewHost),
     /// The instance opens its own windows through the host's window factory and renders its scene
     /// changes into them itself.
     Windows(HostWindows),
 }
 
-/// The state of an instance that draws into views.
+/// The host that draws the instance's views, as the instance sees it. It records where the views
+/// hang and which pacing the instance last submitted to the host.
 #[derive(Debug)]
-struct ViewsState {
+struct ViewHost {
     /// The location the instance's views hang below.
     view_parent: Ref<Location>,
     /// This is here so that we don't submit empty instance submissions when the pacing did not
@@ -68,14 +69,14 @@ struct ViewsState {
 
 impl DrawTargetState {
     /// The views' state, if the instance draws into views.
-    fn views(&self) -> Option<&ViewsState> {
+    fn views(&self) -> Option<&ViewHost> {
         match self {
             Self::Views(views) => Some(views),
             Self::Windows(_) => None,
         }
     }
 
-    fn views_mut(&mut self) -> Option<&mut ViewsState> {
+    fn views_mut(&mut self) -> Option<&mut ViewHost> {
         match self {
             Self::Views(views) => Some(views),
             Self::Windows(_) => None,
@@ -122,7 +123,7 @@ impl InstanceContext {
             id,
             creation_mode,
             environment,
-            draw_target: DrawTargetState::Views(ViewsState {
+            draw_target: DrawTargetState::Views(ViewHost {
                 view_parent,
                 last_submitted_pacing: RenderPacing::Fast,
             }),
