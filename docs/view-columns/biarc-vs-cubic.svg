@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1380" height="1260" viewBox="0 0 1380 1260" font-family="Helvetica, Arial, sans-serif" font-size="14">
+<rect width="1380" height="1260" fill="#ffffff"/>
+<text x="205" y="35" fill="#333">drop 8</text>
+<text x="405" y="35" fill="#333">drop 30</text>
+<text x="605" y="35" fill="#333">drop 60</text>
+<text x="805" y="35" fill="#333">drop 100</text>
+<text x="1005" y="35" fill="#333">drop 120</text>
+<text x="1205" y="35" fill="#333">drop 220</text>
+<text x="12" y="120" fill="#333">cubic Bézier</text>
+<line x1="180" y1="70" x2="180" y2="90" stroke="#bbb"/>
+<line x1="350" y1="78" x2="350" y2="98" stroke="#bbb"/>
+<path d="M180,80 L205,80 C265.0,80 265.0,88 325,88 L350,88" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="380" y1="70" x2="380" y2="90" stroke="#bbb"/>
+<line x1="550" y1="100" x2="550" y2="120" stroke="#bbb"/>
+<path d="M380,80 L405,80 C465.0,80 465.0,110 525,110 L550,110" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="580" y1="70" x2="580" y2="90" stroke="#bbb"/>
+<line x1="750" y1="130" x2="750" y2="150" stroke="#bbb"/>
+<path d="M580,80 L605,80 C665.0,80 665.0,140 725,140 L750,140" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="780" y1="70" x2="780" y2="90" stroke="#bbb"/>
+<line x1="950" y1="170" x2="950" y2="190" stroke="#bbb"/>
+<path d="M780,80 L805,80 C865.0,80 865.0,180 925,180 L950,180" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="980" y1="70" x2="980" y2="90" stroke="#bbb"/>
+<line x1="1150" y1="190" x2="1150" y2="210" stroke="#bbb"/>
+<path d="M980,80 L1005,80 C1065.0,80 1065.0,200 1125,200 L1150,200" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="1180" y1="70" x2="1180" y2="90" stroke="#bbb"/>
+<line x1="1350" y1="290" x2="1350" y2="310" stroke="#bbb"/>
+<path d="M1180,80 L1205,80 C1265.0,80 1265.0,300 1325,300 L1350,300" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<text x="12" y="410" fill="#333">biarc</text>
+<line x1="180" y1="360" x2="180" y2="380" stroke="#bbb"/>
+<line x1="350" y1="368" x2="350" y2="388" stroke="#bbb"/>
+<path d="M180,370 L205,370 A452.000,452.000 0 0 1 265.000,374.000 A452.000,452.000 0 0 0 325,378 L350,378" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="380" y1="360" x2="380" y2="380" stroke="#bbb"/>
+<line x1="550" y1="390" x2="550" y2="410" stroke="#bbb"/>
+<path d="M380,370 L405,370 A127.500,127.500 0 0 1 465.000,385.000 A127.500,127.500 0 0 0 525,400 L550,400" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="580" y1="360" x2="580" y2="380" stroke="#bbb"/>
+<line x1="750" y1="420" x2="750" y2="440" stroke="#bbb"/>
+<path d="M580,370 L605,370 A75.000,75.000 0 0 1 665.000,400.000 A75.000,75.000 0 0 0 725,430 L750,430" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="780" y1="360" x2="780" y2="380" stroke="#bbb"/>
+<line x1="950" y1="460" x2="950" y2="480" stroke="#bbb"/>
+<path d="M780,370 L805,370 A61.000,61.000 0 0 1 865.000,420.000 A61.000,61.000 0 0 0 925,470 L950,470" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="980" y1="360" x2="980" y2="380" stroke="#bbb"/>
+<line x1="1150" y1="480" x2="1150" y2="500" stroke="#bbb"/>
+<path d="M980,370 L1005,370 A60.000,60.000 0 0 1 1065.000,430.000 A60.000,60.000 0 0 0 1125,490 L1150,490" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="1180" y1="360" x2="1180" y2="380" stroke="#bbb"/>
+<line x1="1350" y1="580" x2="1350" y2="600" stroke="#bbb"/>
+<path d="M1180,370 L1205,370 A60.0,60.0 0 0 1 1265.0,430.0 L1265.0,530.0 A60.0,60.0 0 0 0 1325,590 L1350,590" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<text x="12" y="700" fill="#333">arc–line–arc</text>
+<line x1="180" y1="650" x2="180" y2="670" stroke="#bbb"/>
+<line x1="350" y1="658" x2="350" y2="678" stroke="#bbb"/>
+<path d="M180,660 L205,660 A451.991,451.991 0 0 1 264.737,663.965 L265.263,664.035 A451.991,451.991 0 0 0 325,668 L350,668" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="380" y1="650" x2="380" y2="670" stroke="#bbb"/>
+<line x1="550" y1="680" x2="550" y2="700" stroke="#bbb"/>
+<path d="M380,660 L405,660 A127.082,127.082 0 0 1 461.833,673.416 L468.167,676.584 A127.082,127.082 0 0 0 525,690 L550,690" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="580" y1="650" x2="580" y2="670" stroke="#bbb"/>
+<line x1="750" y1="710" x2="750" y2="730" stroke="#bbb"/>
+<path d="M580,660 L605,660 A72.426,72.426 0 0 1 656.213,681.213 L673.787,698.787 A72.426,72.426 0 0 0 725,720 L750,720" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="780" y1="650" x2="780" y2="670" stroke="#bbb"/>
+<line x1="950" y1="750" x2="950" y2="770" stroke="#bbb"/>
+<path d="M780,660 L805,660 A52.986,52.986 0 0 1 850.435,685.725 L879.565,734.275 A52.986,52.986 0 0 0 925,760 L950,760" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="980" y1="650" x2="980" y2="670" stroke="#bbb"/>
+<line x1="1150" y1="770" x2="1150" y2="790" stroke="#bbb"/>
+<path d="M980,660 L1005,660 A48.541,48.541 0 0 1 1048.416,686.833 L1081.584,753.167 A48.541,48.541 0 0 0 1125,780 L1150,780" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<line x1="1180" y1="650" x2="1180" y2="670" stroke="#bbb"/>
+<line x1="1350" y1="870" x2="1350" y2="890" stroke="#bbb"/>
+<path d="M1180,660 L1205,660 A39.278,39.278 0 0 1 1242.894,688.943 L1287.106,851.057 A39.278,39.278 0 0 0 1325,880 L1350,880" fill="none" stroke="#222" stroke-width="3" opacity="0.9"/>
+<text x="12" y="990" fill="#333">overlay</text>
+<text x="12" y="1010" fill="#d33" font-size="12">red: cubic</text>
+<text x="12" y="1026" fill="#25c" font-size="12">blue: biarc</text>
+<text x="12" y="1042" fill="#1a1" font-size="12">green: arc–line–arc</text>
+<line x1="180" y1="940" x2="180" y2="960" stroke="#bbb"/>
+<line x1="350" y1="948" x2="350" y2="968" stroke="#bbb"/>
+<path d="M180,950 L205,950 C265.0,950 265.0,958 325,958 L350,958" fill="none" stroke="#d33" stroke-width="1.5" opacity="0.9"/>
+<path d="M180,950 L205,950 A452.000,452.000 0 0 1 265.000,954.000 A452.000,452.000 0 0 0 325,958 L350,958" fill="none" stroke="#25c" stroke-width="1.5" opacity="0.9"/>
+<path d="M180,950 L205,950 A451.991,451.991 0 0 1 264.737,953.965 L265.263,954.035 A451.991,451.991 0 0 0 325,958 L350,958" fill="none" stroke="#1a1" stroke-width="1.5" opacity="0.9"/>
+<line x1="380" y1="940" x2="380" y2="960" stroke="#bbb"/>
+<line x1="550" y1="970" x2="550" y2="990" stroke="#bbb"/>
+<path d="M380,950 L405,950 C465.0,950 465.0,980 525,980 L550,980" fill="none" stroke="#d33" stroke-width="1.5" opacity="0.9"/>
+<path d="M380,950 L405,950 A127.500,127.500 0 0 1 465.000,965.000 A127.500,127.500 0 0 0 525,980 L550,980" fill="none" stroke="#25c" stroke-width="1.5" opacity="0.9"/>
+<path d="M380,950 L405,950 A127.082,127.082 0 0 1 461.833,963.416 L468.167,966.584 A127.082,127.082 0 0 0 525,980 L550,980" fill="none" stroke="#1a1" stroke-width="1.5" opacity="0.9"/>
+<line x1="580" y1="940" x2="580" y2="960" stroke="#bbb"/>
+<line x1="750" y1="1000" x2="750" y2="1020" stroke="#bbb"/>
+<path d="M580,950 L605,950 C665.0,950 665.0,1010 725,1010 L750,1010" fill="none" stroke="#d33" stroke-width="1.5" opacity="0.9"/>
+<path d="M580,950 L605,950 A75.000,75.000 0 0 1 665.000,980.000 A75.000,75.000 0 0 0 725,1010 L750,1010" fill="none" stroke="#25c" stroke-width="1.5" opacity="0.9"/>
+<path d="M580,950 L605,950 A72.426,72.426 0 0 1 656.213,971.213 L673.787,988.787 A72.426,72.426 0 0 0 725,1010 L750,1010" fill="none" stroke="#1a1" stroke-width="1.5" opacity="0.9"/>
+<line x1="780" y1="940" x2="780" y2="960" stroke="#bbb"/>
+<line x1="950" y1="1040" x2="950" y2="1060" stroke="#bbb"/>
+<path d="M780,950 L805,950 C865.0,950 865.0,1050 925,1050 L950,1050" fill="none" stroke="#d33" stroke-width="1.5" opacity="0.9"/>
+<path d="M780,950 L805,950 A61.000,61.000 0 0 1 865.000,1000.000 A61.000,61.000 0 0 0 925,1050 L950,1050" fill="none" stroke="#25c" stroke-width="1.5" opacity="0.9"/>
+<path d="M780,950 L805,950 A52.986,52.986 0 0 1 850.435,975.725 L879.565,1024.275 A52.986,52.986 0 0 0 925,1050 L950,1050" fill="none" stroke="#1a1" stroke-width="1.5" opacity="0.9"/>
+<line x1="980" y1="940" x2="980" y2="960" stroke="#bbb"/>
+<line x1="1150" y1="1060" x2="1150" y2="1080" stroke="#bbb"/>
+<path d="M980,950 L1005,950 C1065.0,950 1065.0,1070 1125,1070 L1150,1070" fill="none" stroke="#d33" stroke-width="1.5" opacity="0.9"/>
+<path d="M980,950 L1005,950 A60.000,60.000 0 0 1 1065.000,1010.000 A60.000,60.000 0 0 0 1125,1070 L1150,1070" fill="none" stroke="#25c" stroke-width="1.5" opacity="0.9"/>
+<path d="M980,950 L1005,950 A48.541,48.541 0 0 1 1048.416,976.833 L1081.584,1043.167 A48.541,48.541 0 0 0 1125,1070 L1150,1070" fill="none" stroke="#1a1" stroke-width="1.5" opacity="0.9"/>
+<line x1="1180" y1="940" x2="1180" y2="960" stroke="#bbb"/>
+<line x1="1350" y1="1160" x2="1350" y2="1180" stroke="#bbb"/>
+<path d="M1180,950 L1205,950 C1265.0,950 1265.0,1170 1325,1170 L1350,1170" fill="none" stroke="#d33" stroke-width="1.5" opacity="0.9"/>
+<path d="M1180,950 L1205,950 A60.0,60.0 0 0 1 1265.0,1010.0 L1265.0,1110.0 A60.0,60.0 0 0 0 1325,1170 L1350,1170" fill="none" stroke="#25c" stroke-width="1.5" opacity="0.9"/>
+<path d="M1180,950 L1205,950 A39.278,39.278 0 0 1 1242.894,978.943 L1287.106,1141.057 A39.278,39.278 0 0 0 1325,1170 L1350,1170" fill="none" stroke="#1a1" stroke-width="1.5" opacity="0.9"/>
+<text x="12" y="1246" fill="#777" font-size="12">Gap W = 120px, stroke 3px. Cubic handles W/2. Biarc: theta = 2 atan(drop/W), quarter arcs plus a vertical line once drop &gt; W. Arc–line–arc: arcs turn to the cubic middle slope atan(2 drop/W), joined by a straight line.</text>
+</svg>
