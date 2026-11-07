@@ -6,12 +6,14 @@ use winit::keyboard::Key;
 use massive_geometry::{Point, SizePx, Vector};
 use massive_input::{AggregationEvent, InputEvent};
 
-use crate::KeyEvent;
+use crate::{KeyEvent, ime_kind};
 
 /// The events a view can receive.
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
-#[derive(Debug, Clone)]
+///
+/// Its `Debug` output leaves out typed text, as [`KeyEvent`]'s does (`docs/security.md`).
+#[derive(derive_more::Debug, Clone)]
 pub enum ViewEvent {
     // Both `Resized` and `RedrawRequested` are triggered only in `ShellWindow` views.
     Resized(SizePx),
@@ -34,7 +36,7 @@ pub enum ViewEvent {
     /// Modifiers are not updated when the target has neither pointer nor keyboard focus, but are
     /// updated as soon it gets either of them back.
     ModifiersChanged(event::Modifiers),
-    Ime(event::Ime),
+    Ime(#[debug("{}", ime_kind(_0))] event::Ime),
     // This is in view relative coordinates.
     CursorMoved {
         device_id: DeviceId,
