@@ -16,6 +16,8 @@ massive-renderer.workspace = true
 massive-input.workspace = true
 # AmbientShape implements over the text-shaping builder.
 massive-shapes.workspace = true
+# The tool protocol's reserved error codes, which ToolErrorCode refuses.
+massive-protocol.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true

@@ -11,6 +11,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
+use massive_protocol::tools::v1::{CONNECTION_CLOSED, TOO_LARGE};
+
 use crate::AccessScope;
 
 /// A tool that the desktop or an application declares. The desktop joins its provider's MCP id and
@@ -133,7 +135,7 @@ impl McpId {
 /// let id = massive_applications::mcp_id!("read_page");
 /// ```
 ///
-/// ```compile_fail
+/// ```compile_fail,E0080
 /// let id = massive_applications::mcp_id!("ReadPage");
 /// ```
 #[macro_export]
@@ -218,14 +220,10 @@ pub struct ToolError {
 /// `invalid_argument`.
 ///
 /// Each tool provider defines the codes of its own failures next to its tools and documents them
-/// for agents. No code reads a code back, and MCP clients see only its name, so a name never
-/// changes. A provider defines its codes as constants, so [`Self::new`] checks them at compile
-/// time.
-///
-/// ```compile_fail
-/// use massive_applications::ToolErrorCode;
-/// const NOT_READY: ToolErrorCode = ToolErrorCode::new("not-ready");
-/// ```
+/// for agents. Agents and their documentation match on the name, so a name never changes once
+/// published. The tool protocol reserves the names of its own failures, `connection_closed` and
+/// `too_large`, so no provider can use them. Define codes with [`tool_error_code!`], which checks
+/// them at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolErrorCode(&'static str);
 
@@ -235,7 +233,8 @@ impl ToolErrorCode {
     pub const INVALID_ARGUMENT: Self = Self::new("invalid_argument");
 
     /// Panics unless `code` matches `[a-z][a-z0-9_]*`, which keeps the `code: ` prefix of the
-    /// error's text unambiguous. In a const context, the panic is a compile error. A const panic
+    /// error's text unambiguous, and when the tool protocol reserves `code`. In a const context,
+    /// which [`tool_error_code!`] provides, the panic is a compile error at the call. A const panic
     /// message must be a literal, so it names the rule, not the code.
     pub const fn new(code: &'static str) -> Self {
         let bytes = code.as_bytes();
@@ -252,6 +251,11 @@ impl ToolErrorCode {
             );
             index += 1;
         }
+        assert!(
+            !same_bytes(bytes, CONNECTION_CLOSED.as_bytes())
+                && !same_bytes(bytes, TOO_LARGE.as_bytes()),
+            "the tool protocol reserves this error code"
+        );
         Self(code)
     }
 
@@ -264,4 +268,41 @@ impl fmt::Display for ToolErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
     }
+}
+
+/// A [`ToolErrorCode`], checked at compile time.
+///
+/// ```
+/// const NOT_READY: massive_applications::ToolErrorCode =
+///     massive_applications::tool_error_code!("not_ready");
+/// ```
+///
+/// ```compile_fail,E0080
+/// let code = massive_applications::tool_error_code!("not-ready");
+/// ```
+///
+/// ```compile_fail,E0080
+/// let code = massive_applications::tool_error_code!("too_large");
+/// ```
+#[macro_export]
+macro_rules! tool_error_code {
+    ($code:literal) => {
+        const { $crate::ToolErrorCode::new($code) }
+    };
+}
+
+/// Whether `a` and `b` hold the same bytes. Comparing slices with `==` is not possible in a const
+/// function.
+const fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < a.len() {
+        if a[index] != b[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }
