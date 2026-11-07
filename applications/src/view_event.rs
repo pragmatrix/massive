@@ -6,7 +6,7 @@ use winit::keyboard::Key;
 use massive_geometry::{Point, SizePx, Vector};
 use massive_input::{AggregationEvent, InputEvent};
 
-use crate::{KeyEvent, ime_kind};
+use crate::KeyEvent;
 
 /// The events a view can receive.
 ///
@@ -215,5 +215,16 @@ impl InputEvent for ViewEvent {
             | ViewEvent::MouseInput { device_id, .. } => Some(*device_id),
             _ => None,
         }
+    }
+}
+
+/// The kind of an IME event without its text, which is what the user types, for `Debug` output and
+/// logs (`docs/security.md`).
+pub fn ime_kind(ime: &event::Ime) -> &'static str {
+    match ime {
+        event::Ime::Enabled => "Enabled",
+        event::Ime::Preedit(..) => "Preedit(..)",
+        event::Ime::Commit(_) => "Commit(..)",
+        event::Ime::Disabled => "Disabled",
     }
 }

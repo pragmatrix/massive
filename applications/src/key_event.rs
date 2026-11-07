@@ -1,7 +1,7 @@
 //! The key event views receive. Unlike winit's, whose platform part is private, it can be
 //! constructed: the desktop synthesizes releases from it, and tests build events.
 
-use winit::event::{ElementState, Ime, KeyEvent as WinitKeyEvent};
+use winit::event::{ElementState, KeyEvent as WinitKeyEvent};
 use winit::keyboard::{Key, KeyLocation, PhysicalKey, SmolStr};
 
 /// Its `Debug` output leaves out which key it is and what it types, because key events carry what
@@ -21,17 +21,6 @@ pub struct KeyEvent {
     /// a character; `None` where winit can't tell (web, iOS, Android).
     #[debug(skip)]
     pub key_without_modifiers: Option<Key>,
-}
-
-/// The kind of an IME event without its text, which is what the user types, for `Debug` output and
-/// logs (`docs/security.md`).
-pub fn ime_kind(ime: &Ime) -> &'static str {
-    match ime {
-        Ime::Enabled => "Enabled",
-        Ime::Preedit(..) => "Preedit(..)",
-        Ime::Commit(_) => "Commit(..)",
-        Ime::Disabled => "Disabled",
-    }
 }
 
 impl From<&WinitKeyEvent> for KeyEvent {
@@ -101,7 +90,7 @@ mod tests {
         let ime = ViewEvent::Ime(Ime::Commit("secret".into()));
         let output = format!("{key:?} {ime:?}");
         assert!(
-            !output.contains('§') && !output.contains("secret"),
+            !output.contains('§') && !output.contains("KeyQ") && !output.contains("secret"),
             "{output}"
         );
         assert!(
