@@ -29,13 +29,13 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use massive_applications::{
-    InstanceId, InstanceMessage, ToolArguments, ToolCall, ToolCallId, ToolError, ToolErrorCode,
+    InstanceId, InstanceMessage, ToolArguments, ToolCall, ToolCallId, ToolError,
 };
 use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolDescription;
 use massive_util::CollectingSet;
 
-use super::{DesktopTools, InstanceCall, ToolCallPlan};
+use super::{DesktopTools, InstanceCall, ToolCallPlan, error_code};
 use crate::desktop_system::{DesktopCommand, DesktopSystem, Refusal};
 use crate::instance_manager::InstanceManager;
 use crate::projects::ProjectId;
@@ -99,7 +99,7 @@ impl CallDone {
     /// Answers the call with the reason the planner refused its command.
     pub fn refuse(self, refusal: Refusal) {
         let _ = self.reply.send(Err(ToolError {
-            code: ToolErrorCode::Refused,
+            code: error_code::REFUSED,
             message: refusal.to_string(),
         }
         .into()));
@@ -471,7 +471,7 @@ fn cancel(instances: &InstanceManager, instance: InstanceId, id: ToolCallId) {
 
 fn instance_ended() -> Result<Value, CallFailure> {
     Err(ToolError {
-        code: ToolErrorCode::UnknownId,
+        code: error_code::UNKNOWN_ID,
         message: "The instance ended before it answered.".into(),
     }
     .into())

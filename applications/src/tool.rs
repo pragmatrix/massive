@@ -185,7 +185,7 @@ pub fn decode_arguments<Params: DeserializeOwned>(
     arguments: &ToolArguments,
 ) -> Result<Params, ToolError> {
     Params::deserialize(arguments).map_err(|error| ToolError {
-        code: ToolErrorCode::InvalidArgument,
+        code: ToolErrorCode::INVALID_ARGUMENT,
         message: format!("The arguments do not match the tool's input schema: {error}."),
     })
 }
@@ -203,27 +203,49 @@ pub struct ToolError {
     pub message: String,
 }
 
-/// Why a tool call failed. MCP clients see the code's name, so names never change.
+/// Why a tool call failed, as a name that starts the error's text for the agent, such as
+/// `invalid_argument`.
+///
+/// Each tool provider defines the codes of its own failures next to its tools and documents them
+/// for agents. No code reads a code back, and MCP clients see only its name, so a name never
+/// changes. A provider defines its codes as constants, so [`Self::new`] checks them at compile
+/// time.
+///
+/// ```compile_fail
+/// use massive_applications::ToolErrorCode;
+/// const NOT_READY: ToolErrorCode = ToolErrorCode::new("not-ready");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolErrorCode {
-    /// An id names nothing the MCP root covers. It may be stale, or it may lie outside the MCP
-    /// root, which the error does not reveal.
-    UnknownId,
-    ScopeNotGranted,
-    InvalidArgument,
-    /// The desktop refused the command, for example a move onto an assigned slot of another
-    /// project.
-    Refused,
-}
+pub struct ToolErrorCode(&'static str);
 
 impl ToolErrorCode {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::UnknownId => "unknown_id",
-            Self::ScopeNotGranted => "scope_not_granted",
-            Self::InvalidArgument => "invalid_argument",
-            Self::Refused => "refused",
+    /// The arguments break the tool's input schema, or a rule the schema cannot express. The tool
+    /// API raises it when it decodes arguments.
+    pub const INVALID_ARGUMENT: Self = Self::new("invalid_argument");
+
+    /// Panics unless `code` matches `[a-z][a-z0-9_]*`, which keeps the `code: ` prefix of the
+    /// error's text unambiguous. In a const context, the panic is a compile error. A const panic
+    /// message must be a literal, so it names the rule, not the code.
+    pub const fn new(code: &'static str) -> Self {
+        let bytes = code.as_bytes();
+        assert!(
+            !bytes.is_empty() && bytes[0].is_ascii_lowercase(),
+            "an error code starts with a-z"
+        );
+        let mut index = 1;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            assert!(
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
+                "an error code contains only a-z, 0-9 and _"
+            );
+            index += 1;
         }
+        Self(code)
+    }
+
+    pub const fn name(self) -> &'static str {
+        self.0
     }
 }
 

@@ -1,13 +1,11 @@
-use massive_applications::{
-    AccessScope, McpConfiguration, ToolArguments, ToolError, ToolErrorCode,
-};
+use massive_applications::{AccessScope, McpConfiguration, ToolArguments, ToolError};
 use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolOutcome;
 
 use super::*;
 use crate::desktop_system::change::DesktopSystemEffect;
 use crate::desktop_system::selection::Selection;
-use crate::tools::{DesktopTools, ToolCallPlan};
+use crate::tools::{DesktopTools, ToolCallPlan, error_code};
 
 use self::tool_client::{connect, receive, send};
 
@@ -84,7 +82,7 @@ async fn a_tool_connection_reaches_only_the_mcp_root_that_covers_its_target() ->
         assert!(matches!(
             refused,
             ToolCallPlan::Answer(Err(ToolError {
-                code: ToolErrorCode::ScopeNotGranted,
+                code: error_code::SCOPE_NOT_GRANTED,
                 ..
             }))
         ));
@@ -995,7 +993,7 @@ fn outcome(system: &DesktopSystem, plan: ToolCallPlan) -> Result<serde_json::Val
             {
                 Planned::Changes(_) => Ok(result),
                 Planned::Refused(refusal) => Err(ToolError {
-                    code: ToolErrorCode::Refused,
+                    code: error_code::REFUSED,
                     message: refusal.to_string(),
                 }),
             }

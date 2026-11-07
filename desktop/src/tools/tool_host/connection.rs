@@ -133,7 +133,7 @@ async fn serve_calls(
 /// limit, so deeply nested arguments fail instead of exhausting the stack.
 fn parse_arguments(arguments: &str) -> Result<ToolArguments, ToolError> {
     serde_json::from_str(arguments).map_err(|error| ToolError {
-        code: ToolErrorCode::InvalidArgument,
+        code: ToolErrorCode::INVALID_ARGUMENT,
         message: format!("The arguments are not a JSON object: {error}."),
     })
 }
@@ -201,7 +201,7 @@ mod tests {
         let deeply_nested = format!(r#"{{"x":{}}}"#, "[".repeat(100_000));
         for arguments in ["", "not json", "[]", "1", &deeply_nested] {
             let error = parse_arguments(arguments).expect_err(arguments);
-            assert_eq!(error.code, ToolErrorCode::InvalidArgument);
+            assert_eq!(error.code, ToolErrorCode::INVALID_ARGUMENT);
         }
     }
 

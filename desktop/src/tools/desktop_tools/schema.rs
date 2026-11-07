@@ -416,7 +416,7 @@ mod tests {
 
         assert!(decode_arguments::<AssignSlotParams>(&arguments(longest.clone())).is_ok());
         let error = decode_arguments::<AssignSlotParams>(&arguments(longest + "n")).unwrap_err();
-        assert_eq!(error.code, ToolErrorCode::InvalidArgument);
+        assert_eq!(error.code, ToolErrorCode::INVALID_ARGUMENT);
         assert!(decode_arguments::<AssignSlotParams>(&arguments(String::new())).is_err());
     }
 }
