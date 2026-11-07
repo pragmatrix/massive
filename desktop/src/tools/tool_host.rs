@@ -29,7 +29,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use massive_applications::{
-    InstanceId, InstanceMessage, ToolArguments, ToolCall, ToolCallId, ToolError,
+    InstanceId, InstanceMessage, ToolArguments, ToolCall, ToolCallId, ToolError, ToolEvent,
 };
 use massive_protocol::Target;
 use massive_protocol::tools::v1::ToolDescription;
@@ -413,7 +413,7 @@ impl ToolHost {
         self.next_call += 1;
         let call = ToolCall::new(id, tool, arguments);
         if instances
-            .send_event(instance, InstanceMessage::ToolCall(call))
+            .send_event(instance, InstanceMessage::Tool(ToolEvent::Call(call)))
             .is_err()
         {
             let _ = reply.send(instance_ended());
@@ -466,7 +466,7 @@ impl Drop for ToolHost {
 /// Tells `instance` that nobody waits for the call `id` any more. An instance that ended in the
 /// meantime no longer listens.
 fn cancel(instances: &InstanceManager, instance: InstanceId, id: ToolCallId) {
-    let _ = instances.send_event(instance, InstanceMessage::CancelToolCall(id));
+    let _ = instances.send_event(instance, InstanceMessage::Tool(ToolEvent::Cancel(id)));
 }
 
 fn instance_ended() -> Result<Value, CallFailure> {

@@ -360,8 +360,7 @@ impl InstanceHost {
             message @ (InstanceMessage::ApplyAnimations(_)
             | InstanceMessage::FullscreenRequested
             | InstanceMessage::Shutdown(_)
-            | InstanceMessage::ToolCall(_)
-            | InstanceMessage::CancelToolCall(_)) => message,
+            | InstanceMessage::Tool(_)) => message,
         };
         if self.instance_events.send(message).is_err() {
             debug!("The instance ended, so it does not receive the shell's event");

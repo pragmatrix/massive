@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use massive_applications::{
     AccessScope, Application, CreationMode, InstanceEvent, McpId, ToolCallId, ToolDeclaration,
-    mcp_id,
+    ToolEvent, mcp_id,
 };
 use massive_protocol::Frames;
 use massive_protocol::tools::v1::{ClientMessage, ConnectReply, HostMessage, ToolOutcome};
@@ -277,7 +277,7 @@ fn echo_application() -> Application {
         loop {
             for event in ctx.wait_for_events::<Infallible>().await? {
                 match event {
-                    InstanceEvent::ToolCall(call) => {
+                    InstanceEvent::Tool(ToolEvent::Call(call)) => {
                         match call.decode().map(|EchoParams { text }| Echo { text }) {
                             Ok(Echo { text }) if text == WAIT => waiting = Some(call.id),
                             Ok(Echo { text }) if text == HOLD => {}
@@ -290,7 +290,7 @@ fn echo_application() -> Application {
                             echoed => ctx.answer_tool_call(call.id, echoed)?,
                         }
                     }
-                    InstanceEvent::CancelToolCall(call_id) => {
+                    InstanceEvent::Tool(ToolEvent::Cancel(call_id)) => {
                         cancels += 1;
                         if waiting == Some(call_id) {
                             let cancelled = Echo {

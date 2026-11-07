@@ -300,8 +300,7 @@ async fn code(mut ctx: InstanceContext) -> Result<()> {
                 InstanceEvent::Shutdown(_) => return Ok(()),
                 InstanceEvent::ApplyAnimations(_)
                 | InstanceEvent::FullscreenRequested
-                | InstanceEvent::ToolCall(_)
-                | InstanceEvent::CancelToolCall(_) => {}
+                | InstanceEvent::Tool(_) => {}
                 InstanceEvent::Custom(event) => match event {},
             }
         }

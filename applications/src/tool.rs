@@ -171,6 +171,17 @@ impl ToolCall {
     }
 }
 
+/// What the desktop sends an instance about its application's tools (ADR 0036). Only the desktop
+/// sends these, so an instance under the shell never receives one.
+#[derive(Debug, Clone)]
+pub enum ToolEvent {
+    /// A call of one of the application's tools.
+    Call(ToolCall),
+    /// The agent cancelled the call, or its tool connection closed. An instance gets at most one
+    /// cancel per call, and it may still answer.
+    Cancel(ToolCallId),
+}
+
 /// Identifies a tool call the desktop forwarded to an instance. The desktop chooses it, because the
 /// call ids of different tool connections may collide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
