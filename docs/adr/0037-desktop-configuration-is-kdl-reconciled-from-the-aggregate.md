@@ -29,7 +29,7 @@ aggregate, and a document derived from the aggregate does not need it:
 | The risk that the document and the live aggregate drift apart. | No. The file is derived from the aggregate, and the reconciled result parses back to exactly the fresh document. |
 | Formatting bookkeeping for inserted nodes (`fresh_node_format`, `whitespace_leading`, and the fixes that kept a new node from copying its sibling's comments). | Mostly no. The fresh document is autoformatted and parsed again, so each new node already has the indentation of its depth. Blank lines between top-level projects are not produced. |
 | The conversion of spawn parameters between JSON values and KDL child nodes. | Yes, unchanged. |
-| A hand-written mapping between the document and the aggregate, because `kdl` has no serde support. | Yes. |
+| A hand-written mapping between the document and the aggregate. | Yes. `kdl` 6.7.1 has serde support, but its mapping cannot read this format (see the considered options). |
 
 ## Decision
 
@@ -76,18 +76,47 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   and `kdl` 6.7.1 rejects the unquoted forms `at=0,0` and `at=0:0`. The parser
   splits the string and validates both numbers. A malformed position fails the
   load with the file path in the message, like any other parse error.
+- **An MCP root (ADR 0036) carries an `mcp` child node.** The node's arguments
+  are the access scopes, for example `mcp observe act`. An MCP root without
+  access scopes is the bare node `mcp`. A project without an `mcp` node is not
+  an MCP root.
+- **A spawn parameter is a child node of its launcher, named by its key.** The
+  node's shape decides the JSON value it stands for:
+  - A node with exactly one argument is that scalar value.
+  - A node with no arguments or with several arguments is an array of them.
+  - A node with a children block, even an empty one, is an object, and each
+    child node is one of its entries, mapped by the same rules. So
+    `env { PATH "/bin" }` is the object `{ "PATH": "/bin" }`.
+  - A node with both arguments and a children block, or with properties, fails
+    the load.
+- **An array that contains an object or another array cannot be written.** One
+  rule in the desktop policy refuses such params. The MCP tools apply it to the
+  params they are given, and the load applies it to the file, so no change can
+  create params that a persist would lose.
+- **The load is strict.** An unknown node or property fails the load, with the
+  file path and the node in the message. Otherwise the reconcile would find no
+  match for the unknown node and remove it, together with its comments.
+- **A file that does not parse is not overwritten.** When the file on disk fails
+  to parse at a persist, the persist logs a warning and writes nothing. A
+  half-finished hand edit therefore survives. The next persist writes the whole
+  aggregate again, so no change is lost.
 
 ## Consequences
 
 - The reconcile and the format live inside the persistence module. The aggregate
   (`RuntimeConfiguration`), the command dispatch, and the configuration changes
   do not change.
-- `kdl` has no serde support. The mapping between the document and the aggregate
-  is written by hand, in both directions.
-- Spawn parameters are JSON values (`Params`), and a KDL node holds only scalars.
-  A parameter becomes a child node with its value as the argument, and an array
-  becomes several arguments. A nested object cannot be written. The old KDL
-  implementation logged and skipped such a value, and the new one does the same.
+- The mapping between the document and the aggregate is written by hand, in both
+  directions.
+- Nested spawn parameters keep the limit of `MAX_PARAMS_DEPTH`, because a nested
+  object maps to nested child nodes.
+- An array with exactly one element loads back as its element alone. KDL cannot
+  tell a node with one argument apart from a one-element array without a type
+  annotation, and no params use such arrays today.
+- Hand edits to values made while the terminal runs are replaced at the next
+  persist, because the aggregate in memory wins. Only comments and formatting
+  survive. Reloading the file while the terminal runs is left to
+  `docs/desktop-configuration-file-observer-plan.md`.
 - A node whose values changed loses the formatting of its values, such as quotes.
   `kdl` 6 writes KDL v2, which leaves plain strings unquoted, for example
   `launcher fs110`.
@@ -118,3 +147,20 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   place.
 - **The slot position as `column=0 row=0`, as before.** Rejected: it explains
   itself but is the longest form, and it repeats on every slot.
+- **`kdl`'s serde support (`kdl::de`, `kdl::se`).** Rejected after a small
+  experiment. It reads a single `project` node as a scalar where the struct
+  expects a sequence. A `#0` field for the name argument breaks beside a
+  flattened params map. Unknown nodes are ignored without an error, so the
+  reconcile would remove them.
+- **Applying the difference between the aggregate before and after a
+  transaction.** Rejected for now. Ids would identify a moved slot exactly,
+  where the reconcile pairs moved nodes by name. But the persistence would keep
+  the previous aggregate between persists, and it would find nodes in the file
+  by their old paths, which a hand edit invalidates. It can later replace the
+  reconcile's pass by name without a change to the format.
+- **Skipping nested param objects and lowering `MAX_PARAMS_DEPTH` to 1.**
+  Rejected: nested child nodes write nested objects, so the limit can stay.
+- **The access scopes as a property (`mcp="observe act"`) or as a nested node
+  (`mcp { access_scopes observe act }`).** Rejected: the property needs
+  `mcp=""` for an MCP root without scopes, and the nested node adds a level
+  that no second MCP setting needs yet.
