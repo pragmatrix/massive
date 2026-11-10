@@ -9,7 +9,7 @@ use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
 use crate::scene::submit_pair;
-use crate::{AnyCollector, Handle, Location, LocationParent, LocationSpace, Ref, Visual};
+use crate::{Handle, Location, LocationParent, LocationSpace, Ref, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -57,7 +57,7 @@ impl ToLocation for Handle<Transform> {
 /// A location that has not been submitted yet. Submit it to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not active in the queue until `.submit_to(collector)` is called"]
+#[must_use = "the location is not active in the queue until `.submit_location()` is called"]
 pub struct UnsubmittedLocation {
     parent: LocationParent,
 }
@@ -75,12 +75,12 @@ impl UnsubmittedLocation {
         self
     }
 
-    /// Submit a location with an initially-identity transform to `collector`, returning both
-    /// handles.
+    /// Submit a location with an initially-identity transform to the current task's change queue,
+    /// returning both handles.
     ///
     /// The transform and the location are submitted together, in one batch.
-    pub fn submit_to(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
-        submit_pair(collector, Transform::IDENTITY, |transform| {
+    pub fn submit_location(self) -> (Handle<Transform>, Handle<Location>) {
+        submit_pair(Transform::IDENTITY, |transform| {
             Location::new(self.parent, transform.clone())
         })
     }

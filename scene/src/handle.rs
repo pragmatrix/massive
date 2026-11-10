@@ -2,11 +2,12 @@ use std::{fmt, hash, ops::Deref, sync::Arc};
 
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::{Change, ChangeSink, Id, SceneChange, id_generator};
+use crate::{Change, Id, SceneChange, current_queue, id_generator};
 
 /// A handle is a mutable representation of an object submitted to a queue.
 ///
-/// Although all queues share a common id space, a handle can only be submitted to one queue.
+/// Its changes go to the change queue of the task it is used in, so it must be used inside a task
+/// (ADR 0040).
 #[derive(Debug)]
 pub struct Handle<T: Object>
 where
@@ -53,12 +54,12 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(value: T, change_collector: Arc<dyn ChangeSink>) -> Self
+    pub(crate) fn new(value: T) -> Self
     where
         T: 'static,
     {
-        let (handle, create) = Self::unpublished(value, &change_collector);
-        change_collector.send(create.into());
+        let (handle, create) = Self::unpublished(value);
+        current_queue::send(create.into());
 
         handle
     }
@@ -68,10 +69,7 @@ where
     /// Invariant: the returned change must reach the queue before the handle is observable by
     /// other code, otherwise a later drop deletes an id the queue never saw created.
     #[must_use = "the returned create change must be published, or the handle's id is unknown to the queue"]
-    pub(crate) fn unpublished(
-        value: T,
-        change_collector: &Arc<dyn ChangeSink>,
-    ) -> (Self, Change<T::Change>)
+    pub(crate) fn unpublished(value: T) -> (Self, Change<T::Change>)
     where
         T: 'static,
     {
@@ -82,7 +80,6 @@ where
         let handle = Self {
             inner: InnerHandle {
                 id,
-                change_collector: change_collector.clone(),
                 value: value.into(),
             }
             .into(),
@@ -238,7 +235,6 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    change_collector: Arc<dyn ChangeSink>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.
     value: Mutex<T>,
@@ -248,14 +244,13 @@ impl<T: Object> fmt::Debug for InnerHandle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    // The shared sink can hold the task's full pending queue, which every handle would repeat.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = self.value.lock();
         formatter
             .debug_struct("InnerHandle")
             .field("id", &self.id)
             .field("value", &*value)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
@@ -311,8 +306,7 @@ where
         }
 
         let change = T::to_change(&*current);
-        self.change_collector
-            .send(Change::Update(self.id, change).into());
+        current_queue::send(Change::Update(self.id, change).into());
     }
 }
 
@@ -321,7 +315,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     fn drop(&mut self) {
-        self.change_collector.send(Change::Release(self.id).into());
+        current_queue::send(Change::Release(self.id).into());
     }
 }
 

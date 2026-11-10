@@ -268,25 +268,27 @@ impl Object for Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AnyCollector;
+    use crate::current_queue::test_queue::with_test_queue;
 
     #[test]
     fn location_new_defaults_to_opaque_alpha() {
-        let collector = AnyCollector::for_type::<SceneChange>();
-        let transform = crate::submit(&collector, Transform::IDENTITY);
-        let location = Location::root(LocationSpace::World, transform);
+        with_test_queue(|| {
+            let transform = crate::submit(Transform::IDENTITY);
+            let location = Location::root(LocationSpace::World, transform);
 
-        assert_eq!(location.alpha, 1.0);
-        assert_eq!(location.to_change().alpha, 1.0);
+            assert_eq!(location.alpha, 1.0);
+            assert_eq!(location.to_change().alpha, 1.0);
+        });
     }
 
     #[test]
     fn location_alpha_is_stored_as_set() {
-        let collector = AnyCollector::for_type::<SceneChange>();
-        let transform = crate::submit(&collector, Transform::IDENTITY);
-        let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);
+        with_test_queue(|| {
+            let transform = crate::submit(Transform::IDENTITY);
+            let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);
 
-        assert_eq!(location.alpha, 2.0);
-        assert_eq!(location.to_change().alpha, 2.0);
+            assert_eq!(location.alpha, 2.0);
+            assert_eq!(location.to_change().alpha, 2.0);
+        });
     }
 }

@@ -6,13 +6,13 @@
 use std::cell::RefCell;
 use std::fmt;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 
 use tokio::task_local;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, ShapingContext};
-use massive_scene::{AnyCollector, ChangeSink, SceneChange};
+use massive_scene::{AnyCollector, ChangeSink, SceneChange, register_current_queue};
 
 pub(crate) mod animation;
 mod shaper;
@@ -71,6 +71,7 @@ impl TaskContext {
 
 /// Run a future with the supplied contexts installed as task-local values.
 pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Output {
+    register_current_queue_once();
     let TaskContext {
         changes,
         animation,
@@ -90,6 +91,43 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
                 .await
         })
         .await
+}
+
+/// Drop a value with the supplied contexts installed, for a value that holds scene handles but
+/// never ran inside its task, such as an instance future whose runtime failed to start.
+///
+/// Handles must be dropped inside a task, so their releases reach a change queue (ADR 0040).
+pub fn drop_with_context<T>(contexts: TaskContext, value: T) {
+    register_current_queue_once();
+    let TaskContext {
+        changes,
+        animation,
+        movement,
+        shaping_context,
+    } = contexts;
+    let animation_state = RefCell::new(AnimationState::new(animation, movement));
+    CHANGES.sync_scope(changes, || {
+        ANIMATION.sync_scope(animation_state, || {
+            SHAPER.sync_scope(RefCell::new(Some(shaping_context)), || drop(value))
+        })
+    });
+}
+
+/// Register, once per process, how scene handles reach the current task's change queue.
+///
+/// Both functions that install task contexts call this, so the registration happens before any
+/// handle can be used.
+fn register_current_queue_once() {
+    static REGISTERED: Once = Once::new();
+    REGISTERED.call_once(|| register_current_queue(with_current_sink));
+}
+
+/// The hook through which scene handles reach the change queue of the task they are used in
+/// (ADR 0040).
+fn with_current_sink(f: &mut dyn FnMut(&dyn ChangeSink)) -> bool {
+    CHANGES
+        .try_with(|collector| f(collector.sink().as_ref()))
+        .is_ok()
 }
 
 /// The font manager of the current task's shaping owner: the manager the shell built from the

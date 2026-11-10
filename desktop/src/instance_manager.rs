@@ -229,8 +229,16 @@ fn run_instance_future(
         RuntimeKind::MultiThread => Builder::new_multi_thread(),
     }
     .enable_all()
-    .build()
-    .context("building an instance runtime")?;
+    .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            // The future holds the instance's view parent, whose release must reach a change
+            // queue (ADR 0040).
+            task_context::drop_with_context(instance_task_context, instance_future);
+            return Err(error).context("building an instance runtime");
+        }
+    };
     let result = runtime.block_on(task_context::with_context(
         instance_task_context,
         AssertUnwindSafe(instance_future).catch_unwind(),

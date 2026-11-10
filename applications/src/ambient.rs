@@ -51,7 +51,7 @@ impl Submit for UnsubmittedLocation {
 
     /// A location is submitted together with its transform, in one batch.
     fn submit(self) -> Self::Submitted {
-        task_context::with_changes(|collector| self.submit_to(collector))
+        self.submit_location()
     }
 }
 
@@ -84,7 +84,7 @@ where
     T: Object + 'static,
     SceneChange: From<Change<T::Change>>,
 {
-    task_context::with_changes(|collector| massive_scene::submit(collector, value))
+    massive_scene::submit(value)
 }
 
 /// Advance animations on the current task's animation clock: the timestamp comes from the task's
