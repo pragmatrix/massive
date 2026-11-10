@@ -20,7 +20,7 @@ impl ViewCenter {
         let transform = center_of(size).submit();
         let location = transform
             .to_location()
-            .relative_to(view.location())
+            .relative_to(&view.location())
             .submit();
         Self {
             transform,

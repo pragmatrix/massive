@@ -1,7 +1,7 @@
 use derive_more::From;
 use massive_geometry::Transform;
 
-use crate::{Id, LocationRenderObj, VisualRenderObj};
+use crate::{Id, Location, Visual};
 
 /// One structural change to a scene object as the renderer receives it.
 ///
@@ -10,8 +10,8 @@ use crate::{Id, LocationRenderObj, VisualRenderObj};
 #[derive(Debug, From)]
 pub enum RenderSceneChange {
     Transform(RenderChange<Transform>),
-    Location(RenderChange<LocationRenderObj>),
-    Visual(RenderChange<VisualRenderObj>),
+    Location(RenderChange<Location>),
+    Visual(RenderChange<Visual>),
 }
 
 /// A create, update, or delete of one object, keyed by its id.

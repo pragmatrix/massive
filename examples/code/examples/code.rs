@@ -270,7 +270,7 @@ async fn code(mut ctx: InstanceContext) -> Result<()> {
     let mut transform = gestures.get_transform(content_size).submit();
     let location = transform
         .to_location()
-        .relative_to(center.location())
+        .relative_to(&center.location())
         .submit();
 
     let _visual = glyph_runs

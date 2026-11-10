@@ -34,7 +34,7 @@ impl View {
 
         let size: Size = SizePx::from(extents.size().cast()).into();
         let local_transform = Transform::from(-size.center()).submit();
-        let location = local_transform.to_location().relative_to(parent).submit();
+        let location = local_transform.to_location().relative_to(&parent).submit();
 
         submit(InstanceChange::CreateView(ViewCreationInfo {
             id,

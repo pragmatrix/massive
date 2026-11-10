@@ -1,7 +1,7 @@
 use derive_more::From;
 use massive_geometry::Transform;
 
-use crate::{Id, LocationRenderObj, VisualRenderObj};
+use crate::{Id, Location, Visual};
 
 /// One structural change to a scene object, retyped into the receiving queue's change kind.
 ///
@@ -10,8 +10,8 @@ use crate::{Id, LocationRenderObj, VisualRenderObj};
 #[derive(Debug, From)]
 pub enum SceneChange {
     Transform(Change<Transform>),
-    Location(Change<LocationRenderObj>),
-    Visual(Change<VisualRenderObj>),
+    Location(Change<Location>),
+    Visual(Change<Visual>),
 }
 
 /// A create, update, retain, or release of one object, keyed by its id.

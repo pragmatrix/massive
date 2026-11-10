@@ -8,7 +8,7 @@ use smallvec::{SmallVec, smallvec};
 use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
-use massive_scene::{Id, LocationSpace, RenderSceneChange, VisualRenderObj};
+use massive_scene::{Id, LocationSpace, RenderSceneChange, Visual};
 
 use crate::RenderDevice;
 use crate::config::RendererConfig;
@@ -299,7 +299,7 @@ impl Renderer {
 
     fn visual_updated(
         id: Id,
-        visual: &VisualRenderObj,
+        visual: &Visual,
         config: &mut RendererConfig,
         pipelines: &[wgpu::RenderPipeline],
         context: &PreparationContext,
@@ -321,7 +321,7 @@ impl Renderer {
         render_batches.insert(
             id,
             RenderVisual {
-                location_id: visual.location,
+                location_id: visual.location.id(),
                 decal_order: visual.decal_order,
                 clip_bounds: visual.clip_bounds,
                 batches,

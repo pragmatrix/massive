@@ -173,7 +173,7 @@ impl Logs {
         let application_transform = gestures.get_transform((0, 0)).submit();
         let application_location = application_transform
             .to_location()
-            .relative_to(view_center)
+            .relative_to(&view_center)
             .submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.

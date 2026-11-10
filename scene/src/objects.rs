@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use massive_geometry::{Bounds, Transform};
-use massive_shapes::{GlyphRun, Shape};
+use massive_shapes::Shape;
 
-use crate::{Handle, Id, Object, Ref};
+use crate::lifetime_stage::{Kind, Targets, Tracked};
+use crate::{Handle, Object, ObjectId, Ref};
 
 /// The coordinate space root a location hierarchy starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,12 +17,12 @@ pub enum LocationSpace {
 
 /// The coordinate space root a location hierarchy starts in, or the parent location a hierarchy
 /// continues from.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocationParent {
     /// The location is the root of a hierarchy in the given coordinate space.
     Root(LocationSpace),
     /// The location is a child of another location and inherits its space.
-    Location(Ref<Location>),
+    Location(ObjectId<Location>),
 }
 
 impl From<LocationSpace> for LocationParent {
@@ -30,23 +31,21 @@ impl From<LocationSpace> for LocationParent {
     }
 }
 
-impl From<Ref<Location>> for LocationParent {
-    fn from(location: Ref<Location>) -> Self {
+impl From<ObjectId<Location>> for LocationParent {
+    fn from(location: ObjectId<Location>) -> Self {
         Self::Location(location)
     }
 }
 
-/// The parent of a location as uploaded to the renderer: roots carry their space, children
-/// reference the parent location by id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocationParentId {
-    Root(LocationSpace),
-    Location(Id),
+impl From<&Handle<Location>> for LocationParent {
+    fn from(location: &Handle<Location>) -> Self {
+        Self::Location(location.into())
+    }
 }
 
-impl From<LocationSpace> for LocationParentId {
-    fn from(space: LocationSpace) -> Self {
-        Self::Root(space)
+impl From<&Ref<Location>> for LocationParent {
+    fn from(location: &Ref<Location>) -> Self {
+        Self::Location(location.into())
     }
 }
 
@@ -61,11 +60,11 @@ pub struct ResolvedLocation {
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
-/// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
-/// the renderer then, or even just the [`Handle<Visual>`]?
-#[derive(Debug, PartialEq)]
+/// The renderer receives the visual itself with every change, so it refers to its location by id
+/// (ADR 0040).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Visual {
-    pub location: Ref<Location>,
+    pub location: ObjectId<Location>,
     /// Optional decal ordering value for this visual.
     ///
     /// If set, the renderer treats this visual as a decal and renders it in decal order using the
@@ -93,7 +92,7 @@ pub struct Visual {
 }
 
 impl Visual {
-    pub fn new(location: impl Into<Ref<Location>>, shapes: impl Into<Arc<[Shape]>>) -> Self {
+    pub fn new(location: impl Into<ObjectId<Location>>, shapes: impl Into<Arc<[Shape]>>) -> Self {
         Self {
             location: location.into(),
             decal_order: None,
@@ -134,61 +133,33 @@ impl Handle<Visual> {
     }
 }
 
-/// The render-side snapshot of a [`Visual`], carried inside a [`SceneChange`](crate::SceneChange).
-#[derive(Debug)]
-pub struct VisualRenderObj {
-    pub location: Id,
-    pub decal_order: Option<usize>,
-    pub clip_bounds: Option<Bounds>,
-    pub shapes: Arc<[Shape]>,
-}
+impl Object for Visual {}
 
-impl VisualRenderObj {
-    pub fn runs(&self) -> impl Iterator<Item = &GlyphRun> {
-        self.shapes.iter().filter_map(|s| {
-            if let Shape::GlyphRun(run) = s {
-                Some(run)
-            } else {
-                None
-            }
-        })
+impl Tracked for Visual {
+    const KIND: Kind = Kind::Visual;
+
+    fn targets(&self) -> Targets {
+        Targets::new([Some(self.location.into()), None])
     }
 }
 
-impl Object for Visual {
-    // And upload the render shape.
-    type Change = VisualRenderObj;
-
-    fn to_change(&self) -> Self::Change {
-        VisualRenderObj {
-            location: self.location.id(),
-            decal_order: self.decal_order,
-            clip_bounds: self.clip_bounds,
-            shapes: self.shapes.clone(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
+/// A location places what refers to it: its transform applies relative to its parent.
+///
+/// The renderer receives the location itself with every change, so it refers to its parent and
+/// its transform by id (ADR 0040).
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Location {
     pub parent: LocationParent,
-    pub transform: Ref<Transform>,
+    pub transform: ObjectId<Transform>,
     /// Alpha as set; consumers sanitize it into `[0, 1]` because it is a plain writable field.
     pub alpha: f32,
 }
 
-impl From<Handle<Transform>> for Location {
-    fn from(transform: Handle<Transform>) -> Self {
-        Self {
-            parent: LocationSpace::World.into(),
-            transform: transform.into(),
-            alpha: 1.0,
-        }
-    }
-}
-
 impl Location {
-    pub fn new(parent: impl Into<LocationParent>, transform: impl Into<Ref<Transform>>) -> Self {
+    pub fn new(
+        parent: impl Into<LocationParent>,
+        transform: impl Into<ObjectId<Transform>>,
+    ) -> Self {
         Self {
             parent: parent.into(),
             transform: transform.into(),
@@ -197,18 +168,23 @@ impl Location {
     }
 
     /// A root location in the given coordinate space.
-    pub fn root(space: LocationSpace, transform: impl Into<Ref<Transform>>) -> Self {
+    pub fn root(space: LocationSpace, transform: impl Into<ObjectId<Transform>>) -> Self {
         Self::new(space, transform)
     }
 
-    pub fn relative_to(mut self, parent: impl Into<Ref<Location>>) -> Self {
-        self.parent = parent.into().into();
+    pub fn relative_to(mut self, parent: impl Into<LocationParent>) -> Self {
+        self.parent = parent.into();
         self
     }
 
     pub fn with_alpha(mut self, alpha: f32) -> Self {
         self.alpha = alpha;
         self
+    }
+
+    /// Scene changes can be constructed directly, so the renderer must not trust their alpha.
+    pub fn sanitized_alpha(&self) -> f32 {
+        sanitize_alpha(self.alpha)
     }
 }
 
@@ -223,35 +199,17 @@ impl Handle<Location> {
     }
 }
 
-impl Object for Location {
-    type Change = LocationRenderObj;
+impl Object for Location {}
 
-    fn to_change(&self) -> Self::Change {
-        let parent = match &self.parent {
-            LocationParent::Root(space) => LocationParentId::Root(*space),
-            LocationParent::Location(parent) => LocationParentId::Location(parent.id()),
+impl Tracked for Location {
+    const KIND: Kind = Kind::Location;
+
+    fn targets(&self) -> Targets {
+        let parent = match self.parent {
+            LocationParent::Location(parent) => Some(parent.into()),
+            LocationParent::Root(_) => None,
         };
-        let transform = self.transform.id();
-        LocationRenderObj {
-            parent,
-            transform,
-            alpha: self.alpha,
-        }
-    }
-}
-
-/// The render-side snapshot of a [`Location`], carried inside a [`SceneChange`](crate::SceneChange).
-#[derive(Debug)]
-pub struct LocationRenderObj {
-    pub parent: LocationParentId,
-    pub transform: Id,
-    pub alpha: f32,
-}
-
-impl LocationRenderObj {
-    /// Scene changes can be constructed directly, so the renderer must not trust their alpha.
-    pub fn sanitized_alpha(&self) -> f32 {
-        sanitize_alpha(self.alpha)
+        Targets::new([Some(self.transform.into()), parent])
     }
 }
 
@@ -266,11 +224,13 @@ fn sanitize_alpha(alpha: f32) -> f32 {
     }
 }
 
-impl Object for Transform {
-    type Change = Self;
+impl Object for Transform {}
 
-    fn to_change(&self) -> Self::Change {
-        *self
+impl Tracked for Transform {
+    const KIND: Kind = Kind::Transform;
+
+    fn targets(&self) -> Targets {
+        Targets::default()
     }
 }
 
@@ -283,10 +243,9 @@ mod tests {
     fn location_new_defaults_to_opaque_alpha() {
         with_test_queue(|| {
             let transform = crate::submit(Transform::IDENTITY);
-            let location = Location::root(LocationSpace::World, transform);
+            let location = Location::root(LocationSpace::World, &transform);
 
             assert_eq!(location.alpha, 1.0);
-            assert_eq!(location.to_change().alpha, 1.0);
         });
     }
 
@@ -294,10 +253,9 @@ mod tests {
     fn location_alpha_is_stored_as_set() {
         with_test_queue(|| {
             let transform = crate::submit(Transform::IDENTITY);
-            let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);
+            let location = Location::root(LocationSpace::World, &transform).with_alpha(2.0);
 
             assert_eq!(location.alpha, 2.0);
-            assert_eq!(location.to_change().alpha, 2.0);
         });
     }
 }

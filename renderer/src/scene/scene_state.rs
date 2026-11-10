@@ -1,4 +1,4 @@
-use massive_scene::{ChangedIds, Id, RenderSceneChange, VisualRenderObj};
+use massive_scene::{ChangedIds, Id, RenderSceneChange, Visual};
 
 use crate::scene::{LocationTransforms, Scene};
 use crate::{TransactionManager, Version};
@@ -38,7 +38,7 @@ impl SceneState {
 
     /// Drain the visuals that changed since the previous call, each with its current state, or
     /// `None` when it was deleted.
-    pub fn take_changed_visuals(&mut self) -> impl Iterator<Item = (Id, Option<&VisualRenderObj>)> {
+    pub fn take_changed_visuals(&mut self) -> impl Iterator<Item = (Id, Option<&Visual>)> {
         let visuals = self.scene.visuals();
         self.changed_visuals
             .take_all()

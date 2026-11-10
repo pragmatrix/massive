@@ -1,7 +1,5 @@
 use massive_geometry::Matrix4;
-use massive_scene::{
-    Id, LocationParentId, LocationRenderObj, LocationSpace, ResolvedLocation, Transform,
-};
+use massive_scene::{Id, Location, LocationParent, LocationSpace, ResolvedLocation, Transform};
 
 use crate::Transaction;
 use crate::Version;
@@ -78,7 +76,7 @@ struct VisualLocation;
 
 impl DependencyResolver for VisualLocation {
     type SourceStorage = Scene;
-    type Source = LocationRenderObj;
+    type Source = Location;
 
     type ComputedStorage = LocationTransforms;
     type Computed = ResolvedLocation;
@@ -94,8 +92,8 @@ impl DependencyResolver for VisualLocation {
         caches: &mut LocationTransforms,
     ) -> Version {
         let (parent_id, transform_id) = match source.parent {
-            LocationParentId::Location(parent_id) => (Some(parent_id), source.transform),
-            LocationParentId::Root(_) => (None, source.transform),
+            LocationParent::Location(parent) => (Some(parent.id()), source.transform.id()),
+            LocationParent::Root(_) => (None, source.transform.id()),
         };
 
         // Find out the max version of all the immediate and (indirect / computed) dependencies.
@@ -129,10 +127,10 @@ impl DependencyResolver for VisualLocation {
         // Sanitize each factor before composition; clamping only the product changes its meaning.
         let local_alpha = source.sanitized_alpha();
         let (parent_id, transform_id) = match source.parent {
-            LocationParentId::Location(parent_id) => (Some(parent_id), source.transform),
-            LocationParentId::Root(space) => {
+            LocationParent::Location(parent) => (Some(parent.id()), source.transform.id()),
+            LocationParent::Root(space) => {
                 return ResolvedLocation {
-                    transform: *scene.transforms[source.transform],
+                    transform: *scene.transforms[source.transform.id()],
                     alpha: local_alpha,
                     space,
                 };
@@ -179,7 +177,7 @@ impl Default for Versioned<Transform> {
 #[cfg(test)]
 mod tests {
     use massive_geometry::Vector3;
-    use massive_scene::{Location, RenderChange, RenderSceneChange, id_generator};
+    use massive_scene::{Location, ObjectId, RenderChange, RenderSceneChange, id_generator};
 
     use super::*;
     use crate::TransactionManager;
@@ -231,9 +229,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Create(
                 parent_location_id,
-                LocationRenderObj {
+                Location {
                     parent: LocationSpace::World.into(),
-                    transform: parent_transform_id,
+                    transform: ObjectId::new(parent_transform_id),
                     alpha: 0.5,
                 },
             )),
@@ -242,9 +240,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Create(
                 child_location_id,
-                LocationRenderObj {
-                    parent: LocationParentId::Location(parent_location_id),
-                    transform: child_transform_id,
+                Location {
+                    parent: LocationParent::Location(ObjectId::new(parent_location_id)),
+                    transform: ObjectId::new(child_transform_id),
                     alpha: 0.25,
                 },
             )),
@@ -288,9 +286,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Create(
                 parent_location_id,
-                LocationRenderObj {
+                Location {
                     parent: LocationSpace::World.into(),
-                    transform: parent_transform_id,
+                    transform: ObjectId::new(parent_transform_id),
                     alpha: 0.5,
                 },
             )),
@@ -299,9 +297,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Create(
                 child_location_id,
-                LocationRenderObj {
-                    parent: LocationParentId::Location(parent_location_id),
-                    transform: child_transform_id,
+                Location {
+                    parent: LocationParent::Location(ObjectId::new(parent_location_id)),
+                    transform: ObjectId::new(child_transform_id),
                     alpha: 2.0,
                 },
             )),
@@ -335,9 +333,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Create(
                 location_id,
-                LocationRenderObj {
+                Location {
                     parent: LocationSpace::World.into(),
-                    transform: transform_id,
+                    transform: ObjectId::new(transform_id),
                     alpha: 0.25,
                 },
             )),
@@ -362,9 +360,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Update(
                 location_id,
-                LocationRenderObj {
+                Location {
                     parent: LocationSpace::World.into(),
-                    transform: transform_id,
+                    transform: ObjectId::new(transform_id),
                     alpha: 0.75,
                 },
             )),
@@ -395,9 +393,9 @@ mod tests {
         scene.apply(
             RenderSceneChange::Location(RenderChange::Create(
                 location_id,
-                LocationRenderObj {
+                Location {
                     parent: LocationSpace::World.into(),
-                    transform: transform_id,
+                    transform: ObjectId::new(transform_id),
                     alpha,
                 },
             )),

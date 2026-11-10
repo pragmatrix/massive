@@ -82,7 +82,7 @@ impl Submit for Transform {
 fn submit_object<T>(value: T) -> Handle<T>
 where
     T: Object + 'static,
-    SceneChange: From<Change<T::Change>>,
+    SceneChange: From<Change<T>>,
 {
     massive_scene::submit(value)
 }

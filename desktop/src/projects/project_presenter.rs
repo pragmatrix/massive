@@ -78,7 +78,7 @@ impl ProjectPresenter {
     }
 
     pub fn set_parent_location(&mut self, parent: &Ref<Location>) {
-        self.location.set_parent(parent.clone());
+        self.location.set_parent(parent);
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {

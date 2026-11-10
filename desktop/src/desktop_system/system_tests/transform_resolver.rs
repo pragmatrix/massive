@@ -1,26 +1,26 @@
 use std::collections::HashMap;
 
 use massive_scene::{
-    Change, Id, LocationParentId, LocationRenderObj, ResolvedLocation, SceneChange, Transform,
+    Change, Id, Location, LocationParent, ResolvedLocation, SceneChange, Transform,
 };
 
 /// Resolve final transforms of locations from a batch of submitted scene changes, for tests that
 /// check where the scene draws a target.
 ///
 /// It resolves what the renderer would receive, by walking the parent ids of the submitted
-/// locations, because a [`Ref`](massive_scene::Ref) carries only an id and cannot read its object
-/// (ADR 0040). The resolved alpha is sanitized, invariant for every [`ResolvedLocation`],
+/// locations. Client code holds only handles and references, which cannot walk to a parent's
+/// value (ADR 0040). The resolved alpha is sanitized, invariant for every [`ResolvedLocation`],
 /// including the cached ones.
 #[derive(Debug)]
-pub struct TransformResolver<'a> {
+pub struct TransformResolver {
     transforms: HashMap<Id, Transform>,
-    locations: HashMap<Id, &'a LocationRenderObj>,
+    locations: HashMap<Id, Location>,
     resolved: HashMap<Id, ResolvedLocation>,
 }
 
-impl<'a> TransformResolver<'a> {
+impl TransformResolver {
     /// Collect the latest state of each transform and location that `changes` creates or updates.
-    pub fn new(changes: &'a [SceneChange]) -> Self {
+    pub fn new(changes: &[SceneChange]) -> Self {
         let mut transforms = HashMap::new();
         let mut locations = HashMap::new();
         for change in changes {
@@ -33,7 +33,7 @@ impl<'a> TransformResolver<'a> {
                 SceneChange::Location(
                     Change::Create(id, location) | Change::Update(id, location),
                 ) => {
-                    locations.insert(*id, location);
+                    locations.insert(*id, *location);
                 }
                 SceneChange::Transform(Change::Retain(_) | Change::Release(_))
                 | SceneChange::Location(Change::Retain(_) | Change::Release(_))
@@ -55,26 +55,28 @@ impl<'a> TransformResolver<'a> {
             return resolved;
         }
 
-        let render_obj = *self
+        let location_value = *self
             .locations
             .get(&location)
             .unwrap_or_else(|| panic!("Location {location:?} was not submitted"));
         let local_transform = *self
             .transforms
-            .get(&render_obj.transform)
-            .unwrap_or_else(|| panic!("Transform {:?} was not submitted", render_obj.transform));
-        let local_alpha = render_obj.sanitized_alpha();
+            .get(&location_value.transform.id())
+            .unwrap_or_else(|| {
+                panic!("Transform {:?} was not submitted", location_value.transform)
+            });
+        let local_alpha = location_value.sanitized_alpha();
 
-        let resolved = match render_obj.parent {
+        let resolved = match location_value.parent {
             // Roots are terminal: their space is the resolved space.
-            LocationParentId::Root(space) => ResolvedLocation {
+            LocationParent::Root(space) => ResolvedLocation {
                 transform: local_transform,
                 alpha: local_alpha,
                 space,
             },
             // A child inherits its root space from the resolved parent.
-            LocationParentId::Location(parent) => {
-                let parent_resolved = self.resolve(parent);
+            LocationParent::Location(parent) => {
+                let parent_resolved = self.resolve(parent.id());
                 ResolvedLocation {
                     transform: parent_resolved.transform * local_transform,
                     alpha: parent_resolved.alpha * local_alpha,

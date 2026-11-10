@@ -39,21 +39,32 @@ the instance root had two writers. The instance presenter and its movement closu
   to keep an object alive uses `Handle::to_ref`. Shared writing, if it is ever needed again, is
   spelled out as `Arc<Mutex<Handle<T>>>` at the site that needs it.
 - `Ref<T>` is a counted reference that keeps its object alive. It carries only the id, so it cannot
-  read the value. Application code reads values only through its own handles. The one reader
-  through `Ref`s was `TransformResolver`, which a desktop test uses to resolve a launcher's
-  transform. It now resolves from a batch of submitted scene changes instead, by walking their
-  parent ids, which is also what the renderer receives. Because only that test needs it, it moves
-  from `massive-scene` into the desktop's system tests.
+  read the value. Client code holds a `Ref` where it keeps an object alive without writing it, such
+  as a presenter's parent location, an instance's `view_parent`, or mt's scroll bucket locations.
+  Application code reads values only through its own handles. The one reader through `Ref`s was
+  `TransformResolver`, which a desktop test uses to resolve a launcher's transform. It now resolves
+  from a batch of submitted scene changes instead, by walking their parent ids, which is also what
+  the renderer receives. Because only that test needs it, it moves from `massive-scene` into the
+  desktop's system tests.
+- A value refers to other objects by `ObjectId<T>`, a typed id that does not count. A visual names
+  its location, and a location its transform and its parent, this way. The lifetime stage counts
+  these references itself, for as long as the referring object lives. A counted `Ref` inside a
+  value would not do. The value lives in the handle, so dropping the handle would release the
+  value's references while a `Ref` still kept the object alive. The object would then outlive its
+  own transform or parent, which mt showed as content without its padding transform.
+- The values are the render objects. `Visual`, `Location` and `Transform` travel to the renderer as
+  they are, and `VisualRenderObj`, `LocationRenderObj` and `LocationParentId` go away. The `Object`
+  trait becomes a marker without an associated change type. The renderer reads typed ids, so it
+  cannot confuse one object kind's id with another's.
 - `Handle` keeps only `Debug`. It is not `PartialEq` or `Hash`, because a unique handle only equals
-  itself. `Ref` stays `PartialEq` and `Hash` by id, because a location's parent compares through it.
+  itself. `Ref` keeps only `Debug` and its counted `Clone`, because nothing compares or hashes
+  references.
 - `Handle::update_if_changed_with` gives way to typed setters: `set_parent` and `set_alpha` on a
   location's handle, `set_shapes` and `set_clip_bounds` on a visual's handle. Every caller set
   exactly one field. Each setter compares that field with the new value and sends the update only
-  when they differ, which needs no snapshot of the old value. A snapshot would clone the value's
-  `Ref`s and so send a `Retain` and a `Release` for each.
+  when they differ, which needs no snapshot of the old value.
 - `InnerHandle`, `HandleValue`, `Ref::value` and the conversion `From<&Handle<T>> for Handle<T>` go
-  away. `Visual` and `Location` lose `Clone`, which nothing needs, so no clone sends hidden
-  `Retain`s.
+  away.
 
 ### Changes
 
@@ -77,11 +88,15 @@ the shell only transports `Change<T>`. The stage takes each drained batch and do
 
 - It passes `Create` and `Update` on.
 - It counts `Retain` and `Release` per object.
+- It counts one reference for every object that a created location or visual refers to, and
+  records those targets. An update that changes the targets counts the new ones before it releases
+  the previous ones, so a target both refer to never reaches zero in between. An update that keeps
+  its targets leaves the counts alone.
 - It emits `Delete` when an object's count reaches zero, and returns the object's id to the id
-  generator.
+  generator. It then releases the ended object's targets, which may end them in the same batch.
 
-The stage keeps its counts in one plain vector per object kind, indexed by id, because ids are dense
-per kind. Its code lives in `massive-scene`, next to the id generator it takes over. Each window
+The stage keeps its counts, and the targets of live locations and visuals, in one plain vector per
+object kind, indexed by id, because ids are dense per kind. Its code lives in `massive-scene`, next to the id generator it takes over. Each window
 renderer has its own stage.
 
 ### Where a handle sends its changes
@@ -174,11 +189,15 @@ enforced.
   message from it. If a `Ref` ever reaches another task by any other path, its `Release` can
   overtake its `Retain`. The stage then deletes an object that is still referenced, and no error
   reports it.
-- **A batch stays whole.** A dropped handle sends its own `Release`, and then the `Release`s of the
-  references in its value, in one synchronous call. An update that replaces a reference sends the
-  `Release` of the old target and the `Update` in one call. Each task drains its queue only in its
-  own frame submission, so these changes land in the same batch. The stage must neither split a
-  batch nor carry a `Delete` into the next one.
+- **A batch stays whole.** The stage ends an object and releases what it referred to while it
+  resolves the batch that holds the object's last `Release`, so their deletes land in the same
+  batch. Each task drains its queue only in its own frame submission, so the changes of one
+  synchronous call land in the same batch, too. The stage must neither split a batch nor carry a
+  `Delete` into the next one.
+- **An id outlives its source until it is submitted.** An `ObjectId` does not keep its object
+  alive. The handle or `Ref` it was taken from has to live until the value holding the id is
+  submitted. Today every value is built in the expression that submits it, and the stage's
+  `Retain` assertion fails loudly when an id refers to an object that has already ended.
 - **The renderer resolves references only between batches.** `SceneState::apply_changes` only
   writes table rows, and locations are resolved later, in `prepare`. So the order of changes inside
   a batch does not matter, only the state at its end. Drop order is not involved.
@@ -210,6 +229,14 @@ run it at its own edge.
 
 ## Considered Options
 
+- **Counted `Ref`s inside values.** This was the first version of this decision. It broke as soon as
+  a `Ref` outlived the handle of the object holding it, as described for `ObjectId` above.
+- **A dropped handle hands its value's `Ref`s over to the stage.** `Handle::drop` would suppress the
+  releases of the `Ref`s in its value through a thread-local flag, and the stage would release them
+  when the object ends. That keeps `Ref` in the values, but a hidden flag would change what
+  dropping a `Ref` means, and the stage would need the same record of targets anyway.
+- **The value lives as long as the object.** That needs shared ownership of the value, which is an
+  `Arc` per object again.
 - **Arena handles.** The renderer side already is an arena. `Id` is a dense, recycled `u32`, and
   `IdTable` is a vector indexed by it. Copyable arena handles would give up the guarantee that a
   referenced object outlives its referrers, and no stale id can occur today.
@@ -238,9 +265,9 @@ run it at its own edge.
 
 - A `Ref` that is forgotten with `mem::forget`, or caught in a cycle, leaks its object. It never
   leaves a reference dangling.
-- Building a value with a `Ref` sends a `Retain`. An animation that rebuilds a whole `Visual` every
-  frame therefore sends a `Retain` and a `Release` per frame. The desktop's hover and zoom level
-  indicator set only their shapes through `set_shapes` instead.
+- Building a value sends nothing, because it holds ids, so values can be built and cloned freely.
+  The desktop's hover and zoom level indicator still set only their shapes through `set_shapes`,
+  which leaves their location and decal order alone.
 - A handle holds its value inline, so a type with many handles grows. `InstanceRoot` holds six, so
   the two enum variants that carry one, `DesktopCommand::StartInstance` and
   `DesktopChange::PresentInstance`, box their payload. Unboxed, every command and every change

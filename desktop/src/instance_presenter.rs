@@ -101,13 +101,11 @@ struct InstanceLocations {
 impl InstanceRoot {
     pub fn new() -> Self {
         let (layout_transform, layout_location) = identity_location().submit();
-        let (content_transform, content_location) = identity_location()
-            .relative_to(layout_location.to_ref())
-            .submit();
+        let (content_transform, content_location) =
+            identity_location().relative_to(&layout_location).submit();
 
-        let (view_transform, view_location) = identity_location()
-            .relative_to(content_location.to_ref())
-            .submit();
+        let (view_transform, view_location) =
+            identity_location().relative_to(&content_location).submit();
 
         Self {
             layout_transform,
@@ -206,7 +204,7 @@ impl InstancePresenter {
             locations,
         } = root;
 
-        layout_location.set_parent(parent);
+        layout_location.set_parent(&parent);
 
         let has_initial_center_translation = initial_center_translation.is_some();
         let initial_center_translation = initial_center_translation.unwrap_or_default();

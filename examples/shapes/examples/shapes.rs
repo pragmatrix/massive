@@ -256,7 +256,7 @@ async fn run(mut ctx: InstanceContext) -> Result<()> {
     let mut transform = gestures.get_transform((page_width, page_height)).submit();
     let location = transform
         .to_location()
-        .relative_to(center.location())
+        .relative_to(&center.location())
         .submit();
 
     let _visual = shapes.at(&location).with_decal_order(0).submit();

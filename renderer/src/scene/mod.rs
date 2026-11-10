@@ -1,6 +1,4 @@
-use massive_scene::{
-    Id, LocationRenderObj, RenderChange, RenderSceneChange, Transform, VisualRenderObj,
-};
+use massive_scene::{Id, Location, RenderChange, RenderSceneChange, Transform, Visual};
 
 use crate::{Transaction, Version, tools::Versioned};
 
@@ -19,8 +17,8 @@ pub struct Scene {
     //
     // Optimization: Defaults could be used here.
     transforms: IdTable<Versioned<Transform>>,
-    locations: IdTable<Option<Versioned<LocationRenderObj>>>,
-    visuals: IdTable<Option<VisualRenderObj>>,
+    locations: IdTable<Option<Versioned<Location>>>,
+    visuals: IdTable<Option<Visual>>,
 }
 
 impl Scene {
@@ -41,7 +39,7 @@ impl Scene {
         }
     }
 
-    pub fn visuals(&self) -> &IdTable<Option<VisualRenderObj>> {
+    pub fn visuals(&self) -> &IdTable<Option<Visual>> {
         &self.visuals
     }
 }

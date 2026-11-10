@@ -237,7 +237,7 @@ impl LauncherPresenter {
     /// Attaches the launcher's scene location to another parent location. This is used when the
     /// launcher's slot moves to the matrix of another project.
     pub fn set_parent_location(&mut self, parent: &Ref<Location>) {
-        self.location.set_parent(parent.clone());
+        self.location.set_parent(parent);
     }
 
     /// Shows a changed MCP activation (ADR 0036).

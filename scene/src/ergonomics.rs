@@ -9,7 +9,7 @@ use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
 use crate::scene::submit_pair;
-use crate::{Handle, Location, LocationParent, LocationSpace, Ref, Visual};
+use crate::{Handle, Location, LocationParent, LocationSpace, ObjectId, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -70,8 +70,8 @@ impl UnsubmittedLocation {
     }
 
     /// Make the location a child of the given parent location.
-    pub fn relative_to(mut self, parent: impl Into<Ref<Location>>) -> Self {
-        self.parent = parent.into().into();
+    pub fn relative_to(mut self, parent: impl Into<LocationParent>) -> Self {
+        self.parent = parent.into();
         self
     }
 
@@ -145,22 +145,22 @@ impl VisualWithoutLocation {
     }
 
     #[must_use = "the visual is not placed until it is `.submit()`ted"]
-    pub fn at(self, location: impl Into<Ref<Location>>) -> Visual {
-        Visual::new(location.into(), self.shapes)
+    pub fn at(self, location: impl Into<ObjectId<Location>>) -> Visual {
+        Visual::new(location, self.shapes)
     }
 }
 
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
     #[must_use = "the visual is not visible until `.submit()` is called"]
-    fn at(self, location: impl Into<Ref<Location>>) -> Visual;
+    fn at(self, location: impl Into<ObjectId<Location>>) -> Visual;
 }
 
 impl<T> At for T
 where
     T: IntoVisual,
 {
-    fn at(self, location: impl Into<Ref<Location>>) -> Visual {
+    fn at(self, location: impl Into<ObjectId<Location>>) -> Visual {
         self.into_visual().at(location)
     }
 }
