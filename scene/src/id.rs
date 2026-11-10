@@ -1,6 +1,6 @@
 use std::{fmt, hash, marker::PhantomData};
 
-use crate::{Change, Handle, Object, Ref, SceneChange};
+use crate::{Handle, Object, Ref};
 
 /// The identifier of a scene object of type `T`, which also indexes the renderer's tables of that
 /// type.
@@ -35,19 +35,13 @@ impl<T> Id<T> {
     }
 }
 
-impl<T: Object> From<&Handle<T>> for Id<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> From<&Handle<T>> for Id<T> {
     fn from(handle: &Handle<T>) -> Self {
         handle.id()
     }
 }
 
-impl<T: Object> From<&Ref<T>> for Id<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> From<&Ref<T>> for Id<T> {
     fn from(reference: &Ref<T>) -> Self {
         reference.id()
     }
@@ -84,13 +78,20 @@ impl<T> fmt::Debug for Id<T> {
 }
 
 /// Hands out the dense indices of one object type's ids, reusing released ones first.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Generator {
     next_index: u32,
     free_list: Vec<u32>,
 }
 
 impl Generator {
+    pub const fn new() -> Self {
+        Self {
+            next_index: 0,
+            free_list: Vec::new(),
+        }
+    }
+
     pub fn acquire(&mut self) -> u32 {
         if let Some(free) = self.free_list.pop() {
             return free;

@@ -13,9 +13,7 @@
 //! them.
 
 use massive_animation::{Animated, Interpolatable, Interpolation, TimeScale};
-use massive_scene::{
-    Change, Handle, Location, Object, SceneChange, Transform, UnsubmittedLocation, Visual,
-};
+use massive_scene::{Handle, Location, Object, Transform, UnsubmittedLocation, Visual};
 use massive_shapes::{GlyphRun, SizedTextShaper};
 use std::time::Duration;
 
@@ -81,8 +79,7 @@ impl Submit for Transform {
 
 fn submit_object<T>(value: T) -> Handle<T>
 where
-    T: Object + 'static,
-    SceneChange: From<Change<T>>,
+    T: Object,
 {
     massive_scene::submit(value)
 }

@@ -35,11 +35,11 @@ mod current_queue;
 mod ergonomics;
 mod handle;
 mod id;
+pub mod id_generator;
 mod lifetime_stage;
 mod objects;
 mod render_change;
 mod scene;
-mod type_id_generator;
 
 pub use any_collector::AnyCollector;
 pub use change::*;
@@ -53,7 +53,6 @@ pub use render_change::*;
 pub mod prelude;
 pub use ergonomics::UnsubmittedLocation;
 pub use scene::submit;
-pub use type_id_generator::id_generator;
 
 use massive_util::{self as util};
 

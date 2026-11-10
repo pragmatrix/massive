@@ -1,6 +1,9 @@
 use std::{fmt, marker::PhantomData};
 
-use crate::{Change, Id, SceneChange, current_queue, id_generator};
+use crate::lifetime_stage::{Kind, Targets};
+use crate::{
+    Change, Id, RenderChange, RenderSceneChange, SceneChange, current_queue, id_generator,
+};
 
 /// The single owner and writer of an object submitted to a queue.
 ///
@@ -8,40 +11,18 @@ use crate::{Change, Id, SceneChange, current_queue, id_generator};
 /// (ADR 0040). A handle is not `Clone`, because a clone would hold its own copy of the value, and
 /// two writers would overwrite each other's snapshots. Code that only keeps the object alive holds
 /// a [`Ref`].
-pub struct Handle<T: Object>
-where
-    SceneChange: From<Change<T>>,
-{
+#[derive(Debug)]
+pub struct Handle<T: Object> {
     id: Id<T>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.
     value: T,
 }
 
-impl<T: Object> fmt::Debug for Handle<T>
-where
-    SceneChange: From<Change<T>>,
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Handle")
-            .field("id", &self.id)
-            .field("value", &self.value)
-            .finish()
-    }
-}
-
-impl<T: Object> Handle<T>
-where
-    SceneChange: From<Change<T>>,
-{
-    pub(crate) fn new(value: T) -> Self
-    where
-        T: 'static,
-    {
-        // Ids are keyed by type, which is what needs the 'static bound here.
+impl<T: Object> Handle<T> {
+    pub(crate) fn new(value: T) -> Self {
         let id = id_generator::acquire::<T>();
-        current_queue::send(Change::Create(id, value.clone()).into());
+        current_queue::send(T::scene_change(Change::Create(id, value.clone())));
         Self { id, value }
     }
 
@@ -95,16 +76,13 @@ where
     }
 
     fn send_update(&self) {
-        current_queue::send(Change::Update(self.id, self.value.clone()).into());
+        current_queue::send(T::scene_change(Change::Update(self.id, self.value.clone())));
     }
 }
 
-impl<T: Object> Drop for Handle<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> Drop for Handle<T> {
     fn drop(&mut self) {
-        current_queue::send(Change::Release(self.id).into());
+        current_queue::send(T::scene_change(Change::Release(self.id)));
     }
 }
 
@@ -113,24 +91,18 @@ where
 /// Each reference counts once in the lifetime stage, which deletes the object only after its handle,
 /// every reference, and every live object that refers to it are gone (ADR 0040). A reference
 /// carries only the object's id, so it cannot read the value.
-pub struct Ref<T: Object>
-where
-    SceneChange: From<Change<T>>,
-{
+pub struct Ref<T: Object> {
     id: Id<T>,
     object: PhantomData<fn() -> T>,
 }
 
-impl<T: Object> Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> Ref<T> {
     pub fn id(&self) -> Id<T> {
         self.id
     }
 
     fn retain(id: Id<T>) -> Self {
-        current_queue::send(Change::<T>::Retain(id).into());
+        current_queue::send(T::scene_change(Change::Retain(id)));
         Self {
             id,
             object: PhantomData,
@@ -138,55 +110,37 @@ where
     }
 }
 
-impl<T: Object> fmt::Debug for Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> fmt::Debug for Ref<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("Ref").field("id", &self.id).finish()
     }
 }
 
-impl<T: Object> Clone for Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> Clone for Ref<T> {
     fn clone(&self) -> Self {
         Self::retain(self.id)
     }
 }
 
-impl<T: Object> Drop for Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> Drop for Ref<T> {
     fn drop(&mut self) {
-        current_queue::send(Change::<T>::Release(self.id).into());
+        current_queue::send(T::scene_change(Change::Release(self.id)));
     }
 }
 
-impl<T: Object> From<Handle<T>> for Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> From<Handle<T>> for Ref<T> {
     fn from(value: Handle<T>) -> Self {
         value.to_ref()
     }
 }
 
-impl<T: Object> From<&Handle<T>> for Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> From<&Handle<T>> for Ref<T> {
     fn from(value: &Handle<T>) -> Self {
         value.to_ref()
     }
 }
 
-impl<T: Object> From<&Ref<T>> for Ref<T>
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> From<&Ref<T>> for Ref<T> {
     fn from(value: &Ref<T>) -> Self {
         value.clone()
     }
@@ -195,9 +149,22 @@ where
 /// A kind of scene object: a transform, a location, or a visual.
 ///
 /// The renderer receives the value itself with every change, which is why a value refers to other
-/// objects by [`Id`](crate::Id), never by a counted reference (ADR 0040).
-pub trait Object: Sized + Clone + fmt::Debug
-where
-    SceneChange: From<Change<Self>>,
-{
+/// objects by [`Id`], never by a counted reference (ADR 0040). The trait is sealed, because the
+/// lifetime stage and the renderer handle exactly these three kinds.
+pub trait Object: Sized + Clone + fmt::Debug + sealed::Sealed {
+    /// The kind, which selects the object's id space and its tables.
+    const KIND: Kind;
+
+    /// The objects this value refers to. The lifetime stage counts them for as long as the object
+    /// lives.
+    fn targets(&self) -> Targets;
+
+    fn scene_change(change: Change<Self>) -> SceneChange;
+
+    fn render_change(change: RenderChange<Self>) -> RenderSceneChange;
+}
+
+/// Keeps [`Object`] implemented by the crate's own object types only.
+pub mod sealed {
+    pub trait Sealed {}
 }

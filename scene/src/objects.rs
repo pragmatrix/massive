@@ -3,8 +3,9 @@ use std::sync::Arc;
 use massive_geometry::{Bounds, Transform};
 use massive_shapes::Shape;
 
-use crate::lifetime_stage::{Kind, Targets, Tracked};
-use crate::{Handle, Id, Object, Ref};
+use crate::handle::sealed::Sealed;
+use crate::lifetime_stage::{Kind, Targets};
+use crate::{Change, Handle, Id, Object, Ref, RenderChange, RenderSceneChange, SceneChange};
 
 /// The coordinate space root a location hierarchy starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,13 +134,21 @@ impl Handle<Visual> {
     }
 }
 
-impl Object for Visual {}
+impl Sealed for Visual {}
 
-impl Tracked for Visual {
+impl Object for Visual {
     const KIND: Kind = Kind::Visual;
 
     fn targets(&self) -> Targets {
         Targets::new([Some(self.location.into()), None])
+    }
+
+    fn scene_change(change: Change<Self>) -> SceneChange {
+        SceneChange::Visual(change)
+    }
+
+    fn render_change(change: RenderChange<Self>) -> RenderSceneChange {
+        RenderSceneChange::Visual(change)
     }
 }
 
@@ -196,9 +205,9 @@ impl Handle<Location> {
     }
 }
 
-impl Object for Location {}
+impl Sealed for Location {}
 
-impl Tracked for Location {
+impl Object for Location {
     const KIND: Kind = Kind::Location;
 
     fn targets(&self) -> Targets {
@@ -207,6 +216,14 @@ impl Tracked for Location {
             LocationParent::Root(_) => None,
         };
         Targets::new([Some(self.transform.into()), parent])
+    }
+
+    fn scene_change(change: Change<Self>) -> SceneChange {
+        SceneChange::Location(change)
+    }
+
+    fn render_change(change: RenderChange<Self>) -> RenderSceneChange {
+        RenderSceneChange::Location(change)
     }
 }
 
@@ -221,13 +238,21 @@ fn sanitize_alpha(alpha: f32) -> f32 {
     }
 }
 
-impl Object for Transform {}
+impl Sealed for Transform {}
 
-impl Tracked for Transform {
+impl Object for Transform {
     const KIND: Kind = Kind::Transform;
 
     fn targets(&self) -> Targets {
         Targets::default()
+    }
+
+    fn scene_change(change: Change<Self>) -> SceneChange {
+        SceneChange::Transform(change)
+    }
+
+    fn render_change(change: RenderChange<Self>) -> RenderSceneChange {
+        RenderSceneChange::Transform(change)
     }
 }
 

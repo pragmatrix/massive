@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use massive_geometry::Transform;
 
 use crate::{
@@ -15,7 +13,7 @@ use crate::{
 /// count reaches zero, the stage emits the object's delete, returns its id to the id generator,
 /// and releases what the object referred to, which may end those objects in turn.
 ///
-/// Each batch stays whole: an object released in a batch is deleted in that same batch. The renderer
+/// Each batch stays whole. An object released in a batch is deleted in that same batch. The renderer
 /// relies on that, because it resolves references only between batches.
 #[derive(Debug, Default)]
 pub struct LifetimeStage {
@@ -46,11 +44,7 @@ impl LifetimeStage {
         resolution.render_changes
     }
 
-    fn resolve_change<T: Tracked>(&mut self, change: Change<T>, resolution: &mut Resolution)
-    where
-        SceneChange: From<Change<T>>,
-        RenderSceneChange: From<RenderChange<T>>,
-    {
+    fn resolve_change<T: Object>(&mut self, change: Change<T>, resolution: &mut Resolution) {
         match change {
             Change::Create(id, value) => {
                 let targets = value.targets();
@@ -58,7 +52,7 @@ impl LifetimeStage {
                 let table = self.table(T::KIND);
                 table.counts.create(id.index());
                 table.targets.set(id.index(), targets);
-                resolution.emit(RenderChange::Create(id, value));
+                resolution.emit(T::render_change(RenderChange::Create(id, value)));
             }
             Change::Update(id, value) => {
                 let targets = value.targets();
@@ -75,7 +69,7 @@ impl LifetimeStage {
                     self.retain_all(targets);
                     self.release_all(previous.iter(), resolution);
                 }
-                resolution.emit(RenderChange::Update(id, value));
+                resolution.emit(T::render_change(RenderChange::Update(id, value)));
             }
             Change::Retain(id) => self.table(T::KIND).counts.retain(id.index()),
             Change::Release(id) => self.release_all([Target::from(id)], resolution),
@@ -116,18 +110,7 @@ impl LifetimeStage {
     }
 }
 
-/// The lifetime stage's view of an object: its kind, and what it refers to.
-pub trait Tracked: Object
-where
-    SceneChange: From<Change<Self>>,
-{
-    const KIND: Kind;
-
-    /// The objects this value refers to. The stage counts them for as long as the object lives.
-    fn targets(&self) -> Targets;
-}
-
-/// The kind of an object, which selects its table in the stage.
+/// The kind of a scene object, which selects its id space and its tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Transform,
@@ -136,15 +119,12 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The object type the id generator hands this kind's ids out under.
-    fn type_id(self) -> TypeId {
-        match self {
-            Kind::Transform => TypeId::of::<Transform>(),
-            Kind::Location => TypeId::of::<Location>(),
-            Kind::Visual => TypeId::of::<Visual>(),
-        }
+    /// The position of this kind's id space and tables in arrays of all three.
+    pub(crate) fn index(self) -> usize {
+        self as usize
     }
 
+    /// The delete the renderer receives for an ended object of this kind.
     fn delete(self, index: u32) -> RenderSceneChange {
         match self {
             Kind::Transform => RenderChange::Delete(Id::<Transform>::from_index(index)).into(),
@@ -160,14 +140,11 @@ impl Kind {
 /// of every kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {
-    kind: Kind,
-    index: u32,
+    pub(crate) kind: Kind,
+    pub(crate) index: u32,
 }
 
-impl<T: Tracked> From<Id<T>> for Target
-where
-    SceneChange: From<Change<T>>,
-{
+impl<T: Object> From<Id<T>> for Target {
     fn from(object: Id<T>) -> Self {
         Self {
             kind: T::KIND,
@@ -182,6 +159,7 @@ where
 pub struct Targets([Option<Target>; 2]);
 
 impl Targets {
+    /// The targets of one object, built by its [`Object::targets`].
     pub fn new(targets: [Option<Target>; 2]) -> Self {
         Self(targets)
     }
@@ -199,30 +177,27 @@ struct Table {
     targets: Slots<Targets>,
 }
 
-/// What resolving one batch produces: the render changes, and the ids of the objects that ended.
+/// What resolving one batch produces: the render changes, and the objects that ended.
 #[derive(Debug)]
 struct Resolution {
     render_changes: Vec<RenderSceneChange>,
-    /// Keyed by the object type, which is what the id generator hands ids out under.
-    ended: Vec<(TypeId, u32)>,
+    ended: Vec<Target>,
 }
 
 impl Resolution {
-    fn emit<T>(&mut self, change: RenderChange<T>)
-    where
-        RenderSceneChange: From<RenderChange<T>>,
-    {
-        self.render_changes.push(change.into());
+    fn emit(&mut self, change: RenderSceneChange) {
+        self.render_changes.push(change);
     }
 
+    /// Record an ended object: its delete goes to the renderer, and its id back to the generator.
     fn end(&mut self, kind: Kind, index: u32) {
-        self.ended.push((kind.type_id(), index));
+        self.ended.push(Target { kind, index });
         self.render_changes.push(kind.delete(index));
     }
 }
 
-/// The reference count of each object of one kind, indexed by the index of the object's id. Zero marks an id
-/// without a live object.
+/// The reference count of each object of one kind, indexed by the index of the object's id. Zero
+/// marks an id without a live object.
 #[derive(Debug, Default)]
 struct ReferenceCounts(Vec<u32>);
 
@@ -237,6 +212,7 @@ impl ReferenceCounts {
         self.0[index] = 1;
     }
 
+    /// Add one reference to a live object.
     fn retain(&mut self, index: u32) {
         assert!(self.is_alive(index), "Retained object {index} is not alive");
         self.0[index as usize] += 1;
