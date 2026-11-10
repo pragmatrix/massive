@@ -53,7 +53,7 @@ use massive_geometry::{PixelCamera, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::prelude::identity_location;
-use massive_scene::{Handle, Location};
+use massive_scene::{Location, Ref};
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
@@ -668,7 +668,7 @@ impl Aggregates {
 
     // The parent project always has a presenter before it can host a slot, so
     // a missing one is an invariant violation.
-    pub fn project_matrix_location(&self, project: ProjectId) -> Handle<Location> {
+    pub fn project_matrix_location(&self, project: ProjectId) -> Ref<Location> {
         self.projects
             .get(&project)
             .unwrap_or_else(|| panic!("project {project:?} has no presenter"))

@@ -39,7 +39,7 @@ impl ProjectPresenter {
         id: ProjectId,
         header_text: &str,
         mcp_activation: McpActivation,
-        parent_location: Handle<Location>,
+        parent_location: Ref<Location>,
     ) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
@@ -49,10 +49,10 @@ impl ProjectPresenter {
                 font_size: project::HEADER_FONT_SIZE,
                 indent: 0.0,
             },
-            location.clone(),
+            location.to_ref(),
         );
         header.set_text(header_text);
-        let matrix = ProjectMatrixPresenter::new(location.clone());
+        let matrix = ProjectMatrixPresenter::new(location.to_ref());
         let movement = movement(SlotLayout::default(), move |layout, progress| {
             if let Some(layout) = layout.proceed_with(progress) {
                 scene_transform.update_if_changed(layout.pivoted_at_origin());
@@ -77,9 +77,9 @@ impl ProjectPresenter {
             .set_background_color(mcp_activation.project_header_background());
     }
 
-    pub fn set_parent_location(&self, parent: &Handle<Location>) {
+    pub fn set_parent_location(&self, parent: &Ref<Location>) {
         self.location.update_if_changed_with(|location| {
-            location.parent = parent.to_ref().into();
+            location.parent = parent.clone().into();
         });
     }
 
@@ -234,7 +234,7 @@ pub struct ProjectMatrixPresenter {
 }
 
 impl ProjectMatrixPresenter {
-    pub fn new(parent_location: Handle<Location>) -> Self {
+    pub fn new(parent_location: Ref<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
 
@@ -244,8 +244,8 @@ impl ProjectMatrixPresenter {
         }
     }
 
-    pub fn location(&self) -> Handle<Location> {
-        self.location.clone()
+    pub fn location(&self) -> Ref<Location> {
+        self.location.to_ref()
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform) {

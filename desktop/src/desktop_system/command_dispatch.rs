@@ -156,7 +156,7 @@ impl DesktopSystem {
                     );
                     vec![DesktopChange::SpawnInstance {
                         instance,
-                        root: root.clone(),
+                        view_parent: root.view_parent(),
                         parameters: spawn_parameters,
                     }]
                 } else {
@@ -411,7 +411,7 @@ impl DesktopSystem {
         match change {
             DesktopChange::SpawnInstance {
                 instance,
-                root,
+                view_parent,
                 parameters,
             } => {
                 // Probably pull the name of the application into SpawnInstance?
@@ -425,7 +425,7 @@ impl DesktopSystem {
                     instance,
                     application,
                     CreationMode::New(parameters),
-                    root.view_parent(),
+                    view_parent,
                 )?;
             }
             DesktopChange::ShutdownInstance(instance) => {
@@ -788,7 +788,7 @@ impl DesktopSystem {
         // no host — is placed in the desktop's own space.
         let location = match host.map(|parent| self.aggregates.project_matrix_location(parent)) {
             Some(location) => location,
-            None => self.desktop_presenter.location.clone(),
+            None => self.desktop_presenter.location.to_ref(),
         };
         let presenter = ProjectPresenter::new(
             id,

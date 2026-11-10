@@ -35,7 +35,7 @@ pub struct TitleBarPresenter {
 }
 
 impl TitleBarPresenter {
-    pub fn new(style: TitleBarStyle, parent_location: Handle<Location>) -> Self {
+    pub fn new(style: TitleBarStyle, parent_location: Ref<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let (text_transform, text_location) = identity_location().relative_to(&location).submit();

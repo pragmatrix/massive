@@ -72,7 +72,7 @@ impl LauncherPresenter {
     // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
     // introduce something new that exports more ergonomic UI components.
     pub fn new(
-        parent_location: Handle<Location>,
+        parent_location: Ref<Location>,
         id: LaunchProfileId,
         name: String,
         mcp_activation: McpActivation,
@@ -82,7 +82,7 @@ impl LauncherPresenter {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), background_color);
 
-        let (our_transform, our_location) =
+        let (scene_transform, our_location) =
             identity_location().relative_to(&parent_location).submit();
 
         // Instances are parented to `our_location`, so the fade needs its own child location;
@@ -108,7 +108,6 @@ impl LauncherPresenter {
             .with_decal_order(0)
             .submit();
 
-        let scene_transform = our_transform.clone();
         let movement = movement(
             LauncherMovement::new(background_color),
             move |movement, context| {
@@ -216,8 +215,8 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn location(&self) -> Handle<Location> {
-        self.location.clone()
+    pub fn location(&self) -> Ref<Location> {
+        self.location.to_ref()
     }
 
     /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
@@ -231,9 +230,9 @@ impl LauncherPresenter {
 
     /// Attaches the launcher's scene location to another parent location. This is used when the
     /// launcher's slot moves to the matrix of another project.
-    pub fn set_parent_location(&self, parent: &Handle<Location>) {
+    pub fn set_parent_location(&self, parent: &Ref<Location>) {
         self.location.update_if_changed_with(|location| {
-            location.parent = parent.to_ref().into();
+            location.parent = parent.clone().into();
         });
     }
 

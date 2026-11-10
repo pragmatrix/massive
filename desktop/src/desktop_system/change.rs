@@ -1,5 +1,6 @@
 use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission, McpConfiguration};
 use massive_geometry::{SizePx, Vector3};
+use massive_scene::{Location, Ref};
 use massive_util::{CollectingSet, CollectingVec};
 
 use super::selection::Selection;
@@ -30,7 +31,7 @@ pub enum DesktopChange {
     // `DesktopSystem`. May introduce something like outside effects that run when transact returns?
     SpawnInstance {
         instance: InstanceId,
-        root: InstanceRoot,
+        view_parent: Ref<Location>,
         parameters: InstanceParameters,
     },
     // Design: This could also be done as an external effect.
