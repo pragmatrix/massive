@@ -39,17 +39,6 @@ pub(crate) fn send(change: SceneChange) {
     });
 }
 
-/// Send changes into the current task's change queue, keeping their order.
-pub(crate) fn send_all(changes: impl IntoIterator<Item = SceneChange>) {
-    let mut changes = Some(changes);
-    with_sink(&mut |sink| {
-        let changes = changes
-            .take()
-            .expect("the current queue runs the closure once");
-        sink.send_all(&mut changes.into_iter());
-    });
-}
-
 /// Run `f` with the current task's sink.
 ///
 /// Handles must be used inside a task (ADR 0040). Outside of one, the change is lost and its object
@@ -91,6 +80,17 @@ pub mod test_queue {
         let result = f();
         QUEUE.set(None);
         result
+    }
+
+    /// Drain the changes the current test queue collected so far.
+    pub fn take_changes() -> Vec<SceneChange> {
+        QUEUE.with_borrow(|queue| {
+            queue
+                .as_ref()
+                .expect("take_changes runs inside with_test_queue")
+                .take_all()
+                .release()
+        })
     }
 
     fn with_current_sink(f: &mut dyn FnMut(&dyn ChangeSink)) -> bool {

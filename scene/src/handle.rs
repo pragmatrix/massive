@@ -39,25 +39,10 @@ where
     where
         T: 'static,
     {
-        let (handle, create) = Self::unpublished(value);
-        current_queue::send(create.into());
-
-        handle
-    }
-
-    /// Construct a handle without publishing its create change, returning that change.
-    ///
-    /// Invariant: the returned change must reach the queue before the handle is observable by
-    /// other code, otherwise a later release refers to an id the lifetime stage never saw created.
-    #[must_use = "the returned create change must be published, or the handle's id is unknown to the queue"]
-    pub(crate) fn unpublished(value: T) -> (Self, Change<T::Change>)
-    where
-        T: 'static,
-    {
         // Ids are keyed by type, which is what needs the 'static bound here.
         let id = id_generator::acquire::<T>();
-        let create = Change::Create(id, T::to_change(&value));
-        (Self { id, value }, create)
+        current_queue::send(Change::Create(id, T::to_change(&value)).into());
+        Self { id, value }
     }
 
     pub fn id(&self) -> Id {

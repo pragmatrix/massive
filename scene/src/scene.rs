@@ -1,4 +1,4 @@
-use crate::{Change, Handle, Object, SceneChange, current_queue};
+use crate::{Change, Handle, Object, SceneChange};
 
 /// Submit an object to the current task's change queue, making it active there (ADR 0040).
 pub fn submit<T>(value: T) -> Handle<T>
@@ -9,9 +9,12 @@ where
     Handle::new(value)
 }
 
-/// Submit a pair of dependent objects with one batch of create changes, the second built from the
-/// first handle — which is how a location is submitted together with its transform. Both creates
-/// reach the queue in submission order, so the first object exists before the second refers to it.
+/// Submit a pair of dependent objects, the second built from the first handle — which is how a
+/// location is submitted together with its transform.
+///
+/// The first object's create reaches the queue before the second value is built, because building
+/// it references the first object, and that reference's retain must follow the create (test
+/// `a_submitted_location_creates_its_transform_before_referencing_it`).
 pub(crate) fn submit_pair<A, B, F>(first: A, second: F) -> (Handle<A>, Handle<B>)
 where
     A: Object + 'static,
@@ -20,14 +23,7 @@ where
     SceneChange: From<Change<A::Change>>,
     SceneChange: From<Change<B::Change>>,
 {
-    let (first_handle, first_create) = Handle::unpublished(first);
-
-    // The second value is derived from the first handle: this is the dependency the ordered batch
-    // preserves.
-    let second_value = second(&first_handle);
-    let (second_handle, second_create) = Handle::unpublished(second_value);
-
-    current_queue::send_all([first_create.into(), second_create.into()]);
-
+    let first_handle = Handle::new(first);
+    let second_handle = Handle::new(second(&first_handle));
     (first_handle, second_handle)
 }

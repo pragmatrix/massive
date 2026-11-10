@@ -116,7 +116,19 @@ mod tests {
     use massive_geometry::Transform;
 
     use super::LifetimeStage;
+    use crate::current_queue::test_queue::{take_changes, with_test_queue};
+    use crate::prelude::identity_location;
     use crate::{Change, RenderChange, RenderSceneChange, SceneChange, id_generator};
+
+    /// Submitting a location also references its transform. The transform's create must reach the
+    /// queue before that reference's retain, or the stage sees a retain of an unknown object.
+    #[test]
+    fn a_submitted_location_creates_its_transform_before_referencing_it() {
+        with_test_queue(|| {
+            let (_transform, _location) = identity_location().submit_location();
+            LifetimeStage::default().resolve(take_changes());
+        });
+    }
 
     /// A reference keeps its object alive after the handle is dropped, and the object ends in the
     /// batch that releases its last reference (ADR 0040).
