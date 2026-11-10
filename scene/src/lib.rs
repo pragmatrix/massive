@@ -60,31 +60,13 @@ use massive_util::{self as util};
 // Re-exports
 pub use massive_geometry::Transform;
 
-pub type ChangeCollector = util::ChangeCollector<SceneChange>;
 pub type SceneChangeSet = util::ChangeSet<SceneChange>;
 
-/// The erased receiver the `Handle<T>` type needs to propagate its changes and drops.
+/// The erased receiver through which handles send their changes into the current task's queue.
 ///
-/// The indirection lets other layers interleave scene changes into their own collector;
-/// implementations retype the change, and draining belongs to the concrete collector
+/// The indirection lets other layers interleave scene changes into their own queue, whatever its
+/// change type: implementations retype the change, and draining belongs to the concrete queue
 /// (ADR 0008).
-pub trait ChangeSink: fmt::Debug + Send + Sync {
-    fn send(&self, change: SceneChange);
-
-    /// Required rather than defaulted: looping [`ChangeSink::send`] would take the queue's lock
-    /// once per change, which the batch exists to avoid. Implementations must keep the order.
-    fn send_all(&self, changes: &mut dyn Iterator<Item = SceneChange>);
-}
-
-impl<C> ChangeSink for util::ChangeCollector<C>
-where
-    C: From<SceneChange> + fmt::Debug + Send,
-{
-    fn send(&self, change: SceneChange) {
-        self.collect(C::from(change));
-    }
-
-    fn send_all(&self, changes: &mut dyn Iterator<Item = SceneChange>) {
-        self.collect_all(changes.map(C::from));
-    }
+pub trait ChangeSink: fmt::Debug {
+    fn send(&mut self, change: SceneChange);
 }

@@ -359,14 +359,14 @@ time, and the frame drains the queue into a submission at animation-cycle end (A
 _Avoid_: change stream
 
 **Change collector**:
-The lock-guarded accumulation a change queue is stored in: an ordered set of changes of
-exactly one type. The change type is fixed when the collector is created, so a collector
-never has to check what it receives; draining takes the accumulated changes out in order.
+The accumulation a change queue is stored in: an ordered set of changes of exactly one type,
+owned by its task. The change type is fixed when the collector is created, so a collector
+never has to check what it receives. Draining takes the accumulated changes out in order.
 Every change queue is backed by exactly one collector.
 _Avoid_: change buffer, change list
 
 **Change sink**:
-The write-only view of a change queue that handles hold. It accepts scene changes and
+The write-only view of a change queue that handles write through. It accepts scene changes and
 retypes them into the queue's own change type, so a handle never knows the queue's change
 kind. Erasing the sink is what lets one queue per task serve every handle.
 _Avoid_: change stream, sender, channel
@@ -374,8 +374,8 @@ _Avoid_: change stream, sender, channel
 **Submit**:
 Create an object handle and add it to the task's change queue: the handle publishes
 its create into that queue, and its later updates and its release follow the same path.
-Because handles hold the erased sink, their changes land in the same FIFO as the task's
-own changes.
+Because handles write through the current task's sink, their changes land in the same FIFO as
+the task's own changes.
 _Avoid_: connect, enter
 
 **Lifetime stage**:

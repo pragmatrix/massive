@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 use std::fmt;
 use std::future::Future;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 
 use tokio::task_local;
 
@@ -30,7 +30,9 @@ pub(crate) use animation::{
 };
 
 task_local! {
-    static CHANGES: AnyCollector;
+    // A `RefCell`, because the task-local hands out a shared reference. Every access borrows it
+    // for one push or drain only, so no handle code runs while the queue is borrowed (ADR 0040).
+    static CHANGES: RefCell<AnyCollector>;
     static ANIMATION: RefCell<AnimationState>;
     // `Option` so an owning `Shaper` can move the context out and restore it on drop;
     // `fonts()` borrows the slot in place instead, so a manager read never creates a handle.
@@ -81,7 +83,7 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
     // One `AnimationState` owns the coordinator and the movement runtime for the task's lifetime.
     let animation_state = RefCell::new(AnimationState::new(animation, movement));
     CHANGES
-        .scope(changes, async move {
+        .scope(RefCell::new(changes), async move {
             ANIMATION
                 .scope(animation_state, async move {
                     SHAPER
@@ -106,7 +108,7 @@ pub fn drop_with_context<T>(contexts: TaskContext, value: T) {
         shaping_context,
     } = contexts;
     let animation_state = RefCell::new(AnimationState::new(animation, movement));
-    CHANGES.sync_scope(changes, || {
+    CHANGES.sync_scope(RefCell::new(changes), || {
         ANIMATION.sync_scope(animation_state, || {
             SHAPER.sync_scope(RefCell::new(Some(shaping_context)), || drop(value))
         })
@@ -124,9 +126,9 @@ fn register_current_queue_once() {
 
 /// The hook through which scene handles reach the change queue of the task they are used in
 /// (ADR 0040).
-fn with_current_sink(f: &mut dyn FnMut(&dyn ChangeSink)) -> bool {
+fn with_current_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) -> bool {
     CHANGES
-        .try_with(|collector| f(collector.sink().as_ref()))
+        .try_with(|changes| f(&mut *changes.borrow_mut()))
         .is_ok()
 }
 
@@ -166,24 +168,14 @@ pub fn submit<C>(change: C)
 where
     C: From<SceneChange> + fmt::Debug + Send + 'static,
 {
-    with_changes(|collector| collector.collect::<C>(change));
+    CHANGES.with(|changes| changes.borrow_mut().collect::<C>(change));
 }
 
 pub fn take_changes<C>() -> massive_util::ChangeSet<C>
 where
     C: From<SceneChange> + fmt::Debug + Send + 'static,
 {
-    with_changes(|collector| collector.take_all::<C>())
-}
-
-/// The erased sink of the task's change queue, for callers that cannot borrow the task-local
-/// collector across calls (long-lived visuals, builder chains).
-pub fn sink() -> Arc<dyn ChangeSink> {
-    with_changes(|collector| collector.sink().clone())
-}
-
-pub fn with_changes<R>(f: impl FnOnce(&AnyCollector) -> R) -> R {
-    CHANGES.with(f)
+    CHANGES.with(|changes| changes.borrow_mut().take_all::<C>())
 }
 
 #[cfg(test)]

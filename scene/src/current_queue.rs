@@ -11,7 +11,7 @@ use crate::{ChangeSink, SceneChange};
 /// Runs a closure with the sink of the current task's change queue.
 ///
 /// Returns `false` when no task context is installed, so the closure did not run.
-pub type WithCurrentSink = fn(&mut dyn FnMut(&dyn ChangeSink)) -> bool;
+pub type WithCurrentSink = fn(&mut dyn FnMut(&mut dyn ChangeSink)) -> bool;
 
 static WITH_CURRENT_SINK: OnceLock<WithCurrentSink> = OnceLock::new();
 
@@ -44,7 +44,7 @@ pub(crate) fn send(change: SceneChange) {
 /// Handles must be used inside a task (ADR 0040). Outside of one, the change is lost and its object
 /// stays in the renderer. This does not panic in release builds, because a handle's drop can run
 /// while a panic unwinds, and a second panic would abort the process.
-fn with_sink(f: &mut dyn FnMut(&dyn ChangeSink)) {
+fn with_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) {
     let reached = WITH_CURRENT_SINK
         .get()
         .is_some_and(|with_current_sink| with_current_sink(f));
@@ -64,19 +64,17 @@ pub mod test_queue {
     use std::cell::RefCell;
     use std::sync::Once;
 
-    use massive_util::ChangeCollector;
-
-    use crate::{ChangeSink, SceneChange};
+    use crate::{AnyCollector, ChangeSink, SceneChange};
 
     thread_local! {
-        static QUEUE: RefCell<Option<ChangeCollector<SceneChange>>> = const { RefCell::new(None) };
+        static QUEUE: RefCell<Option<AnyCollector>> = const { RefCell::new(None) };
     }
 
     /// Run `f` with a fresh change queue as the current task's queue.
     pub fn with_test_queue<R>(f: impl FnOnce() -> R) -> R {
         static REGISTERED: Once = Once::new();
         REGISTERED.call_once(|| super::register_current_queue(with_current_sink));
-        QUEUE.set(Some(ChangeCollector::default()));
+        QUEUE.set(Some(AnyCollector::for_type::<SceneChange>()));
         let result = f();
         QUEUE.set(None);
         result
@@ -84,16 +82,16 @@ pub mod test_queue {
 
     /// Drain the changes the current test queue collected so far.
     pub fn take_changes() -> Vec<SceneChange> {
-        QUEUE.with_borrow(|queue| {
+        QUEUE.with_borrow_mut(|queue| {
             queue
-                .as_ref()
+                .as_mut()
                 .expect("take_changes runs inside with_test_queue")
-                .take_all()
+                .take_all::<SceneChange>()
                 .release()
         })
     }
 
-    fn with_current_sink(f: &mut dyn FnMut(&dyn ChangeSink)) -> bool {
-        QUEUE.with_borrow(|queue| queue.as_ref().map(|queue| f(queue)).is_some())
+    fn with_current_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) -> bool {
+        QUEUE.with_borrow_mut(|queue| queue.as_mut().map(|queue| f(queue)).is_some())
     }
 }

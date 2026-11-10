@@ -120,7 +120,10 @@ renderer has its own stage.
 
 Once handles no longer store a sink, only the owning task touches its change queue. The task pushes
 through the hook, and its frame submission drains the queue through the same task-local. So the
-task-local owns the queue directly, in a `RefCell`, without an `Arc` and without a `Mutex`.
+task-local owns the queue directly, without an `Arc` and without a `Mutex`. `AnyCollector` is a
+plain value whose methods take `&mut self`. The `RefCell` sits in the task-local
+(`RefCell<AnyCollector>`), because a task-local hands out only a shared reference, so the reason
+for it stays next to its cause.
 
 - This holds on multi-threaded runtimes. Tokio keeps a task-local value inside the task's future and
   swaps it into a per-thread `RefCell<Option<T>>` for the duration of each poll
@@ -138,6 +141,11 @@ task-local owns the queue directly, in a `RefCell`, without an `Arc` and without
   such as `submit_pair`, does so before it borrows the queue. ADR 0008 rejected `RefCell` for
   borrows that cross an `await` or nest, and a push does neither.
 - `AnyCollector::sink` and `task_context::sink` go away. The latter has no callers today.
+  `ChangeSink::send_all` goes away as well, because nothing sends a batch of scene changes any
+  more. `ChangeSink` no longer needs to be `Send` or `Sync`, and `send` takes `&mut self`.
+- `task_context::with_changes` goes away. It handed the queue to a closure, which would hold the
+  borrow while the closure runs, so any handle used inside it would fail the borrow. Nothing outside
+  `task_context` used it.
 - The lock between the shell's host task and the render thread (`RenderThreadSubmission` in
   `shell/src/window_renderer.rs`) stays. It hands submissions from one thread to another, so it is a
   real cross-thread queue.
@@ -278,7 +286,3 @@ run it at its own edge.
 - Switching the hook to thread-locals later requires that every task holding handles runs on a
   current-thread runtime. Today the shell's runtime and instances with `RuntimeKind::MultiThread`
   move tasks between threads.
-- When this is implemented, the glossary entries **Submit**, **Change sink** and **Change
-  collector** change, because handles no longer hold the sink and the queue is no longer
-  lock-guarded. The crate documentation of `massive-scene`, which describes
-  reference-counted handles, changes as well.
