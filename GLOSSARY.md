@@ -378,6 +378,12 @@ Because handles hold the erased sink, their changes land in the same FIFO as the
 own changes.
 _Avoid_: connect, enter
 
+**Lifetime stage**:
+The step between the shell's hosted instance and its renderer that decides when scene objects end.
+It counts the handles and references to each object, and deletes the object when the last one is
+released (ADR 0040).
+_Avoid_: garbage collector, gc, reference counter
+
 **Mounting**:
 Wiring a movement's value and apply-animations callback into a task's movement runtime, done once at presenter construction, before any frame exists. Mounting only enqueues the movement's actions; it does not animate or read the animation clock.
 
