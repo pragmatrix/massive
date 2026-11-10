@@ -16,9 +16,9 @@ pub struct Scene {
     // Option: Because setting the values to None deletes then.
     //
     // Optimization: Defaults could be used here.
-    transforms: IdTable<Versioned<Transform>>,
-    locations: IdTable<Option<Versioned<Location>>>,
-    visuals: IdTable<Option<Visual>>,
+    transforms: IdTable<Transform, Versioned<Transform>>,
+    locations: IdTable<Location, Option<Versioned<Location>>>,
+    visuals: IdTable<Visual, Option<Visual>>,
 }
 
 impl Scene {
@@ -39,12 +39,12 @@ impl Scene {
         }
     }
 
-    pub fn visuals(&self) -> &IdTable<Option<Visual>> {
+    pub fn visuals(&self) -> &IdTable<Visual, Option<Visual>> {
         &self.visuals
     }
 }
 
-impl<T> IdTable<Option<Versioned<T>>> {
+impl<T> IdTable<T, Option<Versioned<T>>> {
     pub fn apply_versioned(&mut self, change: RenderChange<T>, version: Version) {
         match change {
             RenderChange::Create(id, value) => {
@@ -56,7 +56,7 @@ impl<T> IdTable<Option<Versioned<T>>> {
     }
 }
 
-impl<T> IdTable<Versioned<T>>
+impl<T> IdTable<T, Versioned<T>>
 where
     Versioned<T>: Default,
 {
@@ -69,7 +69,7 @@ where
     }
 }
 
-impl<T> IdTable<Option<T>> {
+impl<T> IdTable<T, Option<T>> {
     pub fn apply(&mut self, change: RenderChange<T>) {
         match change {
             RenderChange::Create(id, value) => self.insert(id, Some(value)),
@@ -77,11 +77,13 @@ impl<T> IdTable<Option<T>> {
             RenderChange::Update(id, value) => self[id] = Some(value),
         }
     }
+}
 
+impl<K, V> IdTable<K, Option<V>> {
     /// Returns a reference to the object at `id`.
     ///
     /// Panics if it does not exist.
-    pub fn get_unwrapped(&self, id: Id) -> &T {
+    pub fn get_unwrapped(&self, id: Id<K>) -> &V {
         self[id].as_ref().unwrap()
     }
 }

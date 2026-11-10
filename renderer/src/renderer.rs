@@ -8,7 +8,7 @@ use smallvec::{SmallVec, smallvec};
 use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
-use massive_scene::{Id, LocationSpace, RenderSceneChange, Visual};
+use massive_scene::{Id, Location, LocationSpace, RenderSceneChange, Visual};
 
 use crate::RenderDevice;
 use crate::config::RendererConfig;
@@ -57,7 +57,7 @@ struct DepthBuffer {
 
 #[derive(Debug)]
 pub struct RenderVisual {
-    pub location_id: Id,
+    pub location_id: Id<Location>,
     pub decal_order: Option<usize>,
     pub clip_bounds: Option<massive_geometry::Bounds>,
     pub batches: PipelineBatches,
@@ -298,7 +298,7 @@ impl Renderer {
     }
 
     fn visual_updated(
-        id: Id,
+        id: Id<Visual>,
         visual: &Visual,
         config: &mut RendererConfig,
         pipelines: &[wgpu::RenderPipeline],
@@ -321,7 +321,7 @@ impl Renderer {
         render_batches.insert(
             id,
             RenderVisual {
-                location_id: visual.location.id(),
+                location_id: visual.location,
                 decal_order: visual.decal_order,
                 clip_bounds: visual.clip_bounds,
                 batches,

@@ -11,8 +11,8 @@ use crate::tools::{Computed, Versioned};
 #[derive(Debug, Default)]
 pub struct LocationTransforms {
     // The result of location property computation.
-    location_properties: IdTable<Computed<ResolvedLocation>>,
-    location_matrices: IdTable<Versioned<Matrix4>>,
+    location_properties: IdTable<Location, Computed<ResolvedLocation>>,
+    location_matrices: IdTable<Location, Versioned<Matrix4>>,
 }
 
 /// The computed location state per id; uses the shared [`ResolvedLocation`] contract.
@@ -21,7 +21,7 @@ impl LocationTransforms {
         &mut self,
         scene: &Scene,
         transaction: &Transaction,
-        locations: impl Iterator<Item = Id>,
+        locations: impl Iterator<Item = Id<Location>>,
     ) {
         locations.for_each(|id| {
             self.resolve_location_and_matrix(scene, id, transaction);
@@ -35,7 +35,7 @@ impl LocationTransforms {
     fn resolve_location_and_matrix(
         &mut self,
         scene: &Scene,
-        location_id: Id,
+        location_id: Id<Location>,
         current_version: &Transaction,
     ) {
         let updated_at =
@@ -51,15 +51,15 @@ impl LocationTransforms {
             });
     }
 
-    pub fn get_matrix(&self, location_id: Id) -> &Matrix4 {
+    pub fn get_matrix(&self, location_id: Id<Location>) -> &Matrix4 {
         &self.location_matrices[location_id]
     }
 
-    pub fn get_alpha(&self, location_id: Id) -> f32 {
+    pub fn get_alpha(&self, location_id: Id<Location>) -> f32 {
         self.location_properties[location_id].alpha
     }
 
-    pub fn get_space(&self, location_id: Id) -> LocationSpace {
+    pub fn get_space(&self, location_id: Id<Location>) -> LocationSpace {
         self.location_properties[location_id].space
     }
 }
@@ -75,13 +75,14 @@ impl Default for Versioned<Matrix4> {
 struct VisualLocation;
 
 impl DependencyResolver for VisualLocation {
+    type Object = Location;
     type SourceStorage = Scene;
     type Source = Location;
 
     type ComputedStorage = LocationTransforms;
     type Computed = ResolvedLocation;
 
-    fn get_source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
+    fn get_source(scene: &Scene, id: Id<Location>) -> &Versioned<Self::Source> {
         scene.locations.get_unwrapped(id)
     }
 
@@ -92,8 +93,8 @@ impl DependencyResolver for VisualLocation {
         caches: &mut LocationTransforms,
     ) -> Version {
         let (parent_id, transform_id) = match source.parent {
-            LocationParent::Location(parent) => (Some(parent.id()), source.transform.id()),
-            LocationParent::Root(_) => (None, source.transform.id()),
+            LocationParent::Location(parent) => (Some(parent), source.transform),
+            LocationParent::Root(_) => (None, source.transform),
         };
 
         // Find out the max version of all the immediate and (indirect / computed) dependencies.
@@ -115,7 +116,10 @@ impl DependencyResolver for VisualLocation {
         }
     }
 
-    fn computed_mut(caches: &mut LocationTransforms, id: Id) -> &mut Computed<Self::Computed> {
+    fn computed_mut(
+        caches: &mut LocationTransforms,
+        id: Id<Location>,
+    ) -> &mut Computed<Self::Computed> {
         caches.location_properties.mut_or_default(id)
     }
 
@@ -127,10 +131,10 @@ impl DependencyResolver for VisualLocation {
         // Sanitize each factor before composition; clamping only the product changes its meaning.
         let local_alpha = source.sanitized_alpha();
         let (parent_id, transform_id) = match source.parent {
-            LocationParent::Location(parent) => (Some(parent.id()), source.transform.id()),
+            LocationParent::Location(parent) => (Some(parent), source.transform),
             LocationParent::Root(space) => {
                 return ResolvedLocation {
-                    transform: *scene.transforms[source.transform.id()],
+                    transform: *scene.transforms[source.transform],
                     alpha: local_alpha,
                     space,
                 };
@@ -177,7 +181,7 @@ impl Default for Versioned<Transform> {
 #[cfg(test)]
 mod tests {
     use massive_geometry::Vector3;
-    use massive_scene::{Location, ObjectId, RenderChange, RenderSceneChange, id_generator};
+    use massive_scene::{Location, RenderChange, RenderSceneChange, id_generator};
 
     use super::*;
     use crate::TransactionManager;
@@ -231,7 +235,7 @@ mod tests {
                 parent_location_id,
                 Location {
                     parent: LocationSpace::World.into(),
-                    transform: ObjectId::new(parent_transform_id),
+                    transform: parent_transform_id,
                     alpha: 0.5,
                 },
             )),
@@ -241,8 +245,8 @@ mod tests {
             RenderSceneChange::Location(RenderChange::Create(
                 child_location_id,
                 Location {
-                    parent: LocationParent::Location(ObjectId::new(parent_location_id)),
-                    transform: ObjectId::new(child_transform_id),
+                    parent: LocationParent::Location(parent_location_id),
+                    transform: child_transform_id,
                     alpha: 0.25,
                 },
             )),
@@ -288,7 +292,7 @@ mod tests {
                 parent_location_id,
                 Location {
                     parent: LocationSpace::World.into(),
-                    transform: ObjectId::new(parent_transform_id),
+                    transform: parent_transform_id,
                     alpha: 0.5,
                 },
             )),
@@ -298,8 +302,8 @@ mod tests {
             RenderSceneChange::Location(RenderChange::Create(
                 child_location_id,
                 Location {
-                    parent: LocationParent::Location(ObjectId::new(parent_location_id)),
-                    transform: ObjectId::new(child_transform_id),
+                    parent: LocationParent::Location(parent_location_id),
+                    transform: child_transform_id,
                     alpha: 2.0,
                 },
             )),
@@ -335,7 +339,7 @@ mod tests {
                 location_id,
                 Location {
                     parent: LocationSpace::World.into(),
-                    transform: ObjectId::new(transform_id),
+                    transform: transform_id,
                     alpha: 0.25,
                 },
             )),
@@ -362,7 +366,7 @@ mod tests {
                 location_id,
                 Location {
                     parent: LocationSpace::World.into(),
-                    transform: ObjectId::new(transform_id),
+                    transform: transform_id,
                     alpha: 0.75,
                 },
             )),
@@ -379,7 +383,7 @@ mod tests {
         assert_eq!(default.alpha, 1.0);
     }
 
-    fn scene_with_root_location(alpha: f32) -> (Scene, Transaction, Id) {
+    fn scene_with_root_location(alpha: f32) -> (Scene, Transaction, Id<Location>) {
         let mut transaction_manager = TransactionManager::default();
         let mut scene = Scene::default();
         let transform_id = new_transform_id();
@@ -395,7 +399,7 @@ mod tests {
                 location_id,
                 Location {
                     parent: LocationSpace::World.into(),
-                    transform: ObjectId::new(transform_id),
+                    transform: transform_id,
                     alpha,
                 },
             )),
@@ -405,11 +409,11 @@ mod tests {
         (scene, transaction, location_id)
     }
 
-    fn new_transform_id() -> Id {
+    fn new_transform_id() -> Id<Transform> {
         id_generator::acquire::<Transform>()
     }
 
-    fn new_location_id() -> Id {
+    fn new_location_id() -> Id<Location> {
         id_generator::acquire::<Location>()
     }
 }

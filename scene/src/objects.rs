@@ -4,7 +4,7 @@ use massive_geometry::{Bounds, Transform};
 use massive_shapes::Shape;
 
 use crate::lifetime_stage::{Kind, Targets, Tracked};
-use crate::{Handle, Object, ObjectId, Ref};
+use crate::{Handle, Id, Object, Ref};
 
 /// The coordinate space root a location hierarchy starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub enum LocationParent {
     /// The location is the root of a hierarchy in the given coordinate space.
     Root(LocationSpace),
     /// The location is a child of another location and inherits its space.
-    Location(ObjectId<Location>),
+    Location(Id<Location>),
 }
 
 impl From<LocationSpace> for LocationParent {
@@ -31,8 +31,8 @@ impl From<LocationSpace> for LocationParent {
     }
 }
 
-impl From<ObjectId<Location>> for LocationParent {
-    fn from(location: ObjectId<Location>) -> Self {
+impl From<Id<Location>> for LocationParent {
+    fn from(location: Id<Location>) -> Self {
         Self::Location(location)
     }
 }
@@ -64,7 +64,7 @@ pub struct ResolvedLocation {
 /// (ADR 0040).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Visual {
-    pub location: ObjectId<Location>,
+    pub location: Id<Location>,
     /// Optional decal ordering value for this visual.
     ///
     /// If set, the renderer treats this visual as a decal and renders it in decal order using the
@@ -92,7 +92,7 @@ pub struct Visual {
 }
 
 impl Visual {
-    pub fn new(location: impl Into<ObjectId<Location>>, shapes: impl Into<Arc<[Shape]>>) -> Self {
+    pub fn new(location: impl Into<Id<Location>>, shapes: impl Into<Arc<[Shape]>>) -> Self {
         Self {
             location: location.into(),
             decal_order: None,
@@ -150,16 +150,13 @@ impl Tracked for Visual {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Location {
     pub parent: LocationParent,
-    pub transform: ObjectId<Transform>,
+    pub transform: Id<Transform>,
     /// Alpha as set; consumers sanitize it into `[0, 1]` because it is a plain writable field.
     pub alpha: f32,
 }
 
 impl Location {
-    pub fn new(
-        parent: impl Into<LocationParent>,
-        transform: impl Into<ObjectId<Transform>>,
-    ) -> Self {
+    pub fn new(parent: impl Into<LocationParent>, transform: impl Into<Id<Transform>>) -> Self {
         Self {
             parent: parent.into(),
             transform: transform.into(),
@@ -168,7 +165,7 @@ impl Location {
     }
 
     /// A root location in the given coordinate space.
-    pub fn root(space: LocationSpace, transform: impl Into<ObjectId<Transform>>) -> Self {
+    pub fn root(space: LocationSpace, transform: impl Into<Id<Transform>>) -> Self {
         Self::new(space, transform)
     }
 

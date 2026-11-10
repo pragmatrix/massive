@@ -1,38 +1,107 @@
-use derive_more::Deref;
+use std::{fmt, hash, marker::PhantomData};
 
-/// An identifier that can be used to index into rows to allow fast id associative storage and
-/// retrieval of objects.
+use crate::{Change, Handle, Object, Ref, SceneChange};
+
+/// The identifier of a scene object of type `T`, which also indexes the renderer's tables of that
+/// type.
 ///
-/// Identifiers start at 0 and their maximum value are never greater than the number of ids acquired. This
-/// makes them optimal for using them as storage indices and allows them to be small (`u32`).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref)]
-pub struct Id(u32);
+/// Every object type has its own id space, which the type parameter keeps apart. Within it, ids
+/// start at 0 and the id generator reuses the ids of ended objects, so they stay dense. That makes
+/// them optimal as storage indices and allows them to be small (`u32`).
+///
+/// An object's value refers to other objects by their ids. An id does not keep its object alive by
+/// itself. Once the referring object is submitted, the lifetime stage counts the reference for as
+/// long as that object lives (ADR 0040). Until then, the handle or reference the id was taken from
+/// has to keep the object alive.
+pub struct Id<T> {
+    index: u32,
+    object: PhantomData<fn() -> T>,
+}
 
-impl Id {
+impl<T> Id<T> {
     pub fn to_usize(self) -> usize {
-        self.0 as _
+        self.index as _
+    }
+
+    pub(crate) fn from_index(index: u32) -> Self {
+        Self {
+            index,
+            object: PhantomData,
+        }
+    }
+
+    pub(crate) fn index(self) -> u32 {
+        self.index
     }
 }
 
+impl<T: Object> From<&Handle<T>> for Id<T>
+where
+    SceneChange: From<Change<T>>,
+{
+    fn from(handle: &Handle<T>) -> Self {
+        handle.id()
+    }
+}
+
+impl<T: Object> From<&Ref<T>> for Id<T>
+where
+    SceneChange: From<Change<T>>,
+{
+    fn from(reference: &Ref<T>) -> Self {
+        reference.id()
+    }
+}
+
+// The traits are implemented by hand, because derives would require them of `T` as well.
+
+impl<T> Clone for Id<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Id<T> {}
+
+impl<T> PartialEq for Id<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+
+impl<T> Eq for Id<T> {}
+
+impl<T> hash::Hash for Id<T> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
+    }
+}
+
+impl<T> fmt::Debug for Id<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Id").field(&self.index).finish()
+    }
+}
+
+/// Hands out the dense indices of one object type's ids, reusing released ones first.
 #[derive(Debug, Default)]
 pub struct Generator {
-    next_id: u32,
+    next_index: u32,
     free_list: Vec<u32>,
 }
 
 impl Generator {
-    pub fn acquire(&mut self) -> Id {
+    pub fn acquire(&mut self) -> u32 {
         if let Some(free) = self.free_list.pop() {
-            return Id(free);
+            return free;
         }
 
-        let this_id = self.next_id;
-        self.next_id += 1;
-
-        Id(this_id)
+        let index = self.next_index;
+        self.next_index += 1;
+        index
     }
 
-    pub fn release(&mut self, id: Id) {
-        self.free_list.push(id.0);
+    pub fn release(&mut self, index: u32) {
+        self.free_list.push(index);
     }
 }

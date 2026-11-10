@@ -9,7 +9,7 @@ use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
 use crate::scene::submit_pair;
-use crate::{Handle, Location, LocationParent, LocationSpace, ObjectId, Visual};
+use crate::{Handle, Id, Location, LocationParent, LocationSpace, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -145,7 +145,7 @@ impl VisualWithoutLocation {
     }
 
     #[must_use = "the visual is not placed until it is `.submit()`ted"]
-    pub fn at(self, location: impl Into<ObjectId<Location>>) -> Visual {
+    pub fn at(self, location: impl Into<Id<Location>>) -> Visual {
         Visual::new(location, self.shapes)
     }
 }
@@ -153,14 +153,14 @@ impl VisualWithoutLocation {
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
     #[must_use = "the visual is not visible until `.submit()` is called"]
-    fn at(self, location: impl Into<ObjectId<Location>>) -> Visual;
+    fn at(self, location: impl Into<Id<Location>>) -> Visual;
 }
 
 impl<T> At for T
 where
     T: IntoVisual,
 {
-    fn at(self, location: impl Into<ObjectId<Location>>) -> Visual {
+    fn at(self, location: impl Into<Id<Location>>) -> Visual {
         self.into_visual().at(location)
     }
 }

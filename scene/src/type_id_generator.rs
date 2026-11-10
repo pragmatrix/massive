@@ -1,6 +1,6 @@
 use std::{any::TypeId, collections::HashMap};
 
-use crate::{Id, id::Generator};
+use crate::id::Generator;
 
 /// A (sharable) generator for ids per type.
 #[derive(Debug, Default)]
@@ -9,15 +9,15 @@ pub struct TypeIdGenerator {
 }
 
 impl TypeIdGenerator {
-    pub fn acquire(&mut self, tid: TypeId) -> Id {
+    pub fn acquire(&mut self, tid: TypeId) -> u32 {
         self.ids.entry(tid).or_default().acquire()
     }
 
-    pub fn release(&mut self, tid: TypeId, id: Id) {
+    pub fn release(&mut self, tid: TypeId, index: u32) {
         self.ids
             .get_mut(&tid)
             .expect("Releasing an id failed, generator missing for type")
-            .release(id);
+            .release(index);
     }
 }
 
@@ -34,8 +34,8 @@ pub mod id_generator {
     use crate::Id;
     use crate::type_id_generator::TypeIdGenerator;
 
-    pub fn acquire<T: 'static>() -> Id {
-        global_id_generator().lock().acquire(TypeId::of::<T>())
+    pub fn acquire<T: 'static>() -> Id<T> {
+        Id::from_index(global_id_generator().lock().acquire(TypeId::of::<T>()))
     }
 
     pub fn global_id_generator() -> &'static Mutex<TypeIdGenerator> {
@@ -47,15 +47,15 @@ pub mod id_generator {
 
     /// Return the ids of ended objects, keyed by their object type, so later objects can reuse
     /// them. The lifetime stage calls this once per batch (ADR 0040).
-    pub fn release_all(ids: &[(TypeId, Id)]) {
+    pub fn release_all(ids: &[(TypeId, u32)]) {
         if ids.is_empty() {
             return;
         }
 
         let mut id_gen = global_id_generator().lock();
-        for &(type_id, id) in ids {
+        for &(type_id, index) in ids {
             // Performance: Order by `TypeId` first to prevent expensive hashmap lookups?
-            id_gen.release(type_id, id);
+            id_gen.release(type_id, index);
         }
     }
 }

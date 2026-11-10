@@ -13,9 +13,9 @@ use massive_scene::{
 /// including the cached ones.
 #[derive(Debug)]
 pub struct TransformResolver {
-    transforms: HashMap<Id, Transform>,
-    locations: HashMap<Id, Location>,
-    resolved: HashMap<Id, ResolvedLocation>,
+    transforms: HashMap<Id<Transform>, Transform>,
+    locations: HashMap<Id<Location>, Location>,
+    resolved: HashMap<Id<Location>, ResolvedLocation>,
 }
 
 impl TransformResolver {
@@ -50,7 +50,7 @@ impl TransformResolver {
 
     /// Resolve the location with the id `location`, which the changes must have submitted, as must
     /// every location above it.
-    pub fn resolve(&mut self, location: Id) -> ResolvedLocation {
+    pub fn resolve(&mut self, location: Id<Location>) -> ResolvedLocation {
         if let Some(&resolved) = self.resolved.get(&location) {
             return resolved;
         }
@@ -61,7 +61,7 @@ impl TransformResolver {
             .unwrap_or_else(|| panic!("Location {location:?} was not submitted"));
         let local_transform = *self
             .transforms
-            .get(&location_value.transform.id())
+            .get(&location_value.transform)
             .unwrap_or_else(|| {
                 panic!("Transform {:?} was not submitted", location_value.transform)
             });
@@ -76,7 +76,7 @@ impl TransformResolver {
             },
             // A child inherits its root space from the resolved parent.
             LocationParent::Location(parent) => {
-                let parent_resolved = self.resolve(parent.id());
+                let parent_resolved = self.resolve(parent);
                 ResolvedLocation {
                     transform: parent_resolved.transform * local_transform,
                     alpha: parent_resolved.alpha * local_alpha,

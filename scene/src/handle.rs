@@ -12,7 +12,7 @@ pub struct Handle<T: Object>
 where
     SceneChange: From<Change<T>>,
 {
-    id: Id,
+    id: Id<T>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.
     value: T,
@@ -45,7 +45,7 @@ where
         Self { id, value }
     }
 
-    pub fn id(&self) -> Id {
+    pub fn id(&self) -> Id<T> {
         self.id
     }
 
@@ -117,7 +117,7 @@ pub struct Ref<T: Object>
 where
     SceneChange: From<Change<T>>,
 {
-    id: Id,
+    id: Id<T>,
     object: PhantomData<fn() -> T>,
 }
 
@@ -125,11 +125,11 @@ impl<T: Object> Ref<T>
 where
     SceneChange: From<Change<T>>,
 {
-    pub fn id(&self) -> Id {
+    pub fn id(&self) -> Id<T> {
         self.id
     }
 
-    fn retain(id: Id) -> Self {
+    fn retain(id: Id<T>) -> Self {
         current_queue::send(Change::<T>::Retain(id).into());
         Self {
             id,
@@ -195,7 +195,7 @@ where
 /// A kind of scene object: a transform, a location, or a visual.
 ///
 /// The renderer receives the value itself with every change, which is why a value refers to other
-/// objects by [`ObjectId`](crate::ObjectId), never by a counted reference (ADR 0040).
+/// objects by [`Id`](crate::Id), never by a counted reference (ADR 0040).
 pub trait Object: Sized + Clone + fmt::Debug
 where
     SceneChange: From<Change<Self>>,

@@ -3,7 +3,7 @@ use std::any::TypeId;
 use massive_geometry::Transform;
 
 use crate::{
-    Change, Id, Location, Object, ObjectId, RenderChange, RenderSceneChange, SceneChange, Visual,
+    Change, Id, Location, Object, RenderChange, RenderSceneChange, SceneChange, Visual,
     id_generator,
 };
 
@@ -56,18 +56,18 @@ impl LifetimeStage {
                 let targets = value.targets();
                 self.retain_all(targets);
                 let table = self.table(T::KIND);
-                table.counts.create(id);
-                table.targets.set(id, targets);
+                table.counts.create(id.index());
+                table.targets.set(id.index(), targets);
                 resolution.emit(RenderChange::Create(id, value));
             }
             Change::Update(id, value) => {
                 let targets = value.targets();
                 let table = self.table(T::KIND);
                 debug_assert!(
-                    table.counts.is_alive(id),
+                    table.counts.is_alive(id.index()),
                     "Updated object {id:?} is not alive"
                 );
-                let previous = table.targets.replace(id, targets);
+                let previous = table.targets.replace(id.index(), targets);
                 if targets != previous {
                     // The new targets are counted before the previous ones are released, so a
                     // target both refer to, such as a transform kept under a new parent, never
@@ -77,14 +77,14 @@ impl LifetimeStage {
                 }
                 resolution.emit(RenderChange::Update(id, value));
             }
-            Change::Retain(id) => self.table(T::KIND).counts.retain(id),
-            Change::Release(id) => self.release_all([Target { kind: T::KIND, id }], resolution),
+            Change::Retain(id) => self.table(T::KIND).counts.retain(id.index()),
+            Change::Release(id) => self.release_all([Target::from(id)], resolution),
         }
     }
 
     fn retain_all(&mut self, targets: Targets) {
         for target in targets.iter() {
-            self.table(target.kind).counts.retain(target.id);
+            self.table(target.kind).counts.retain(target.index);
         }
     }
 
@@ -98,11 +98,11 @@ impl LifetimeStage {
         resolution: &mut Resolution,
     ) {
         let mut pending: Vec<Target> = targets.into_iter().collect();
-        while let Some(Target { kind, id }) = pending.pop() {
+        while let Some(Target { kind, index }) = pending.pop() {
             let table = self.table(kind);
-            if table.counts.release(id) {
-                pending.extend(table.targets.take(id).iter());
-                resolution.end(kind, id);
+            if table.counts.release(index) {
+                pending.extend(table.targets.take(index).iter());
+                resolution.end(kind, index);
             }
         }
     }
@@ -145,30 +145,33 @@ impl Kind {
         }
     }
 
-    fn delete(self, id: Id) -> RenderSceneChange {
+    fn delete(self, index: u32) -> RenderSceneChange {
         match self {
-            Kind::Transform => RenderChange::<Transform>::Delete(id).into(),
-            Kind::Location => RenderChange::<Location>::Delete(id).into(),
-            Kind::Visual => RenderChange::<Visual>::Delete(id).into(),
+            Kind::Transform => RenderChange::Delete(Id::<Transform>::from_index(index)).into(),
+            Kind::Location => RenderChange::Delete(Id::<Location>::from_index(index)).into(),
+            Kind::Visual => RenderChange::Delete(Id::<Visual>::from_index(index)).into(),
         }
     }
 }
 
 /// An object that one reference count belongs to.
+///
+/// It holds the kind and the raw index instead of a typed id, because one worklist holds targets
+/// of every kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {
     kind: Kind,
-    id: Id,
+    index: u32,
 }
 
-impl<T: Tracked> From<ObjectId<T>> for Target
+impl<T: Tracked> From<Id<T>> for Target
 where
     SceneChange: From<Change<T>>,
 {
-    fn from(object: ObjectId<T>) -> Self {
+    fn from(object: Id<T>) -> Self {
         Self {
             kind: T::KIND,
-            id: object.id(),
+            index: object.index(),
         }
     }
 }
@@ -201,7 +204,7 @@ struct Table {
 struct Resolution {
     render_changes: Vec<RenderSceneChange>,
     /// Keyed by the object type, which is what the id generator hands ids out under.
-    ended: Vec<(TypeId, Id)>,
+    ended: Vec<(TypeId, u32)>,
 }
 
 impl Resolution {
@@ -212,47 +215,47 @@ impl Resolution {
         self.render_changes.push(change.into());
     }
 
-    fn end(&mut self, kind: Kind, id: Id) {
-        self.ended.push((kind.type_id(), id));
-        self.render_changes.push(kind.delete(id));
+    fn end(&mut self, kind: Kind, index: u32) {
+        self.ended.push((kind.type_id(), index));
+        self.render_changes.push(kind.delete(index));
     }
 }
 
-/// The reference count of each object of one kind, indexed by the object's id. Zero marks an id
+/// The reference count of each object of one kind, indexed by the index of the object's id. Zero marks an id
 /// without a live object.
 #[derive(Debug, Default)]
 struct ReferenceCounts(Vec<u32>);
 
 impl ReferenceCounts {
     /// Start a new object's count at one, for its handle.
-    fn create(&mut self, id: Id) {
-        let index = id.to_usize();
+    fn create(&mut self, index: u32) {
+        let index = index as usize;
         if index >= self.0.len() {
             self.0.resize(index + 1, 0);
         }
-        assert_eq!(self.0[index], 0, "Created object {id:?} is already alive");
+        assert_eq!(self.0[index], 0, "Created object {index} is already alive");
         self.0[index] = 1;
     }
 
-    fn retain(&mut self, id: Id) {
-        assert!(self.is_alive(id), "Retained object {id:?} is not alive");
-        self.0[id.to_usize()] += 1;
+    fn retain(&mut self, index: u32) {
+        assert!(self.is_alive(index), "Retained object {index} is not alive");
+        self.0[index as usize] += 1;
     }
 
     /// Remove one reference, and return whether the object ended with it.
-    fn release(&mut self, id: Id) -> bool {
-        assert!(self.is_alive(id), "Released object {id:?} is not alive");
-        let count = &mut self.0[id.to_usize()];
+    fn release(&mut self, index: u32) -> bool {
+        assert!(self.is_alive(index), "Released object {index} is not alive");
+        let count = &mut self.0[index as usize];
         *count -= 1;
         *count == 0
     }
 
-    fn is_alive(&self, id: Id) -> bool {
-        self.0.get(id.to_usize()).is_some_and(|count| *count > 0)
+    fn is_alive(&self, index: u32) -> bool {
+        self.0.get(index as usize).is_some_and(|count| *count > 0)
     }
 }
 
-/// One value for each live object of one kind, indexed by the object's id.
+/// One value for each live object of one kind, indexed by the index of the object's id.
 #[derive(Debug)]
 struct Slots<T>(Vec<Option<T>>);
 
@@ -263,25 +266,28 @@ impl<T> Default for Slots<T> {
 }
 
 impl<T> Slots<T> {
-    fn set(&mut self, id: Id, value: T) {
-        let index = id.to_usize();
+    fn set(&mut self, index: u32, value: T) {
+        let index = index as usize;
         if index >= self.0.len() {
             self.0.resize_with(index + 1, || None);
         }
-        assert!(self.0[index].is_none(), "Object {id:?} already has a value");
+        assert!(
+            self.0[index].is_none(),
+            "Object {index} already has a value"
+        );
         self.0[index] = Some(value);
     }
 
-    fn replace(&mut self, id: Id, value: T) -> T {
-        self.0[id.to_usize()]
+    fn replace(&mut self, index: u32, value: T) -> T {
+        self.0[index as usize]
             .replace(value)
-            .unwrap_or_else(|| panic!("Object {id:?} has no value to replace"))
+            .unwrap_or_else(|| panic!("Object {index} has no value to replace"))
     }
 
-    fn take(&mut self, id: Id) -> T {
-        self.0[id.to_usize()]
+    fn take(&mut self, index: u32) -> T {
+        self.0[index as usize]
             .take()
-            .unwrap_or_else(|| panic!("Object {id:?} has no value to take"))
+            .unwrap_or_else(|| panic!("Object {index} has no value to take"))
     }
 }
 

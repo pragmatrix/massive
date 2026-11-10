@@ -17,13 +17,13 @@ pub enum RenderSceneChange {
 /// A create, update, or delete of one object, keyed by its id.
 #[derive(Debug)]
 pub enum RenderChange<T> {
-    Create(Id, T),
-    Update(Id, T),
-    Delete(Id),
+    Create(Id<T>, T),
+    Update(Id<T>, T),
+    Delete(Id<T>),
 }
 
 impl<T> RenderChange<T> {
-    pub fn id(&self) -> Id {
+    pub fn id(&self) -> Id<T> {
         match *self {
             RenderChange::Create(id, _)
             | RenderChange::Update(id, _)

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, btree_map, hash_map};
 
-use massive_scene::Id;
+use massive_scene::{Id, Visual};
 
 use crate::renderer::RenderVisual;
 
@@ -9,13 +9,13 @@ use crate::renderer::RenderVisual;
 /// Why: This was introduced at the time we needed to support Z-Order / Depth Bias.
 #[derive(Debug, Default)]
 pub struct RenderBatches {
-    visuals_to_decal_order: HashMap<Id, Option<usize>>,
-    pub normal_visuals: HashMap<Id, RenderVisual>,
-    pub decal_visuals_by_order: BTreeMap<usize, HashMap<Id, RenderVisual>>,
+    visuals_to_decal_order: HashMap<Id<Visual>, Option<usize>>,
+    pub normal_visuals: HashMap<Id<Visual>, RenderVisual>,
+    pub decal_visuals_by_order: BTreeMap<usize, HashMap<Id<Visual>, RenderVisual>>,
 }
 
 impl RenderBatches {
-    pub fn insert(&mut self, id: Id, render_visual: RenderVisual) {
+    pub fn insert(&mut self, id: Id<Visual>, render_visual: RenderVisual) {
         let order = render_visual.decal_order;
         match self.visuals_to_decal_order.entry(id) {
             hash_map::Entry::Vacant(vacant_entry) => {
@@ -34,7 +34,7 @@ impl RenderBatches {
         }
     }
 
-    pub fn remove(&mut self, id: Id) {
+    pub fn remove(&mut self, id: Id<Visual>) {
         let Some(order) = self.visuals_to_decal_order.remove(&id) else {
             // Redundant removes might happen if a visual was inserted and removed in the same
             // cycle. So we keep this idempotent.
@@ -71,7 +71,7 @@ impl RenderBatches {
         )
     }
 
-    fn insert_new(&mut self, id: Id, render_visual: RenderVisual) {
+    fn insert_new(&mut self, id: Id<Visual>, render_visual: RenderVisual) {
         let order = render_visual.decal_order;
         match order {
             Some(order) => {
@@ -86,7 +86,7 @@ impl RenderBatches {
         }
     }
 
-    fn update_existing(&mut self, id: Id, render_visual: RenderVisual) {
+    fn update_existing(&mut self, id: Id<Visual>, render_visual: RenderVisual) {
         let order = render_visual.decal_order;
         match order {
             Some(order) => {
@@ -110,7 +110,7 @@ impl RenderBatches {
 
 #[cfg(test)]
 mod tests {
-    use massive_scene::{Id, id_generator};
+    use massive_scene::{Id, Location, Visual, id_generator};
 
     use super::RenderBatches;
     use crate::renderer::{PipelineBatches, RenderVisual};
@@ -119,7 +119,7 @@ mod tests {
     fn insert_move_and_remove_keeps_storage_consistent() {
         let mut batches = RenderBatches::default();
         let id = new_id();
-        let location = new_id();
+        let location = new_location_id();
 
         batches.insert(id, visual(location, None));
         assert_eq!(batches.visuals_to_decal_order.get(&id), Some(&None));
@@ -146,8 +146,8 @@ mod tests {
     fn same_order_update_replaces_visual_in_place() {
         let mut batches = RenderBatches::default();
         let id = new_id();
-        let location_a = new_id();
-        let location_b = new_id();
+        let location_a = new_location_id();
+        let location_b = new_location_id();
 
         batches.insert(id, visual(location_a, Some(4)));
         batches.insert(id, visual(location_b, Some(4)));
@@ -162,11 +162,15 @@ mod tests {
         assert_eq!(batches.visuals_to_decal_order.get(&id), Some(&Some(4)));
     }
 
-    fn new_id() -> Id {
-        id_generator::acquire::<RenderBatches>()
+    fn new_id() -> Id<Visual> {
+        id_generator::acquire::<Visual>()
     }
 
-    fn visual(location_id: Id, decal_order: Option<usize>) -> RenderVisual {
+    fn new_location_id() -> Id<Location> {
+        id_generator::acquire::<Location>()
+    }
+
+    fn visual(location_id: Id<Location>, decal_order: Option<usize>) -> RenderVisual {
         RenderVisual {
             location_id,
             decal_order,

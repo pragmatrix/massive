@@ -1,4 +1,4 @@
-use massive_scene::{ChangedIds, Id, RenderSceneChange, Visual};
+use massive_scene::{ChangedIds, Id, Location, RenderSceneChange, Visual};
 
 use crate::scene::{LocationTransforms, Scene};
 use crate::{TransactionManager, Version};
@@ -13,7 +13,7 @@ pub struct SceneState {
     transaction_manager: TransactionManager,
     scene: Scene,
     /// The changed visuals since the previous draw call.
-    changed_visuals: ChangedIds,
+    changed_visuals: ChangedIds<Visual>,
     locations: LocationTransforms,
     /// The version the locations were last resolved at. Every applied change opens a new
     /// version, so while it is current, no location, transform, or visual changed and resolving
@@ -38,7 +38,7 @@ impl SceneState {
 
     /// Drain the visuals that changed since the previous call, each with its current state, or
     /// `None` when it was deleted.
-    pub fn take_changed_visuals(&mut self) -> impl Iterator<Item = (Id, Option<&Visual>)> {
+    pub fn take_changed_visuals(&mut self) -> impl Iterator<Item = (Id<Visual>, Option<&Visual>)> {
         let visuals = self.scene.visuals();
         self.changed_visuals
             .take_all()
@@ -48,7 +48,7 @@ impl SceneState {
     /// Bring the matrices of the given locations up to date with the latest applied changes.
     ///
     /// Does not consume `location_ids` when nothing changed since the previous call.
-    pub fn resolve_locations(&mut self, location_ids: impl Iterator<Item = Id>) {
+    pub fn resolve_locations(&mut self, location_ids: impl Iterator<Item = Id<Location>>) {
         let head_version = self.transaction_manager.current();
         if self.resolved_at == head_version {
             return;

@@ -20,14 +20,14 @@ pub enum SceneChange {
 /// decides when it ends (ADR 0040).
 #[derive(Debug)]
 pub enum Change<T> {
-    Create(Id, T),
-    Update(Id, T),
-    Retain(Id),
-    Release(Id),
+    Create(Id<T>, T),
+    Update(Id<T>, T),
+    Retain(Id<T>),
+    Release(Id<T>),
 }
 
 impl<T> Change<T> {
-    pub fn id(&self) -> Id {
+    pub fn id(&self) -> Id<T> {
         match *self {
             Change::Create(id, _)
             | Change::Update(id, _)

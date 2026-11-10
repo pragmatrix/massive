@@ -46,16 +46,19 @@ the instance root had two writers. The instance presenter and its movement closu
   from a batch of submitted scene changes instead, by walking their parent ids, which is also what
   the renderer receives. Because only that test needs it, it moves from `massive-scene` into the
   desktop's system tests.
-- A value refers to other objects by `ObjectId<T>`, a typed id that does not count. A visual names
-  its location, and a location its transform and its parent, this way. The lifetime stage counts
+- Ids are typed. `Id<T>` names an object of type `T`, because every object type has its own id
+  space. Handles, references, changes, values and the renderer's tables all use it, so the
+  compiler keeps one type's ids out of another type's table. Only the lifetime stage, whose
+  worklist mixes kinds, and the id generator keep a raw index, privately.
+- A value refers to other objects by `Id<T>`, which does not count. A visual names its location,
+  and a location its transform and its parent, this way. The lifetime stage counts
   these references itself, for as long as the referring object lives. A counted `Ref` inside a
   value would not do. The value lives in the handle, so dropping the handle would release the
   value's references while a `Ref` still kept the object alive. The object would then outlive its
   own transform or parent, which mt showed as content without its padding transform.
 - The values are the render objects. `Visual`, `Location` and `Transform` travel to the renderer as
   they are, and `VisualRenderObj`, `LocationRenderObj` and `LocationParentId` go away. The `Object`
-  trait becomes a marker without an associated change type. The renderer reads typed ids, so it
-  cannot confuse one object kind's id with another's.
+  trait becomes a marker without an associated change type.
 - `Handle` keeps only `Debug`. It is not `PartialEq` or `Hash`, because a unique handle only equals
   itself. `Ref` keeps only `Debug` and its counted `Clone`, because nothing compares or hashes
   references.
@@ -194,7 +197,7 @@ enforced.
   batch. Each task drains its queue only in its own frame submission, so the changes of one
   synchronous call land in the same batch, too. The stage must neither split a batch nor carry a
   `Delete` into the next one.
-- **An id outlives its source until it is submitted.** An `ObjectId` does not keep its object
+- **An id outlives its source until it is submitted.** An `Id` does not keep its object
   alive. The handle or `Ref` it was taken from has to live until the value holding the id is
   submitted. Today every value is built in the expression that submits it, and the stage's
   `Retain` assertion fails loudly when an id refers to an object that has already ended.
@@ -230,7 +233,7 @@ run it at its own edge.
 ## Considered Options
 
 - **Counted `Ref`s inside values.** This was the first version of this decision. It broke as soon as
-  a `Ref` outlived the handle of the object holding it, as described for `ObjectId` above.
+  a `Ref` outlived the handle of the object holding it, as described for ids in values above.
 - **A dropped handle hands its value's `Ref`s over to the stage.** `Handle::drop` would suppress the
   releases of the `Ref`s in its value through a thread-local flag, and the stage would release them
   when the object ends. That keeps `Ref` in the values, but a hidden flag would change what
