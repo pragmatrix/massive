@@ -12,7 +12,8 @@ use crate::{Handle, Object, Ref};
 /// An object's value refers to other objects by their ids. An id does not keep its object alive by
 /// itself. Once the referring object is submitted, the lifetime stage counts the reference for as
 /// long as that object lives (ADR 0040). Until then, the handle or reference the id was taken from
-/// has to keep the object alive.
+/// has to keep the object alive until the task's next submission, because the stage ends an object
+/// only when its count is still zero at the end of a batch.
 pub struct Id<T> {
     index: u32,
     object: PhantomData<fn() -> T>,
