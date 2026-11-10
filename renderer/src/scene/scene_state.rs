@@ -1,4 +1,4 @@
-use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
+use massive_scene::{ChangedIds, Id, RenderSceneChange, VisualRenderObj};
 
 use crate::scene::{LocationTransforms, Scene};
 use crate::{TransactionManager, Version};
@@ -25,11 +25,11 @@ impl SceneState {
     /// Apply changes to the renderer hierarchy.
     ///
     /// This can be called multiple times with new changes without losing significant performance compared to combining all changes first. I.e. no expensive value computation is done here.
-    pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) {
+    pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = RenderSceneChange>) {
         let transaction = self.transaction_manager.new_transaction();
 
         for change in changes {
-            if let SceneChange::Visual(visual_change) = &change {
+            if let RenderSceneChange::Visual(visual_change) = &change {
                 self.changed_visuals.add(visual_change.id());
             }
             self.scene.apply(change, &transaction);

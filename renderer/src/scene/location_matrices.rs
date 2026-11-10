@@ -179,7 +179,7 @@ impl Default for Versioned<Transform> {
 #[cfg(test)]
 mod tests {
     use massive_geometry::Vector3;
-    use massive_scene::{Change, Location, SceneChange, id_generator};
+    use massive_scene::{Location, RenderChange, RenderSceneChange, id_generator};
 
     use super::*;
     use crate::TransactionManager;
@@ -215,15 +215,21 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
+            RenderSceneChange::Transform(RenderChange::Create(
+                parent_transform_id,
+                Transform::IDENTITY,
+            )),
             &transaction,
         );
         scene.apply(
-            SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
+            RenderSceneChange::Transform(RenderChange::Create(
+                child_transform_id,
+                Transform::IDENTITY,
+            )),
             &transaction,
         );
         scene.apply(
-            SceneChange::Location(Change::Create(
+            RenderSceneChange::Location(RenderChange::Create(
                 parent_location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -234,7 +240,7 @@ mod tests {
             &transaction,
         );
         scene.apply(
-            SceneChange::Location(Change::Create(
+            RenderSceneChange::Location(RenderChange::Create(
                 child_location_id,
                 LocationRenderObj {
                     parent: LocationParentId::Location(parent_location_id),
@@ -266,15 +272,21 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
+            RenderSceneChange::Transform(RenderChange::Create(
+                parent_transform_id,
+                Transform::IDENTITY,
+            )),
             &transaction,
         );
         scene.apply(
-            SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
+            RenderSceneChange::Transform(RenderChange::Create(
+                child_transform_id,
+                Transform::IDENTITY,
+            )),
             &transaction,
         );
         scene.apply(
-            SceneChange::Location(Change::Create(
+            RenderSceneChange::Location(RenderChange::Create(
                 parent_location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -285,7 +297,7 @@ mod tests {
             &transaction,
         );
         scene.apply(
-            SceneChange::Location(Change::Create(
+            RenderSceneChange::Location(RenderChange::Create(
                 child_location_id,
                 LocationRenderObj {
                     parent: LocationParentId::Location(parent_location_id),
@@ -317,11 +329,11 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            SceneChange::Transform(Change::Create(transform_id, initial_transform)),
+            RenderSceneChange::Transform(RenderChange::Create(transform_id, initial_transform)),
             &transaction,
         );
         scene.apply(
-            SceneChange::Location(Change::Create(
+            RenderSceneChange::Location(RenderChange::Create(
                 location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -339,7 +351,7 @@ mod tests {
 
         let transaction = transaction_manager.new_transaction();
         scene.apply(
-            SceneChange::Transform(Change::Update(transform_id, moved_transform)),
+            RenderSceneChange::Transform(RenderChange::Update(transform_id, moved_transform)),
             &transaction,
         );
         locations.resolve_locations_and_matrices(&scene, &transaction, [location_id].into_iter());
@@ -348,7 +360,7 @@ mod tests {
 
         let transaction = transaction_manager.new_transaction();
         scene.apply(
-            SceneChange::Location(Change::Update(
+            RenderSceneChange::Location(RenderChange::Update(
                 location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -377,11 +389,11 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            SceneChange::Transform(Change::Create(transform_id, Transform::IDENTITY)),
+            RenderSceneChange::Transform(RenderChange::Create(transform_id, Transform::IDENTITY)),
             &transaction,
         );
         scene.apply(
-            SceneChange::Location(Change::Create(
+            RenderSceneChange::Location(RenderChange::Create(
                 location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),

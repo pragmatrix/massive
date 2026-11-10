@@ -321,7 +321,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     fn drop(&mut self) {
-        self.change_collector.send(Change::Delete(self.id).into());
+        self.change_collector.send(Change::Release(self.id).into());
     }
 }
 

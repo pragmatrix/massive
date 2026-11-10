@@ -1,4 +1,6 @@
-use massive_scene::{Change, Id, LocationRenderObj, SceneChange, Transform, VisualRenderObj};
+use massive_scene::{
+    Id, LocationRenderObj, RenderChange, RenderSceneChange, Transform, VisualRenderObj,
+};
 
 use crate::{Transaction, Version, tools::Versioned};
 
@@ -26,16 +28,16 @@ impl Scene {
     ///
     /// The transaction is given a new version number, which is then treated as the most recent
     /// version and the current version of the whole scene.
-    pub fn apply(&mut self, change: SceneChange, transaction: &Transaction) {
+    pub fn apply(&mut self, change: RenderSceneChange, transaction: &Transaction) {
         let current_version = transaction.current_version();
         match change {
-            SceneChange::Transform(change) => {
+            RenderSceneChange::Transform(change) => {
                 self.transforms.apply_versioned(change, current_version)
             }
-            SceneChange::Location(change) => {
+            RenderSceneChange::Location(change) => {
                 self.locations.apply_versioned(change, current_version)
             }
-            SceneChange::Visual(change) => self.visuals.apply(change),
+            RenderSceneChange::Visual(change) => self.visuals.apply(change),
         }
     }
 
@@ -45,11 +47,13 @@ impl Scene {
 }
 
 impl<T> IdTable<Option<Versioned<T>>> {
-    pub fn apply_versioned(&mut self, change: Change<T>, version: Version) {
+    pub fn apply_versioned(&mut self, change: RenderChange<T>, version: Version) {
         match change {
-            Change::Create(id, value) => self.insert(id, Some(Versioned::new(value, version))),
-            Change::Delete(id) => self[id] = None,
-            Change::Update(id, value) => self[id] = Some(Versioned::new(value, version)),
+            RenderChange::Create(id, value) => {
+                self.insert(id, Some(Versioned::new(value, version)))
+            }
+            RenderChange::Delete(id) => self[id] = None,
+            RenderChange::Update(id, value) => self[id] = Some(Versioned::new(value, version)),
         }
     }
 }
@@ -58,21 +62,21 @@ impl<T> IdTable<Versioned<T>>
 where
     Versioned<T>: Default,
 {
-    pub fn apply_versioned(&mut self, change: Change<T>, version: Version) {
+    pub fn apply_versioned(&mut self, change: RenderChange<T>, version: Version) {
         match change {
-            Change::Create(id, value) => self.insert(id, Versioned::new(value, version)),
-            Change::Delete(id) => self[id] = Versioned::default(),
-            Change::Update(id, value) => self[id] = Versioned::new(value, version),
+            RenderChange::Create(id, value) => self.insert(id, Versioned::new(value, version)),
+            RenderChange::Delete(id) => self[id] = Versioned::default(),
+            RenderChange::Update(id, value) => self[id] = Versioned::new(value, version),
         }
     }
 }
 
 impl<T> IdTable<Option<T>> {
-    pub fn apply(&mut self, change: Change<T>) {
+    pub fn apply(&mut self, change: RenderChange<T>) {
         match change {
-            Change::Create(id, value) => self.insert(id, Some(value)),
-            Change::Delete(id) => self[id] = None,
-            Change::Update(id, value) => self[id] = Some(value),
+            RenderChange::Create(id, value) => self.insert(id, Some(value)),
+            RenderChange::Delete(id) => self[id] = None,
+            RenderChange::Update(id, value) => self[id] = Some(value),
         }
     }
 

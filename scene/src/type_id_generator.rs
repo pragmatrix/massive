@@ -31,8 +31,8 @@ pub mod id_generator {
 
     use parking_lot::Mutex;
 
+    use crate::Id;
     use crate::type_id_generator::TypeIdGenerator;
-    use crate::{Id, SceneChange};
 
     pub fn acquire<T: 'static>() -> Id {
         global_id_generator().lock().acquire(TypeId::of::<T>())
@@ -45,15 +45,15 @@ pub mod id_generator {
         &ID_GEN
     }
 
-    /// Garbage collect the ids that can be reused after the changes are applied.
-    pub fn gc(changes: &[SceneChange]) {
-        // Performance: May not lock the id generator if there are no destructive changes.
-        let mut id_gen = global_id_generator().lock();
+    /// Return the ids of ended objects, keyed by their object type, so later objects can reuse
+    /// them. The lifetime stage calls this once per batch (ADR 0040).
+    pub fn release_all(ids: &[(TypeId, Id)]) {
+        if ids.is_empty() {
+            return;
+        }
 
-        // Free up all deleted ids (this is done immediately for now, but may be later done in the
-        // renderer, for example to keep ids alive until animations are finished or cached resources
-        // are cleaned up)
-        for (type_id, id) in changes.iter().flat_map(|sc| sc.destructive_change()) {
+        let mut id_gen = global_id_generator().lock();
+        for &(type_id, id) in ids {
             // Performance: Order by `TypeId` first to prevent expensive hashmap lookups?
             id_gen.release(type_id, id);
         }

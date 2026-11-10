@@ -373,7 +373,7 @@ _Avoid_: change stream, sender, channel
 
 **Submit**:
 Create an object handle and add it to the task's change queue: the handle publishes
-its create into that queue, and its later updates and deletion follow the same path.
+its create into that queue, and its later updates and its release follow the same path.
 Because handles hold the erased sink, their changes land in the same FIFO as the task's
 own changes.
 _Avoid_: connect, enter
@@ -383,6 +383,12 @@ The step between the shell's hosted instance and its renderer that decides when 
 It counts the handles and references to each object, and deletes the object when the last one is
 released (ADR 0040).
 _Avoid_: garbage collector, gc, reference counter
+
+**Render change**:
+A change to a scene object as the renderer receives it: a create, an update, or a delete. Only the
+lifetime stage produces render changes, so a delete reaches the renderer only once nothing refers to
+the object any more (ADR 0040).
+_Avoid_: resolved change, renderer change
 
 **Mounting**:
 Wiring a movement's value and apply-animations callback into a task's movement runtime, done once at presenter construction, before any frame exists. Mounting only enqueues the movement's actions; it does not animate or read the animation clock.
