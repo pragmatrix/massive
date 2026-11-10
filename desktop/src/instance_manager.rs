@@ -20,6 +20,7 @@ use massive_applications::{
 use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
 use massive_shell::Result;
+use massive_util::ChangeSet;
 
 /// Prefix for the OS thread name of each instance thread; the [`InstanceId`] follows
 /// its debug form.
@@ -35,10 +36,21 @@ const INSTANCE_THREAD_NAME_PREFIX: &str = "massive ";
 pub struct InstanceManager {
     instances: HashMap<InstanceId, RunningInstance>,
     environment: InstanceEnvironment,
-    /// Sender the instance threads report their result on. Held by the manager so the
-    /// receiver in `completions_rx` stays open between spawns.
-    completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
-    completions_rx: UnboundedReceiver<(InstanceId, Result<()>)>,
+    /// Sender the instance threads report their end on. Held by the manager so the receiver in
+    /// `completions_rx` stays open between spawns.
+    completions_tx: UnboundedSender<InstanceEnd>,
+    completions_rx: UnboundedReceiver<InstanceEnd>,
+}
+
+/// What an ended instance reports.
+#[derive(Debug)]
+pub struct InstanceEnd {
+    pub instance: InstanceId,
+    pub result: Result<()>,
+    /// The changes the instance's task made after its final submission, such as the releases of
+    /// what it held until the end. The desktop integrates them after the instance's last outputs,
+    /// so those objects still end (ADR 0040).
+    pub final_changes: ChangeSet<InstanceChange>,
 }
 
 #[derive(Debug)]
@@ -147,17 +159,17 @@ impl InstanceManager {
     ///
     /// Returns an error when no instances are running, or when the completion
     /// channel closed because the manager was dropped.
-    pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
+    pub async fn join_next(&mut self) -> Result<InstanceEnd> {
         if self.instances.is_empty() {
             bail!("No instances in InstanceManager");
         }
-        let (instance_id, result) = self
+        let end = self
             .completions_rx
             .recv()
             .await
             .ok_or_else(|| anyhow!("Instance completion channel closed"))?;
-        self.instances.remove(&instance_id);
-        Ok((instance_id, result))
+        self.instances.remove(&end.instance);
+        Ok(end)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -195,7 +207,7 @@ impl InstanceManager {
 
 /// Run one instance future on its own dedicated OS thread (ADR 0009).
 ///
-/// The thread is detached: it reports `(InstanceId, result)` on the completion channel and
+/// The thread is detached: it reports its [`InstanceEnd`] on the completion channel and
 /// the manager never joins or aborts it — shutdown is cooperative and the process end reaps
 /// threads that outlive the shutdown deadline.
 fn spawn_instance_thread(
@@ -203,25 +215,31 @@ fn spawn_instance_thread(
     runtime_kind: RuntimeKind,
     instance_future: InstanceFuture,
     instance_task_context: TaskContext,
-    completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
+    completions_tx: UnboundedSender<InstanceEnd>,
 ) -> io::Result<thread::JoinHandle<()>> {
     thread::Builder::new()
         .name(format!("{INSTANCE_THREAD_NAME_PREFIX}{instance_id:?}"))
         .spawn(move || {
             // The send is the only exit: every failure of [run_instance_future] becomes a
             // completion, so the manager never waits on an instance that cannot report.
-            let result = run_instance_future(runtime_kind, instance_future, instance_task_context);
-            let _ = completions_tx.send((instance_id, result));
+            let (result, final_changes) =
+                run_instance_future(runtime_kind, instance_future, instance_task_context);
+            let _ = completions_tx.send(InstanceEnd {
+                instance: instance_id,
+                result,
+                final_changes,
+            });
         })
 }
 
 /// Build the instance runtime and drive the instance future to completion, converting a
-/// panic into an error result.
+/// panic into an error result. Also returns the changes the instance's task made after its final
+/// submission.
 fn run_instance_future(
     runtime_kind: RuntimeKind,
     instance_future: InstanceFuture,
     instance_task_context: TaskContext,
-) -> Result<()> {
+) -> (Result<()>, ChangeSet<InstanceChange>) {
     // The runtime is built inside the thread closure so its lifetime encloses `block_on`:
     // dropping a runtime before `spawn_blocking` work completes would abort the pty reader.
     let runtime = match runtime_kind {
@@ -233,17 +251,21 @@ fn run_instance_future(
     let runtime = match runtime {
         Ok(runtime) => runtime,
         Err(error) => {
-            // The future holds the instance's view parent, whose release must reach a change
-            // queue (ADR 0040).
-            task_context::drop_with_context(instance_task_context, instance_future);
-            return Err(error).context("building an instance runtime");
+            // The future holds the instance's view parent, whose release has to reach the
+            // desktop (ADR 0040).
+            let final_changes =
+                task_context::drop_with_context(instance_task_context, instance_future);
+            return (
+                Err(error).context("building an instance runtime"),
+                final_changes,
+            );
         }
     };
-    let result = runtime.block_on(task_context::with_context(
+    let (result, final_changes) = runtime.block_on(task_context::with_context_and_final_changes(
         instance_task_context,
         AssertUnwindSafe(instance_future).catch_unwind(),
     ));
-    match result {
+    let result = match result {
         Ok(result) => result,
         // `catch_unwind` yields `Box<dyn Any + Send>`, exactly the payload type
         // `panic_message` takes — it unpacks `&str`/`String` payloads like rustc's
@@ -252,5 +274,80 @@ fn run_instance_future(
             "Instance panicked : {}",
             panic_payload_message(&payload)
         )),
+    };
+    (result, final_changes)
+}
+
+#[cfg(test)]
+mod tests {
+    use massive_applications::prelude::Submit;
+    use massive_applications::{InstanceChange, InstanceOutput, InstanceParameters};
+    use massive_renderer::{FontManager, ShapingEngineKind};
+    use massive_scene::prelude::*;
+    use massive_scene::{LifetimeStage, RenderChange, RenderSceneChange, SceneChange};
+    use uuid::Uuid;
+
+    use super::*;
+
+    /// An instance holds its view parent until it ends, so the parent's last reference is
+    /// released after the instance's final submission. That release must still reach the desktop,
+    /// or the view parent never ends (ADR 0040).
+    #[tokio::test]
+    async fn an_ended_instance_releases_its_view_parent() -> Result<()> {
+        task_context::with_context(desktop_task_context(), async {
+            let (outputs_tx, mut outputs_rx) = unbounded_channel();
+            let mut manager = InstanceManager::new(InstanceEnvironment::new(outputs_tx, 1.0, None));
+            let (transform, location) = identity_location().submit();
+            let location_id = location.id();
+            let application = Application::new("ends", |context| async move {
+                drop(context);
+                Ok(())
+            });
+            manager.spawn(
+                Uuid::new_v4().into(),
+                &application,
+                CreationMode::New(InstanceParameters::default()),
+                location.to_ref(),
+            )?;
+            drop((transform, location));
+            let end = manager.join_next().await?;
+            end.result?;
+
+            // Integrate like the desktop: its own changes first, then each instance output, then
+            // what processing the outputs released.
+            let mut changes = task_context::take_changes::<SceneChange>().release();
+            while let Ok((_, output)) = outputs_rx.try_recv() {
+                let InstanceOutput::Submission(submission) = output else {
+                    continue;
+                };
+                for change in submission.into_parts().0.release() {
+                    if let InstanceChange::Scene(change) = change {
+                        changes.push(change);
+                    }
+                }
+            }
+            changes.extend(task_context::take_changes::<SceneChange>().release());
+            for change in end.final_changes.release() {
+                if let InstanceChange::Scene(change) = change {
+                    changes.push(change);
+                }
+            }
+
+            let ended = LifetimeStage::default().resolve(changes).into_iter().any(|change| {
+                matches!(change, RenderSceneChange::Location(RenderChange::Delete(id)) if id == location_id)
+            });
+            assert!(ended, "the ended instance's view parent stays alive");
+            Ok(())
+        })
+        .await
+    }
+
+    fn desktop_task_context() -> TaskContext {
+        TaskContext::new(
+            AnyCollector::for_type::<SceneChange>(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context(),
+        )
     }
 }

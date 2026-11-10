@@ -880,10 +880,6 @@ impl DesktopSystem {
             InstanceChange::Configuration(request) => {
                 self.apply_configuration_request(instance, request)
             }
-            // This makes sure that all pending Scene Changes from the Instance have been collected
-            // before we drop the last ref the instance has to its parent location (which in turn
-            // may push other deletes to the Scene).
-            InstanceChange::End(_) => Ok(ChangeOutput::default()),
         }
     }
 

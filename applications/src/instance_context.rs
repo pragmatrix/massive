@@ -91,14 +91,13 @@ pub type HostWindows = Arc<dyn Any + Send + Sync>;
 impl Drop for InstanceContext {
     fn drop(&mut self) {
         // An instance that draws its own windows renders its changes itself.
-        let Some(views) = self.draw_target.views() else {
+        if self.draw_target.views().is_none() {
             return;
-        };
-        let view_parent = views.view_parent.clone();
+        }
         warn!("Submitting final instance changes: instance={:?}", self.id);
-        // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
-        // the desktop observes it behind every pending change of this submission.
-        submit(InstanceChange::End(view_parent));
+        // If the instance ends, we _must_ submit all pending changes. What drops after this
+        // submission, the view parent included, its host collects from the task's final changes
+        // (ADR 0040).
         // Teardown runs after the run loop returned, so no frame is live. The detached frame end
         // witnesses animation access for this one teardown (joining, not replacing, a frame held
         // across a panic unwind), flushes queued movement actions, closes the cycle and never

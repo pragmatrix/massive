@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, Frame, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId,
-    InstanceMessage, InstanceOutput, ViewEvent, begin_frame,
+    InstanceMessage, InstanceOutput, InstanceSubmission, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
 use massive_protocol::desktop_socket_path;
@@ -24,7 +24,7 @@ use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect}
 use crate::desktop_system::{
     DesktopCommand, DesktopSystem, FocusIntent, Planned, StartInstance, TransactionEffectsMode,
 };
-use crate::instance_manager::InstanceManager;
+use crate::instance_manager::{InstanceEnd, InstanceManager};
 use crate::instance_presenter::{
     InstanceKind, InstanceRoot, InstanceTitleBarMetrics, instance_extent,
 };
@@ -62,7 +62,7 @@ pub struct Desktop {
 enum DesktopEvent {
     InstanceEvents(Vec<InstanceEvent<Infallible>>),
     InstanceOutput(InstanceId, InstanceOutput),
-    InstanceEnded(InstanceId, massive_shell::Result<()>),
+    InstanceEnded(InstanceEnd),
     ToolRequest(ToolRequest),
 }
 
@@ -122,7 +122,13 @@ impl Desktop {
             Some(info) => info,
             None => {
                 // The instance ended before creating a primary view; surface its error.
-                let (_, result) = instance_manager.join_next().await?;
+                let InstanceEnd {
+                    result,
+                    final_changes,
+                    ..
+                } = instance_manager.join_next().await?;
+                // The desktop fails to start, so nothing renders these.
+                drop(final_changes.release());
                 result.context("Instance failed during startup")?;
                 bail!("Initial submission did not create a primary view");
             }
@@ -226,9 +232,8 @@ impl Desktop {
                     DesktopEvent::InstanceEvents(events?)
                 }
 
-                instance = self.instance_manager.join_next() => {
-                    let (instance_id, instance_result) = instance?;
-                    DesktopEvent::InstanceEnded(instance_id, instance_result)
+                end = self.instance_manager.join_next() => {
+                    DesktopEvent::InstanceEnded(end?)
                 }
 
                 Some(request) = self.tool_host.next_request() => {
@@ -302,8 +307,8 @@ impl Desktop {
                 DesktopEvent::InstanceOutput(instance, output) => {
                     self.integrate_instance_output(instance, output)?;
                 }
-                DesktopEvent::InstanceEnded(instance_id, instance_result) => {
-                    self.handle_instance_ended((instance_id, instance_result))?;
+                DesktopEvent::InstanceEnded(end) => {
+                    self.handle_instance_ended(end)?;
                 }
                 DesktopEvent::ToolRequest(request) => self.answer_tool_request(request)?,
             }
@@ -339,9 +344,8 @@ impl Desktop {
                 Some((instance_id, output)) = self.instance_outputs.recv() => {
                     DesktopEvent::InstanceOutput(instance_id, output)
                 }
-                instance = self.instance_manager.join_next() => {
-                    let (instance_id, instance_result) = instance?;
-                    DesktopEvent::InstanceEnded(instance_id, instance_result)
+                end = self.instance_manager.join_next() => {
+                    DesktopEvent::InstanceEnded(end?)
                 }
             };
 
@@ -350,8 +354,8 @@ impl Desktop {
                 DesktopEvent::InstanceOutput(instance, output) => {
                     self.integrate_instance_output(instance, output)?;
                 }
-                DesktopEvent::InstanceEnded(instance_id, instance_result) => {
-                    self.handle_instance_ended((instance_id, instance_result))?;
+                DesktopEvent::InstanceEnded(end) => {
+                    self.handle_instance_ended(end)?;
                 }
                 DesktopEvent::InstanceEvents(_) | DesktopEvent::ToolRequest(_) => unreachable!(),
             }
@@ -372,7 +376,11 @@ impl Desktop {
     /// before the desktop may consider itself finished.
     fn handle_instance_ended(
         &mut self,
-        (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
+        InstanceEnd {
+            instance: instance_id,
+            result: instance_result,
+            final_changes,
+        }: InstanceEnd,
     ) -> Result<()> {
         info!(
             "Instance ended (outputs pending: {}): {instance_id:?}",
@@ -397,6 +405,15 @@ impl Desktop {
         while let Ok((instance, output)) = self.instance_outputs.try_recv() {
             self.integrate_instance_output(instance, output)?;
         }
+        // Last, what the instance's task changed after its final submission, such as the release
+        // of its view parent (ADR 0040). The instance is gone, so it no longer animates.
+        self.integrate_instance_output(
+            instance_id,
+            InstanceOutput::Submission(InstanceSubmission::new(
+                final_changes,
+                RenderPacing::default(),
+            )),
+        )?;
         self.tool_host.instance_ended(instance_id);
 
         Ok(())

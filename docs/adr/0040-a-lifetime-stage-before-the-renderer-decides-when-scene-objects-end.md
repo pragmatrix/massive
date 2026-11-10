@@ -161,9 +161,14 @@ enforced.
 - The hook uses `try_with`. When no task context is installed, a `debug_assert!` fails, and release
   builds log an error. The change is lost, so the object stays in the renderer until the renderer
   ends. `Drop` must not panic, because a panic during unwinding aborts the process.
-- `run_instance_future` in `desktop/src/instance_manager.rs` drops the instance future inside a task
-  context when building the instance runtime fails. Today that future, which holds the instance
-  root's `Ref<Location>`, drops on the instance thread without one.
+- An instance's task changes the scene after its final submission, too. Its view parent drops after
+  the final submission, and the handles in its movement closures only when its task-locals end.
+  So the task's runner drains the queue once more after every task-local has dropped, and the host
+  integrates these final changes after the instance's last outputs. The desktop receives them with
+  the instance's end (`InstanceEnd` in `desktop/src/instance_manager.rs`). The shell ends with its
+  one instance, so it discards them. `InstanceChange::End` goes away, because it only carried the
+  view parent's reference. This also covers an instance future that is dropped without ever
+  running, because building its runtime failed.
 - Tests that submit through an explicit collector install a task context instead. The tests of
   `massive-scene`, which sits below `massive-applications`, register a hook backed by a test queue.
 

@@ -81,7 +81,7 @@ fn start_drawing_windows(application: Application, startup: Startup) {
         event_receiver,
     );
     // The instance owns its windows, so they are closed before its task reports the end.
-    spawn_instance(
+    spawn_instance::<SceneChange>(
         application.run(context),
         rendering_task_context(font_manager),
         move |result| report_application_end(&proxy, result),
@@ -89,14 +89,21 @@ fn start_drawing_windows(application: Application, startup: Startup) {
 }
 
 /// Runs the instance as a task on the shell's runtime under its task context (ADR 0008), and hands
-/// the instance's result to `report_end`.
-fn spawn_instance(
+/// the instance's result to `report_end`. `C` is the change type of the instance's queue.
+fn spawn_instance<C>(
     instance: InstanceFuture,
     task_context: TaskContext,
     report_end: impl FnOnce(Result<()>) + Send + 'static,
-) {
+) where
+    C: From<SceneChange> + std::fmt::Debug + Send + 'static,
+{
     tokio::spawn(async move {
-        report_end(task_context::with_context(task_context, instance).await);
+        let (result, final_changes) =
+            task_context::with_context_and_final_changes::<C, _>(task_context, instance).await;
+        // The shell ends with its one instance, so nothing renders what the instance's task
+        // changed after its final submission (ADR 0040).
+        drop(final_changes.release());
+        report_end(result);
     });
 }
 
@@ -165,7 +172,7 @@ async fn host(
         instance_events_receiver,
     );
     let (end_sender, mut instance_end) = oneshot::channel();
-    spawn_instance(
+    spawn_instance::<InstanceChange>(
         application.run(context),
         instance_task_context,
         move |result| {
@@ -313,9 +320,7 @@ impl InstanceHost {
             }
             InstanceChange::Configuration(request) => {
                 warn!("The shell has no desktop configuration, so it drops {request:?}");
-            }
-            // The host keeps the root until it ends.
-            InstanceChange::End(_) => {}
+            } // The host keeps the root until it ends.
         }
         Ok(())
     }
