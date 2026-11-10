@@ -22,8 +22,8 @@ use crate::desktop_system::McpActivation;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, FocusIntent, InstancePart, KeyContext, KeyHandler, KeyInput,
-    KeyOutcome, LayoutContext, Shortcut, TargetLayout, fullscreen_scale, place_container_children,
-    view_size,
+    KeyOutcome, LayoutContext, Shortcut, StartInstance, TargetLayout, fullscreen_scale,
+    place_container_children, view_size,
 };
 use crate::policy::colors;
 use crate::policy::constants::{instance_title_bar, structural_animation};
@@ -201,21 +201,17 @@ impl InstancePresenter {
         title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
         let InstanceRoot {
-            layout_transform,
-            layout_location,
+            mut layout_transform,
+            mut layout_location,
             locations,
         } = root;
 
-        layout_location.update_if_changed_with(|location| {
-            location.parent = parent.into();
-        });
+        layout_location.set_parent(parent);
 
         let has_initial_center_translation = initial_center_translation.is_some();
         let initial_center_translation = initial_center_translation.unwrap_or_default();
         layout_transform.update_if_changed(Transform::from_translation(initial_center_translation));
-        layout_location.update_if_changed_with(|location| {
-            location.alpha = 0.0;
-        });
+        layout_location.set_alpha(0.0);
 
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
@@ -231,7 +227,7 @@ impl InstancePresenter {
         let movement = movement(
             InstanceMovement::new(initial_center_translation),
             move |movement, context| {
-                movement.apply_animations(context, &layout_transform, &layout_location);
+                movement.apply_animations(context, &mut layout_transform, &mut layout_location);
             },
         )
         .mount();
@@ -643,7 +639,7 @@ impl InstancePresenter {
             InstanceKind::Assistant => InstanceParameters::default(),
         };
 
-        DesktopCommand::StartInstance {
+        StartInstance {
             launcher: context.hierarchy.launcher_of_instance(self.id),
             instance: Uuid::new_v4().into(),
             root: None,
@@ -651,6 +647,7 @@ impl InstancePresenter {
             kind,
             focus: FocusIntent::Follow,
         }
+        .into()
     }
 
     fn stop_instance(&self) -> DesktopCommand {
@@ -692,24 +689,21 @@ impl InstanceMovement {
     fn apply_animations(
         &mut self,
         progress: AnimationProgress,
-        transform: &Handle<Transform>,
-        location: &Handle<Location>,
+        transform: &mut Handle<Transform>,
+        location: &mut Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
         transform.update_if_changed(*self.layout_transform.proceed_with(progress));
-        location.update_if_changed_with(|location| {
-            location.alpha = *self.view_alpha.proceed_with(progress)
-                * *self.visibility_alpha.proceed_with(progress);
-        });
+        location.set_alpha(
+            *self.view_alpha.proceed_with(progress) * *self.visibility_alpha.proceed_with(progress),
+        );
     }
 }
 
 impl InstanceBackground {
     fn update_rect(&mut self, rect: Rect) {
         self.local_rect = rect;
-        self.visual.update_if_changed_with(|visual| {
-            visual.shapes = Self::shapes(self.centered_rect());
-        });
+        self.visual.set_shapes(Self::shapes(self.centered_rect()));
     }
 
     fn centered_rect(&self) -> Rect {

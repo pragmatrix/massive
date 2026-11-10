@@ -3,7 +3,7 @@ use std::sync::Arc;
 use massive_geometry::{Bounds, Transform};
 use massive_shapes::{GlyphRun, Shape};
 
-use crate::{Change, Handle, Id, Object, Ref, SceneChange};
+use crate::{Handle, Id, Object, Ref};
 
 /// The coordinate space root a location hierarchy starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,9 +63,7 @@ pub struct ResolvedLocation {
 ///
 /// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
 /// the renderer then, or even just the [`Handle<Visual>`]?
-///
-/// Detail: `Clone` was added for `Handle::update_with_if_changed()`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Visual {
     pub location: Ref<Location>,
     /// Optional decal ordering value for this visual.
@@ -125,7 +123,18 @@ impl Visual {
     }
 }
 
-/// The render-side snapshot of a [`Visual`], carried inside a [`SceneChange`].
+/// The setters of a submitted visual. Each one sends the update only when the field changes.
+impl Handle<Visual> {
+    pub fn set_shapes(&mut self, shapes: Arc<[Shape]>) {
+        self.set_if_changed(|visual| &mut visual.shapes, shapes);
+    }
+
+    pub fn set_clip_bounds(&mut self, clip_bounds: Option<Bounds>) {
+        self.set_if_changed(|visual| &mut visual.clip_bounds, clip_bounds);
+    }
+}
+
+/// The render-side snapshot of a [`Visual`], carried inside a [`SceneChange`](crate::SceneChange).
 #[derive(Debug)]
 pub struct VisualRenderObj {
     pub location: Id,
@@ -160,7 +169,7 @@ impl Object for Visual {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Location {
     pub parent: LocationParent,
     pub transform: Ref<Transform>,
@@ -203,14 +212,14 @@ impl Location {
     }
 }
 
-// This allows `Into<Handle<Location>>` to take either a reference or an owned handle.
-impl<T> From<&Handle<T>> for Handle<T>
-where
-    T: Object,
-    SceneChange: From<Change<T::Change>>,
-{
-    fn from(value: &Handle<T>) -> Self {
-        Handle::clone(value)
+/// The setters of a submitted location. Each one sends the update only when the field changes.
+impl Handle<Location> {
+    pub fn set_parent(&mut self, parent: impl Into<LocationParent>) {
+        self.set_if_changed(|location| &mut location.parent, parent.into());
+    }
+
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.set_if_changed(|location| &mut location.alpha, alpha);
     }
 }
 
@@ -231,7 +240,7 @@ impl Object for Location {
     }
 }
 
-/// The render-side snapshot of a [`Location`], carried inside a [`SceneChange`].
+/// The render-side snapshot of a [`Location`], carried inside a [`SceneChange`](crate::SceneChange).
 #[derive(Debug)]
 pub struct LocationRenderObj {
     pub parent: LocationParentId,
@@ -249,7 +258,7 @@ impl LocationRenderObj {
 /// Clamp an alpha into `[0, 1]`, treating a non-finite value as opaque.
 ///
 /// A location's alpha is stored as set, so every consumer of it must sanitize.
-pub(crate) fn sanitize_alpha(alpha: f32) -> f32 {
+fn sanitize_alpha(alpha: f32) -> f32 {
     if alpha.is_finite() {
         alpha.clamp(0.0, 1.0)
     } else {

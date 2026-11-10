@@ -22,7 +22,7 @@ use massive_shell::{AsyncWindowRenderer, InstanceWindows, ShellWindow};
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
 use crate::desktop_system::{
-    DesktopCommand, DesktopSystem, FocusIntent, Planned, TransactionEffectsMode,
+    DesktopCommand, DesktopSystem, FocusIntent, Planned, StartInstance, TransactionEffectsMode,
 };
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{
@@ -159,21 +159,22 @@ impl Desktop {
         // load gives a launcher-less configuration one, and the fallback derived
         // here is the first launcher of the loaded aggregate before any command
         // replays.
-        let primary_instance_command = DesktopCommand::StartInstance {
+        let primary_instance_command = StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
             parameters: boot_parameters,
             kind: InstanceKind::Primary,
             focus: FocusIntent::Follow,
-        };
+        }
+        .into();
 
         let initial_submission_changes: Changes =
             DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
 
         let mut changes = Changes::Empty;
         for command in configuration_commands {
-            changes += system.plan(DesktopCommand::Configuration(command))?;
+            changes += system.plan(command.into())?;
         }
         changes += system.plan(primary_instance_command)?;
         let frame = begin_frame();

@@ -50,7 +50,7 @@ pub trait ToLocation {
 
 impl ToLocation for Handle<Transform> {
     fn to_location(&self) -> Location {
-        Location::new(LocationSpace::World, self.clone())
+        Location::new(LocationSpace::World, self)
     }
 }
 
@@ -81,7 +81,7 @@ impl UnsubmittedLocation {
     /// The transform and the location are submitted together, in one batch.
     pub fn submit_location(self) -> (Handle<Transform>, Handle<Location>) {
         submit_pair(Transform::IDENTITY, |transform| {
-            Location::new(self.parent, transform.clone())
+            Location::new(self.parent, transform)
         })
     }
 }

@@ -12,26 +12,18 @@ use crate::projects::{
 /// The commands the desktop system can execute.
 #[derive(Debug)]
 pub enum DesktopCommand {
-    Configuration(ConfigurationCommand),
+    /// Boxed, because a configuration command is far larger than every other command, which are
+    /// mostly ids and directions. Unboxed, every command would be as large as this one.
+    Configuration(Box<ConfigurationCommand>),
     /// Applies a configuration operation to the selection, which always contains the
     /// keyboard-focused slot. A key cannot know which slots the selection covers, so the desktop
     /// system builds the [`ConfigurationCommand`] the operation stands for (ADR 0024).
     ConfigureSelection(SelectionOperation),
-    /// Present an instance under `launcher`, spawning it if necessary.
+    /// Present an instance under its launcher, spawning it if necessary.
     ///
-    /// When `root` is `None`, a fresh root is created and the instance is spawned. When `root` is
-    /// `Some`, the caller has already spawned the instance, so only presentation happens.
-    StartInstance {
-        launcher: LaunchProfileId,
-        instance: InstanceId,
-        root: Option<InstanceRoot>,
-        parameters: InstanceParameters,
-        /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T` or `Shift+Cmd+Enter`)
-        /// carries its own temporary Full Screen Mode.
-        kind: InstanceKind,
-        /// With [`FocusIntent::Follow`], the instance takes the focus and the camera zooms to it.
-        focus: FocusIntent,
-    },
+    /// Boxed, because the instance root it may carry holds six scene handles with their values
+    /// inline (ADR 0040). Unboxed, every command would be as large as this one.
+    StartInstance(Box<StartInstance>),
     StopInstance(InstanceId),
 
     Navigate(Direction),
@@ -73,8 +65,31 @@ pub enum SelectionOperation {
 
 impl From<ConfigurationCommand> for DesktopCommand {
     fn from(command: ConfigurationCommand) -> Self {
-        Self::Configuration(command)
+        Self::Configuration(command.into())
     }
+}
+
+impl From<StartInstance> for DesktopCommand {
+    fn from(start: StartInstance) -> Self {
+        Self::StartInstance(start.into())
+    }
+}
+
+/// The payload of [`DesktopCommand::StartInstance`]: an instance to present under `launcher`.
+///
+/// When `root` is `None`, a fresh root is created and the instance is spawned. When `root` is
+/// `Some`, the caller has already spawned the instance, so only presentation happens.
+#[derive(Debug)]
+pub struct StartInstance {
+    pub launcher: LaunchProfileId,
+    pub instance: InstanceId,
+    pub root: Option<InstanceRoot>,
+    pub parameters: InstanceParameters,
+    /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T` or `Shift+Cmd+Enter`) carries
+    /// its own temporary Full Screen Mode.
+    pub kind: InstanceKind,
+    /// With [`FocusIntent::Follow`], the instance takes the focus and the camera zooms to it.
+    pub focus: FocusIntent,
 }
 
 /// What a removal does when instances run below the removed content. The keyboard and the tools

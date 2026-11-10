@@ -90,8 +90,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext
 
     let size = LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
     let view_size = SizePx::new(size.width, size.height);
-    let view = ctx.view(view_size).build()?;
-    let center = ViewCenter::new(&view, view_size);
+    let mut view = ctx.view(view_size).build()?;
+    let mut center = ViewCenter::new(&view, view_size);
 
     let mut logs = Logs::new(center.location());
 
@@ -123,7 +123,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext
                     match event {
                         InstanceEvent::View(_, view_event) => {
                             if let ViewEvent::Resized(size) = view_event {
-                                center.resize(&view, size);
+                                center.resize(&mut view, size);
                             }
                             if logs.handle_window_event(&view_event) == UpdateResponse::Exit {
                                 return Ok(());
@@ -177,13 +177,13 @@ impl Logs {
             .submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.
-        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).submit();
+        let mut content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).submit();
         let content_location = content_transform
             .to_location()
             .relative_to(&application_location)
             .submit();
 
-        let (vertical_center_transform, location) =
+        let (mut vertical_center_transform, location) =
             identity_location().relative_to(&content_location).submit();
 
         let layout = movement(
@@ -229,7 +229,7 @@ impl Logs {
             })
             .collect();
 
-        let line = glyph_runs.at(&self.location).with_decal_order(0).submit();
+        let mut line = glyph_runs.at(&self.location).with_decal_order(0).submit();
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();

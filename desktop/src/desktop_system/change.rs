@@ -36,7 +36,9 @@ pub enum DesktopChange {
     },
     // Design: This could also be done as an external effect.
     ShutdownInstance(InstanceId),
-    PresentInstance(InstancePresentation),
+    /// Boxed, because the presentation carries the instance root, which holds six scene handles with
+    /// their values inline (ADR 0040). Unboxed, every change would be as large as this one.
+    PresentInstance(Box<InstancePresentation>),
     HideInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,

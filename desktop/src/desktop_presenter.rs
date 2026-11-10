@@ -32,17 +32,17 @@ pub struct DesktopPresenter {
 
 impl DesktopPresenter {
     pub fn new(location: Handle<Location>) -> Self {
-        let (hover_scene_transform, hover_location) = identity_location().submit();
-        let hover_visual = create_hover_shapes(None)
+        let (mut hover_scene_transform, hover_location) = identity_location().submit();
+        let mut hover_visual = create_hover_shapes(None)
             .into_visual()
             .at(&hover_location)
+            .with_decal_order(5)
             .submit();
         let hover_movement = movement(HoverMovement::default(), move |movement, context| {
             movement.update_hover_placement_and_visual(
                 context,
-                &hover_scene_transform,
-                &hover_location,
-                &hover_visual,
+                &mut hover_scene_transform,
+                &mut hover_visual,
             );
         })
         .mount();
@@ -161,9 +161,8 @@ impl HoverMovement {
     fn update_hover_placement_and_visual(
         &mut self,
         progress: AnimationProgress,
-        hover_scene_transform: &Handle<Transform>,
-        hover_location: &Handle<Location>,
-        hover_visual: &Handle<Visual>,
+        hover_scene_transform: &mut Handle<Transform>,
+        hover_visual: &mut Handle<Visual>,
     ) {
         let alpha = *self.alpha.proceed_with(progress);
         let layout = *self.layout.proceed_with(progress);
@@ -171,11 +170,7 @@ impl HoverMovement {
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
         hover_scene_transform.update_if_changed(layout.pivoted_at_origin());
 
-        let visual = create_hover_shapes(rect_alpha)
-            .into_visual()
-            .at(hover_location)
-            .with_decal_order(5);
-        hover_visual.update_if_changed(visual);
+        hover_visual.set_shapes(create_hover_shapes(rect_alpha));
     }
 
     fn set_placement(

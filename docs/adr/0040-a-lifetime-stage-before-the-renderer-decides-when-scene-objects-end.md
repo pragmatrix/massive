@@ -38,10 +38,22 @@ the instance root had two writers. The instance presenter and its movement closu
   competing snapshots of the whole object, and neither would see the other's writes. Code that needs
   to keep an object alive uses `Handle::to_ref`. Shared writing, if it is ever needed again, is
   spelled out as `Arc<Mutex<Handle<T>>>` at the site that needs it.
-- `Ref<T>` is a counted reference that keeps its object alive. It carries only the id. It cannot
-  read the value, and no code reads a value through a `Ref` today.
+- `Ref<T>` is a counted reference that keeps its object alive. It carries only the id, so it cannot
+  read the value. Application code reads values only through its own handles. The one reader
+  through `Ref`s was `TransformResolver`, which a desktop test uses to resolve a launcher's
+  transform. It now resolves from a batch of submitted scene changes instead, by walking their
+  parent ids, which is also what the renderer receives. Because only that test needs it, it moves
+  from `massive-scene` into the desktop's system tests.
+- `Handle` keeps only `Debug`. It is not `PartialEq` or `Hash`, because a unique handle only equals
+  itself. `Ref` stays `PartialEq` and `Hash` by id, because a location's parent compares through it.
+- `Handle::update_if_changed_with` gives way to typed setters: `set_parent` and `set_alpha` on a
+  location's handle, `set_shapes` and `set_clip_bounds` on a visual's handle. Every caller set
+  exactly one field. Each setter compares that field with the new value and sends the update only
+  when they differ, which needs no snapshot of the old value. A snapshot would clone the value's
+  `Ref`s and so send a `Retain` and a `Release` for each.
 - `InnerHandle`, `HandleValue`, `Ref::value` and the conversion `From<&Handle<T>> for Handle<T>` go
-  away.
+  away. `Visual` and `Location` lose `Clone`, which nothing needs, so no clone sends hidden
+  `Retain`s.
 
 ### Changes
 
@@ -226,9 +238,13 @@ run it at its own edge.
 
 - A `Ref` that is forgotten with `mem::forget`, or caught in a cycle, leaks its object. It never
   leaves a reference dangling.
-- Cloning a `Visual` or a `Location` clones its `Ref`s, which sends a `Retain` for each.
-  `update_if_changed_with` therefore compares without cloning the value, so that an update does not
-  send a pair of `Retain` and `Release`.
+- Building a value with a `Ref` sends a `Retain`. An animation that rebuilds a whole `Visual` every
+  frame therefore sends a `Retain` and a `Release` per frame. The desktop's hover and zoom level
+  indicator set only their shapes through `set_shapes` instead.
+- A handle holds its value inline, so a type with many handles grows. `InstanceRoot` holds six, so
+  the two enum variants that carry one, `DesktopCommand::StartInstance` and
+  `DesktopChange::PresentInstance`, box their payload. Unboxed, every command and every change
+  would be as large as these variants.
 - Switching the hook to thread-locals later requires that every task holding handles runs on a
   current-thread runtime. Today the shell's runtime and instances with `RuntimeKind::MultiThread`
   move tasks between threads.

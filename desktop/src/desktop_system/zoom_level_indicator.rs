@@ -47,14 +47,14 @@ impl ZoomLevelIndicatorPresenter {
         // camera translation is needed to keep it fixed on screen.
         let (scene_transform, location) =
             identity_location().in_space(LocationSpace::Camera).submit();
-        let visual = Arc::<[Shape]>::default()
+        let mut visual = Arc::<[Shape]>::default()
             .into_visual()
             .at(&location)
             .with_decal_order(DECAL_ORDER)
             .submit();
         let movement = movement(
             ZoomLevelIndicatorMovement::new(),
-            move |movement, progress| movement.apply(progress, &location, &visual),
+            move |movement, progress| movement.apply(progress, &mut visual),
         )
         .mount();
 
@@ -118,12 +118,7 @@ impl ZoomLevelIndicatorMovement {
         );
     }
 
-    fn apply(
-        &mut self,
-        progress: AnimationProgress,
-        location: &Handle<Location>,
-        visual: &Handle<Visual>,
-    ) {
+    fn apply(&mut self, progress: AnimationProgress, visual: &mut Handle<Visual>) {
         let timeline = *self.timeline.proceed_with(progress);
         let alpha = if timeline < FADE_IN_END {
             (timeline / FADE_IN_END).interpolate(zoom_level_indicator::FADE_INTERPOLATION)
@@ -138,7 +133,7 @@ impl ZoomLevelIndicatorMovement {
             .as_ref()
             .map(|badge| badge.shapes(alpha))
             .unwrap_or_default();
-        visual.update_if_changed(Visual::new(location, shapes).with_decal_order(DECAL_ORDER));
+        visual.set_shapes(shapes);
     }
 }
 

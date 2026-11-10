@@ -69,6 +69,7 @@ use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub use commands::{
     ConfigurationCommand, DesktopCommand, FocusIntent, RunningInstances, SelectionOperation,
+    StartInstance,
 };
 pub use configuration_planning::{Planned, Refusal};
 pub use effects::Effects;

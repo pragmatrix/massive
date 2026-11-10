@@ -8,7 +8,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
         let (mut system, receiver) = system();
         let mut instance_manager = instance_manager(&receiver);
 
-        let changes = system.plan(DesktopCommand::Configuration(
+        let changes = system.plan(
             ConfigurationCommand::AssignSlot {
                 parent: None,
                 slot: SlotPosition { column: 0, row: 0 },
@@ -17,8 +17,9 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
                     name: projects::ROOT_PROJECT_NAME.into(),
                 },
                 shift: SlotShift::default(),
-            },
-        ))?;
+            }
+            .into(),
+        )?;
         system.transact(
             changes,
             &mut instance_manager,
@@ -28,7 +29,7 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
         for id in [ProjectId::ROOT, ProjectId::new()] {
             assert!(
                 system
-                    .plan(DesktopCommand::Configuration(
+                    .plan(
                         ConfigurationCommand::AssignSlot {
                             parent: None,
                             slot: SlotPosition { column: 0, row: 0 },
@@ -38,7 +39,8 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
                             },
                             shift: SlotShift::default(),
                         }
-                    ))
+                        .into()
+                    )
                     .is_err(),
                 "a second parentless AssignSlot must be rejected"
             );
@@ -65,11 +67,7 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
         );
         let mut instance_manager = instance_manager(&receiver);
         for command in projects::to_commands(&system.aggregates.configuration) {
-            run(
-                &mut system,
-                &mut instance_manager,
-                DesktopCommand::Configuration(command),
-            )?;
+            run(&mut system, &mut instance_manager, command.into())?;
         }
         let at = |column| SlotPosition { column, row: 0 };
         let a = system.aggregates.configuration.boot_launcher().unwrap();
@@ -141,10 +139,11 @@ async fn move_slot_across_projects_keeps_instances_and_focus() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
+            ConfigurationCommand::MoveSlot {
                 source: (project_a, slot_a),
                 dest: (project_b, dest),
-            }),
+            }
+            .into(),
         )?;
 
         assert_eq!(
@@ -199,10 +198,11 @@ async fn move_slot_across_projects_carries_a_nested_project() -> Result<()> {
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::Configuration(ConfigurationCommand::MoveSlot {
+            ConfigurationCommand::MoveSlot {
                 source: (ProjectId::ROOT, slot_b),
                 dest: (project_a, dest),
-            }),
+            }
+            .into(),
         )?;
 
         let hierarchy = &system.aggregates.hierarchy;

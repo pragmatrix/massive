@@ -54,7 +54,7 @@ impl View {
 
     /// The location's transform.
     pub fn transform(&self) -> Ref<Transform> {
-        self.location().value().transform.clone()
+        self.transform.to_ref()
     }
 
     /// A reference to the location that is used to position the view in the parent desktop space.
@@ -63,7 +63,7 @@ impl View {
     }
 
     /// Updates the view's local origin for a desktop-assigned extent.
-    pub fn set_extent(&self, size: SizePx) {
+    pub fn set_extent(&mut self, size: SizePx) {
         let size: Size = size.into();
         self.transform
             .update_if_changed(Transform::from(-size.center()));

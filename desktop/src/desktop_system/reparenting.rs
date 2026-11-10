@@ -88,12 +88,16 @@ impl Reparenting {
 
         let matrix_location = aggregates.project_matrix_location(host);
         match slot_content(&what) {
-            SlotContent::Launcher(launcher) => {
-                aggregates.launchers[&launcher].set_parent_location(&matrix_location)
-            }
-            SlotContent::Project(project) => {
-                aggregates.projects[&project].set_parent_location(&matrix_location)
-            }
+            SlotContent::Launcher(launcher) => aggregates
+                .launchers
+                .get_mut(&launcher)
+                .expect("a re-parented launcher has a presenter")
+                .set_parent_location(&matrix_location),
+            SlotContent::Project(project) => aggregates
+                .projects
+                .get_mut(&project)
+                .expect("a re-parented project has a presenter")
+                .set_parent_location(&matrix_location),
         }
         self.previous_parent_origins
             .insert(what.clone(), previous_origin);

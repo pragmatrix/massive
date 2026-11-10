@@ -22,6 +22,7 @@ use self::schema::*;
 use super::{ApplicationTool, error_code};
 use crate::desktop_system::{
     ConfigurationCommand, DesktopCommand, DesktopSystem, FocusIntent, RunningInstances,
+    StartInstance,
 };
 use crate::instance_presenter::InstanceKind;
 use crate::projects::{
@@ -280,14 +281,15 @@ impl<'a> DesktopTools<'a> {
     ) -> Result<ToolCallPlan, ToolError> {
         let launcher = self.covered_launcher(root, &params.launcher_id)?;
         let instance: InstanceId = uuid::Uuid::new_v4().into();
-        let command = DesktopCommand::StartInstance {
+        let command: DesktopCommand = StartInstance {
             launcher,
             instance,
             root: None,
             parameters: self.system.configuration()[launcher].params.clone(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Keep,
-        };
+        }
+        .into();
         let id = instance.to_string();
         Ok(issue(command, &CreatedContent { id }))
     }

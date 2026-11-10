@@ -81,12 +81,12 @@ async fn code_viewer(mut ctx: InstanceContext) -> Result<()> {
 
     let initial_size = LogicalSize::new(800., 800.).to_physical(ctx.primary_monitor_scale_factor());
     let view_size = SizePx::new(initial_size.width, initial_size.height);
-    let view = ctx.view(view_size).build()?;
-    let center = ViewCenter::new(&view, view_size);
+    let mut view = ctx.view(view_size).build()?;
+    let mut center = ViewCenter::new(&view, view_size);
 
     let content_size = SizePx::new(1280, height as u32);
     let mut gestures = GestureTransform::default();
-    let transform = gestures.get_transform(content_size).submit();
+    let mut transform = gestures.get_transform(content_size).submit();
     let location = transform
         .to_location()
         .relative_to(center.location())
@@ -110,7 +110,7 @@ async fn code_viewer(mut ctx: InstanceContext) -> Result<()> {
             match event {
                 InstanceEvent::View(_, view_event) => {
                     if let ViewEvent::Resized(size) = view_event {
-                        center.resize(&view, size);
+                        center.resize(&mut view, size);
                     }
                     match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),

@@ -41,7 +41,7 @@ impl ProjectPresenter {
         mcp_activation: McpActivation,
         parent_location: Ref<Location>,
     ) -> Self {
-        let (scene_transform, location) =
+        let (mut scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
         let mut header = TitleBarPresenter::new(
             TitleBarStyle {
@@ -77,10 +77,8 @@ impl ProjectPresenter {
             .set_background_color(mcp_activation.project_header_background());
     }
 
-    pub fn set_parent_location(&self, parent: &Ref<Location>) {
-        self.location.update_if_changed_with(|location| {
-            location.parent = parent.clone().into();
-        });
+    pub fn set_parent_location(&mut self, parent: &Ref<Location>) {
+        self.location.set_parent(parent.clone());
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {

@@ -12,8 +12,8 @@ use super::change::{
 use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
-    FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation, ZoomLevel,
-    view_size,
+    FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation,
+    StartInstance, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -90,7 +90,7 @@ impl DesktopSystem {
     /// issuer that tells someone why nothing changes, such as a tool answering an agent (ADR 0036).
     pub fn plan_or_refuse(&self, command: DesktopCommand) -> Result<Planned> {
         match command {
-            DesktopCommand::Configuration(command) => self.configuration_planning().plan(command),
+            DesktopCommand::Configuration(command) => self.configuration_planning().plan(*command),
             command => self.plan(command).map(Planned::Changes),
         }
     }
@@ -100,7 +100,7 @@ impl DesktopSystem {
     pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
             DesktopCommand::Configuration(configuration_command) => Ok(changes_of(
-                self.configuration_planning().plan(configuration_command)?,
+                self.configuration_planning().plan(*configuration_command)?,
             )),
             DesktopCommand::ConfigureSelection(operation) => {
                 let Some(command) = self.command_for_selection(operation) else {
@@ -108,14 +108,15 @@ impl DesktopSystem {
                 };
                 Ok(changes_of(self.configuration_planning().plan(command)?))
             }
-            DesktopCommand::StartInstance {
-                launcher,
-                instance,
-                root,
-                parameters,
-                kind,
-                focus,
-            } => {
+            DesktopCommand::StartInstance(start) => {
+                let StartInstance {
+                    launcher,
+                    instance,
+                    root,
+                    parameters,
+                    kind,
+                    focus,
+                } = *start;
                 // An instance an agent starts does not appear next to, or slide out of, the
                 // instance the user works in, which may lie outside the agent's MCP root.
                 let originator_instance = match focus {
@@ -165,15 +166,18 @@ impl DesktopSystem {
                 .into();
 
                 changes += [
-                    DesktopChange::PresentInstance(InstancePresentation {
-                        launcher,
-                        initial_center_translation: originating_details
-                            .and_then(|od| od.initial_center_translation),
-                        instance,
-                        root,
-                        parameters,
-                        kind,
-                    }),
+                    DesktopChange::PresentInstance(
+                        InstancePresentation {
+                            launcher,
+                            initial_center_translation: originating_details
+                                .and_then(|od| od.initial_center_translation),
+                            instance,
+                            root,
+                            parameters,
+                            kind,
+                        }
+                        .into(),
+                    ),
                     DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
                         at_index: insertion_pos,
@@ -436,7 +440,7 @@ impl DesktopSystem {
                 };
             }
             DesktopChange::PresentInstance(presentation) => {
-                self.present_instance(presentation)?;
+                self.present_instance(*presentation)?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
                 self.hide_instance(launcher, instance)?;

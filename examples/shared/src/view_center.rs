@@ -33,7 +33,7 @@ impl ViewCenter {
     }
 
     /// Follows the host's new extent of `view`.
-    pub fn resize(&self, view: &View, size: SizePx) {
+    pub fn resize(&mut self, view: &mut View, size: SizePx) {
         view.set_extent(size);
         self.transform.update_if_changed(center_of(size));
     }
