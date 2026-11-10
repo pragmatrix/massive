@@ -10,7 +10,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_renderer::RenderPacing;
 use massive_scene::{Location, Ref, SceneChange};
-use massive_util::{ChangeCollector, ChangeSet, CoalescingReceiver};
+use massive_util::{ChangeSet, CoalescingReceiver};
 
 use crate::prelude::*;
 use crate::view_builder::ViewBuilder;
@@ -26,9 +26,6 @@ pub enum CreationMode {
     New(InstanceParameters),
     Restore,
 }
-
-/// The instance's change queue: scene changes interleaved with instance changes (ADR 0008).
-pub type InstanceChangeCollector = ChangeCollector<InstanceChange>;
 
 impl From<SceneChange> for InstanceChange {
     fn from(change: SceneChange) -> Self {

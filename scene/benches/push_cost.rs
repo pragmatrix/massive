@@ -1,8 +1,6 @@
-//! Push-cost comparison of the two task-scoped change-collection designs, criterion-timed:
-//!
-//! - `any`:      the [`massive_scene::AnyCollector`] task-local in a `RefCell`, as the applications
-//!   layer installs it; typed access and the `send` path handles take.
-//! - `collector`: the typed `massive_util::ChangeCollector<SceneChange>` task-local.
+//! Push cost of the task's change queue, criterion-timed: the [`massive_scene::AnyCollector`]
+//! task-local in a `RefCell`, as the applications layer installs it, through its typed access and
+//! through the `send` path handles take.
 //!
 //! Each benchmark drains a full batch of `CAPACITY` changes, with
 //! `Throughput::Elements(CAPACITY)`, so the reported time per element is the per-push cost with the
@@ -31,7 +29,6 @@ const MEASUREMENT: Duration = Duration::from_secs(1);
 
 task_local! {
     static SCENE: RefCell<AnyCollector>;
-    static TYPED: massive_util::ChangeCollector<SceneChange>;
 }
 
 fn transform(id: u32) -> massive_geometry::Transform {
@@ -82,26 +79,6 @@ fn any_group(c: &mut Criterion) {
     group.finish();
 }
 
-fn collector_group(c: &mut Criterion) {
-    let mut group = c.benchmark_group("task-scope collector");
-    group.throughput(Throughput::Elements(CAPACITY as u64));
-    group.measurement_time(MEASUREMENT);
-    group.sample_size(10);
-
-    group.bench_function("typed collect: .with per push", |b| {
-        b.iter(|| {
-            for _ in 0..CAPACITY {
-                TYPED.with(|collector| collector.collect(change()));
-            }
-            TYPED.with(|collector| {
-                let _ = collector.take_all();
-            });
-        })
-    });
-
-    group.finish();
-}
-
 fn bench(c: &mut Criterion) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -113,21 +90,6 @@ fn bench(c: &mut Criterion) {
                     RefCell::new(AnyCollector::for_type::<SceneChange>()),
                     async {
                         any_group(c);
-                    },
-                )
-                .await;
-        });
-
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("tokio current-thread runtime")
-        .block_on(async {
-            TYPED
-                .scope(
-                    massive_util::ChangeCollector::<SceneChange>::default(),
-                    async {
-                        collector_group(c);
                     },
                 )
                 .await;
