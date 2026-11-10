@@ -8,8 +8,7 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
-use crate::scene::submit_pair;
-use crate::{Handle, Id, Location, LocationParent, LocationSpace, Visual};
+use crate::{Handle, Id, Location, LocationParent, LocationSpace, Object, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -57,7 +56,7 @@ impl ToLocation for Handle<Transform> {
 /// A location that has not been submitted yet. Submit it to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not active in the queue until `.submit_location()` is called"]
+#[must_use = "the location is not active in the queue until `.submit()` is called"]
 pub struct UnsubmittedLocation {
     parent: LocationParent,
 }
@@ -74,15 +73,36 @@ impl UnsubmittedLocation {
         self.parent = parent.into();
         self
     }
+}
 
-    /// Submit a location with an initially-identity transform to the current task's change queue,
-    /// returning both handles.
-    ///
-    /// The transform and the location are submitted together, in one batch.
-    pub fn submit_location(self) -> (Handle<Transform>, Handle<Location>) {
-        submit_pair(Transform::IDENTITY, |transform| {
-            Location::new(self.parent, transform)
-        })
+/// Submit a scene value to the current task's change queue, making it active (ADR 0040).
+///
+/// The returned handle keeps the object alive and carries later updates. Objects the renderer
+/// draws, like [`Visual`], become visible this way. A location built by [`identity_location`]
+/// yields its transform and location handles, everything else its own handle.
+pub trait Submit {
+    type Submitted;
+
+    fn submit(self) -> Self::Submitted;
+}
+
+impl<T: Object> Submit for T {
+    type Submitted = Handle<T>;
+
+    fn submit(self) -> Self::Submitted {
+        Handle::new(self)
+    }
+}
+
+impl Submit for UnsubmittedLocation {
+    type Submitted = (Handle<Transform>, Handle<Location>);
+
+    /// The transform is created first, because the location's create counts a reference to it
+    /// (test `a_submitted_location_creates_its_transform_before_referencing_it`).
+    fn submit(self) -> Self::Submitted {
+        let transform = Handle::new(Transform::IDENTITY);
+        let location = Handle::new(Location::new(self.parent, &transform));
+        (transform, location)
     }
 }
 

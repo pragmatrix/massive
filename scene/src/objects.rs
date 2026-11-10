@@ -259,12 +259,13 @@ impl Object for Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Submit;
     use crate::current_queue::test_queue::with_test_queue;
 
     #[test]
     fn location_new_defaults_to_opaque_alpha() {
         with_test_queue(|| {
-            let transform = crate::submit(Transform::IDENTITY);
+            let transform = Transform::IDENTITY.submit();
             let location = Location::root(LocationSpace::World, &transform);
 
             assert_eq!(location.alpha, 1.0);
@@ -274,7 +275,7 @@ mod tests {
     #[test]
     fn location_alpha_is_stored_as_set() {
         with_test_queue(|| {
-            let transform = crate::submit(Transform::IDENTITY);
+            let transform = Transform::IDENTITY.submit();
             let location = Location::root(LocationSpace::World, &transform).with_alpha(2.0);
 
             assert_eq!(location.alpha, 2.0);

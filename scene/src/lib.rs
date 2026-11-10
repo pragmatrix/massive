@@ -38,7 +38,6 @@ pub mod id_generator;
 mod lifetime_stage;
 mod objects;
 mod render_change;
-mod scene;
 
 pub use any_collector::AnyCollector;
 pub use change::*;
@@ -50,8 +49,7 @@ pub use lifetime_stage::LifetimeStage;
 pub use objects::*;
 pub use render_change::*;
 pub mod prelude;
-pub use ergonomics::UnsubmittedLocation;
-pub use scene::submit;
+pub use ergonomics::{Submit, UnsubmittedLocation};
 
 use massive_util::{self as util};
 

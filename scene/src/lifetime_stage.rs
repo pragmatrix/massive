@@ -273,7 +273,7 @@ mod tests {
 
     use super::LifetimeStage;
     use crate::current_queue::test_queue::{take_changes, with_test_queue};
-    use crate::prelude::identity_location;
+    use crate::prelude::{Submit, identity_location};
     use crate::{Change, RenderChange, RenderSceneChange, SceneChange, id_generator};
 
     /// A location kept alive only by a reference still needs its transform, so dropping both
@@ -283,7 +283,7 @@ mod tests {
     fn a_live_object_keeps_what_it_refers_to_until_it_ends() {
         with_test_queue(|| {
             let mut stage = LifetimeStage::default();
-            let location = identity_location().submit_location().1.to_ref();
+            let location = identity_location().submit().1.to_ref();
 
             let deleted = deletes(stage.resolve(take_changes()));
             assert!(deleted.is_empty(), "a live location lost: {deleted:?}");
@@ -300,8 +300,8 @@ mod tests {
     fn a_new_parent_keeps_the_transform_alive() {
         with_test_queue(|| {
             let mut stage = LifetimeStage::default();
-            let (_parent_transform, parent) = identity_location().submit_location();
-            let (transform, mut location) = identity_location().submit_location();
+            let (_parent_transform, parent) = identity_location().submit();
+            let (transform, mut location) = identity_location().submit();
             drop(transform);
             stage.resolve(take_changes());
 
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn a_submitted_location_creates_its_transform_before_referencing_it() {
         with_test_queue(|| {
-            let (_transform, _location) = identity_location().submit_location();
+            let (_transform, _location) = identity_location().submit();
             LifetimeStage::default().resolve(take_changes());
         });
     }
