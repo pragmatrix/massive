@@ -26,17 +26,6 @@ pub enum Change<T> {
     Release(Id<T>),
 }
 
-impl<T> Change<T> {
-    pub fn id(&self) -> Id<T> {
-        match *self {
-            Change::Create(id, _)
-            | Change::Update(id, _)
-            | Change::Retain(id)
-            | Change::Release(id) => id,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use massive_geometry::Transform;

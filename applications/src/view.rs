@@ -52,11 +52,6 @@ impl View {
         })
     }
 
-    /// The location's transform.
-    pub fn transform(&self) -> Ref<Transform> {
-        self.transform.to_ref()
-    }
-
     /// A reference to the location that is used to position the view in the parent desktop space.
     pub fn location(&self) -> Ref<Location> {
         self.location.to_ref()

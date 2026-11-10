@@ -128,24 +128,6 @@ impl<T: Object> Drop for Ref<T> {
     }
 }
 
-impl<T: Object> From<Handle<T>> for Ref<T> {
-    fn from(value: Handle<T>) -> Self {
-        value.to_ref()
-    }
-}
-
-impl<T: Object> From<&Handle<T>> for Ref<T> {
-    fn from(value: &Handle<T>) -> Self {
-        value.to_ref()
-    }
-}
-
-impl<T: Object> From<&Ref<T>> for Ref<T> {
-    fn from(value: &Ref<T>) -> Self {
-        value.clone()
-    }
-}
-
 /// A kind of scene object: a transform, a location, or a visual.
 ///
 /// The renderer receives the value itself with every change, which is why a value refers to other
