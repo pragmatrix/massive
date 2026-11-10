@@ -9,7 +9,7 @@ use std::fmt;
 
 use massive_util::ChangeSet;
 
-use crate::{ChangeSink, SceneChange};
+use crate::SceneChange;
 
 /// The change queue a UI task collects into, its change type fixed by [`AnyCollector::for_type`]
 /// before any change exists (ADR 0008).
@@ -39,18 +39,17 @@ impl AnyCollector {
         typed_changes::<C>(&mut *self.changes).push(change.into());
     }
 
+    /// Collect one scene change, retyped into the queue's change type. This is how handles push.
+    pub fn send(&mut self, change: SceneChange) {
+        self.changes.push_scene_change(change);
+    }
+
     /// Drain all collected changes, preserving the type fixed at install.
     pub fn take_all<C>(&mut self) -> ChangeSet<C>
     where
         C: From<SceneChange> + fmt::Debug + Send + 'static,
     {
         std::mem::take(typed_changes::<C>(&mut *self.changes))
-    }
-}
-
-impl ChangeSink for AnyCollector {
-    fn send(&mut self, change: SceneChange) {
-        self.changes.push_scene_change(change);
     }
 }
 
@@ -103,7 +102,7 @@ fn panic_kind_mismatch<C: 'static>(installed: TypeId) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AnyCollector, Change, ChangeSink, Id, SceneChange, Transform};
+    use crate::{AnyCollector, Change, Id, SceneChange, Transform};
 
     /// A second change type that embeds scene changes: the kind the wrong-drain test installs.
     #[derive(Debug)]

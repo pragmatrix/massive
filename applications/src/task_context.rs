@@ -12,7 +12,7 @@ use tokio::task_local;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, ShapingContext};
-use massive_scene::{AnyCollector, ChangeSink, SceneChange, register_current_queue};
+use massive_scene::{AnyCollector, SceneChange, register_current_queue};
 use massive_util::ChangeSet;
 
 pub(crate) mod animation;
@@ -159,15 +159,24 @@ impl TaskCells {
 /// calls this, so the registration happens before any handle can be used.
 fn register_current_queue_once() {
     static REGISTERED: Once = Once::new();
-    REGISTERED.call_once(|| register_current_queue(with_current_sink));
+    REGISTERED.call_once(|| register_current_queue(collect_change));
 }
 
 /// The hook through which scene handles reach the change queue of the task they are used in
 /// (ADR 0040).
-fn with_current_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) -> bool {
+///
+/// It does not panic when the queue is borrowed already. That only happens when a handle drops while
+/// a panic unwinds out of a push, and a second panic would abort the process.
+fn collect_change(change: SceneChange) -> bool {
     CHANGES
-        .try_with(|changes| f(&mut *changes.borrow_mut()))
-        .is_ok()
+        .try_with(|changes| {
+            let Ok(mut changes) = changes.try_borrow_mut() else {
+                return false;
+            };
+            changes.send(change);
+            true
+        })
+        .unwrap_or(false)
 }
 
 /// The font manager of the current task's shaping owner: the manager the shell built from the

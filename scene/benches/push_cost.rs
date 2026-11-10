@@ -1,7 +1,7 @@
 //! Push-cost comparison of the two task-scoped change-collection designs, criterion-timed:
 //!
 //! - `any`:      the [`massive_scene::AnyCollector`] task-local in a `RefCell`, as the applications
-//!   layer installs it; typed access and the erased [`massive_scene::ChangeSink`] path handles take.
+//!   layer installs it; typed access and the `send` path handles take.
 //! - `collector`: the typed `massive_util::ChangeCollector<SceneChange>` task-local.
 //!
 //! Each benchmark drains a full batch of `CAPACITY` changes, with
@@ -22,7 +22,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use massive_scene::{AnyCollector, ChangeSink, SceneChange};
+use massive_scene::{AnyCollector, SceneChange};
 use tokio::task_local;
 
 const CAPACITY: usize = 100_000;
@@ -68,7 +68,7 @@ fn any_group(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("ChangeSink::send: .with per push", |b| {
+    group.bench_function("send: .with per push", |b| {
         b.iter(|| {
             for _ in 0..CAPACITY {
                 SCENE.with(|any| any.borrow_mut().send(change()));

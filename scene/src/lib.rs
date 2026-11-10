@@ -26,7 +26,6 @@
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
 //!   buffers or caches that are needed to render the objects fast and with a low memory
 //!   footprint and allocations.
-use std::fmt;
 
 mod any_collector;
 mod change;
@@ -44,7 +43,7 @@ mod scene;
 pub use any_collector::AnyCollector;
 pub use change::*;
 pub use change_surface::*;
-pub use current_queue::{WithCurrentSink, register_current_queue};
+pub use current_queue::{CollectChange, register_current_queue};
 pub use handle::*;
 pub use id::Id;
 pub use lifetime_stage::LifetimeStage;
@@ -60,12 +59,3 @@ use massive_util::{self as util};
 pub use massive_geometry::Transform;
 
 pub type SceneChangeSet = util::ChangeSet<SceneChange>;
-
-/// The erased receiver through which handles send their changes into the current task's queue.
-///
-/// The indirection lets other layers interleave scene changes into their own queue, whatever its
-/// change type: implementations retype the change, and draining belongs to the concrete queue
-/// (ADR 0008).
-pub trait ChangeSink: fmt::Debug {
-    fn send(&mut self, change: SceneChange);
-}

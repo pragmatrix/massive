@@ -1,59 +1,50 @@
 //! How handles reach the change queue of the task they are used in (ADR 0040).
 //!
 //! `massive-scene` does not know how a task is identified. The layer that installs task contexts
-//! registers a function that runs a closure with the current task's change sink, and every create,
-//! update and release of a handle goes through it.
+//! registers a function that collects a change into the current task's queue, and every create,
+//! update, retain and release of a handle goes through it.
 
 use std::sync::OnceLock;
 
-use crate::{ChangeSink, SceneChange};
+use crate::SceneChange;
 
-/// Runs a closure with the sink of the current task's change queue.
+/// Collects a change into the current task's change queue.
 ///
-/// Returns `false` when no task context is installed, so the closure did not run.
-pub type WithCurrentSink = fn(&mut dyn FnMut(&mut dyn ChangeSink)) -> bool;
+/// Returns `false` when it could not reach the queue: no task context is installed, or the queue is
+/// borrowed already, which happens when a handle drops while a panic unwinds out of a push.
+pub type CollectChange = fn(SceneChange) -> bool;
 
-static WITH_CURRENT_SINK: OnceLock<WithCurrentSink> = OnceLock::new();
+static COLLECT_CHANGE: OnceLock<CollectChange> = OnceLock::new();
 
 /// Register how handles reach the current task's change queue.
 ///
 /// The layer that installs task contexts registers it once per process, before it installs the
 /// first one. A second registration panics, because one process identifies its tasks in only one
 /// way.
-pub fn register_current_queue(with_current_sink: WithCurrentSink) {
+pub fn register_current_queue(collect_change: CollectChange) {
     assert!(
-        WITH_CURRENT_SINK.set(with_current_sink).is_ok(),
+        COLLECT_CHANGE.set(collect_change).is_ok(),
         "The current queue is registered twice"
     );
 }
 
 /// Send one change into the current task's change queue.
-pub(crate) fn send(change: SceneChange) {
-    let mut change = Some(change);
-    with_sink(&mut |sink| {
-        sink.send(
-            change
-                .take()
-                .expect("the current queue runs the closure once"),
-        )
-    });
-}
-
-/// Run `f` with the current task's sink.
 ///
 /// Handles must be used inside a task (ADR 0040). Outside of one, the change is lost and its object
 /// stays in the renderer. This does not panic in release builds, because a handle's drop can run
 /// while a panic unwinds, and a second panic would abort the process.
-fn with_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) {
-    let reached = WITH_CURRENT_SINK
+pub(crate) fn send(change: SceneChange) {
+    let reached = COLLECT_CHANGE
         .get()
-        .is_some_and(|with_current_sink| with_current_sink(f));
+        .is_some_and(|collect_change| collect_change(change));
     if !reached {
-        log::error!("A scene handle was used outside a task context, so its change is lost");
+        log::error!(
+            "A scene handle could not reach its task's change queue, so its change is lost"
+        );
         // A drop during a panic's unwinding would abort the process with a second panic.
         debug_assert!(
             reached || std::thread::panicking(),
-            "A scene handle was used outside a task context (ADR 0040)"
+            "A scene handle could not reach its task's change queue (ADR 0040)"
         );
     }
 }
@@ -65,7 +56,7 @@ pub mod test_queue {
     use std::cell::RefCell;
     use std::sync::Once;
 
-    use crate::{AnyCollector, ChangeSink, SceneChange};
+    use crate::{AnyCollector, SceneChange};
 
     thread_local! {
         static QUEUE: RefCell<Option<AnyCollector>> = const { RefCell::new(None) };
@@ -74,7 +65,7 @@ pub mod test_queue {
     /// Run `f` with a fresh change queue as the current task's queue.
     pub fn with_test_queue<R>(f: impl FnOnce() -> R) -> R {
         static REGISTERED: Once = Once::new();
-        REGISTERED.call_once(|| super::register_current_queue(with_current_sink));
+        REGISTERED.call_once(|| super::register_current_queue(collect_change));
         QUEUE.set(Some(AnyCollector::for_type::<SceneChange>()));
         let result = f();
         QUEUE.set(None);
@@ -92,7 +83,7 @@ pub mod test_queue {
         })
     }
 
-    fn with_current_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) -> bool {
-        QUEUE.with_borrow_mut(|queue| queue.as_mut().map(|queue| f(queue)).is_some())
+    fn collect_change(change: SceneChange) -> bool {
+        QUEUE.with_borrow_mut(|queue| queue.as_mut().map(|queue| queue.send(change)).is_some())
     }
 }
