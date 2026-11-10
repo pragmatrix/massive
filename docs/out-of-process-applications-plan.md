@@ -323,7 +323,62 @@ Each phase can ship and be measured on its own.
 - Loopback runs of `mt` (phase 3) match in-process behaviour.
 - Phase 0 and phase 5 measurements are recorded in this document next to the bar.
 
+## Prior art for object identity and lifetime
+
+Other display protocols answer three questions about the objects a client creates. Who allocates
+an object's id, who decides when the object ends, and when may its id be reused. The following
+systems are described from their public documentation.
+
+- **Allocating ids.**
+  - X11 gives each client its own range of resource ids at connect. Wayland splits the id space, so
+    clients allocate low ids and the server allocates ids from `0xFF000000` up. Neither needs
+    translation, but each client has a fixed budget of ids.
+  - Fuchsia's Flatland and Cap'n Proto let the client choose ids that are only meaningful within
+    one connection, and the server translates them through a table per connection. This plan's
+    remapping per connection follows that pattern, which keeps the renderer's ids dense across many
+    clients.
+  - Win32 handles and Unix file descriptors are allocated by the server. That costs a round trip
+    before the client can use the id, which does not fit batched one-way submissions.
+  - Chromium's viz composes surface ids from a client id, a sequence number and an unguessable
+    token, so they are unique without coordination.
+- **Ending objects.**
+  - Wayland, X11 and Flatland let the owner destroy an object explicitly. The server may keep it
+    alive internally while its scene still uses it.
+  - COM/DCOM and Cap'n Proto count references across the connection. DCOM also pings to detect
+    clients that died.
+  - Java RMI leases remote references, which expire unless the client renews them.
+  - X11, Wayland, Flatland and Cap'n Proto all release a client's objects when its connection
+    closes. That is how they clean up after a crash.
+- **Reusing ids.**
+  - Wayland confirms each deletion with a `wl_display.delete_id` event. The client reuses an id only
+    after that confirmation.
+  - Chromium's compositor returns resources in batches once nothing uses them any more.
+  - Generations or nonces detect a stale reference to a reused slot instead of hitting the wrong
+    object.
+- **Referring to a host object.** Flatland links a parent's viewport and a child's view through a
+  pair of tokens (a kernel event pair). The host's object never crosses the boundary as an id. When
+  either side closes its token, the link breaks.
+
+These points bear on this plan.
+
+- ADR 0040 makes reference counts data, so an instance's `view_parent` can cross the process
+  boundary as an ordinary counted reference. A link token in the style of Flatland is the
+  alternative, and it would spare the client from telling lent objects apart.
+- Remapping ids per connection needs a rule for reusing remapped ids. Wayland's confirmed deletion is
+  the proven model for it.
+- Keeping a crashed instance's last scene frozen differs from the prior art, which releases a
+  connection's objects when it closes. The host has to keep the objects of a dead connection
+  deliberately, until a manual restart replaces them.
+
 ## Open questions and follow-ups
+
+- **Releasing the ids of an application's objects (ADR 0040).** ADR 0040 places the lifetime stage
+  in the shell, in front of the renderer. An application process has no renderer, so the ids of its
+  own objects would never be released, and the host would not learn when to drop a remapping entry.
+  There are two candidates. The client could run its own lifetime stage at its edge and send
+  `Delete` for its own objects, as Wayland and Flatland do. Or the host's stage could decide for all
+  objects and report released ids back, as COM and Cap'n Proto do. The answer shapes the wire format
+  of `scene::v1`, so it is needed before that version is frozen.
 
 - **Focus on arrival.** Whether an embedded instance takes keyboard focus, or
   appears as an assisting instance next to its origin, depends on the applications'
