@@ -103,7 +103,7 @@ fn panic_kind_mismatch<C: 'static>(installed: TypeId) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AnyCollector, Change, ChangeSink, SceneChange};
+    use crate::{AnyCollector, Change, ChangeSink, Id, SceneChange, Transform};
 
     /// A second change type that embeds scene changes: the kind the wrong-drain test installs.
     #[derive(Debug)]
@@ -124,31 +124,24 @@ mod tests {
     #[test]
     fn erased_sink_and_typed_access_share_one_fifo() {
         let mut any = AnyCollector::for_type::<SceneChange>();
+        // The ids are recorded, because the id generator reuses freed ids, so their values say
+        // nothing about the order they were acquired in.
+        let pushed = [transform_id(), transform_id(), transform_id()];
 
-        any.send(transform_change().into());
-        any.collect::<SceneChange>(SceneChange::Transform(transform_change()));
-        any.send(transform_change().into());
+        any.send(update(pushed[0]).into());
+        any.collect::<SceneChange>(SceneChange::Transform(update(pushed[1])));
+        any.send(update(pushed[2]).into());
 
-        let drained = any.take_all::<SceneChange>().release();
-        assert_eq!(drained.len(), 3, "one FIFO received all three pushes");
-
-        let drained_ids: Vec<_> = drained
-            .iter()
+        let drained: Vec<_> = any
+            .take_all::<SceneChange>()
+            .release()
+            .into_iter()
             .map(|change| match change {
-                SceneChange::Transform(inner) => inner.id().to_usize(),
-                other => unreachable!("test fixture only collects transforms: {other:?}"),
+                SceneChange::Transform(Change::Update(id, _)) => id,
+                other => unreachable!("test fixture only collects transform updates: {other:?}"),
             })
             .collect();
-        let mut sorted = drained_ids.clone();
-        sorted.sort_unstable();
-        assert_eq!(drained_ids, sorted, "FIFO order: ids come back ascending");
-
-        assert!(
-            drained
-                .iter()
-                .all(|change| matches!(change, SceneChange::Transform(_))),
-            "every push arrived as the pushed kind"
-        );
+        assert_eq!(drained, pushed, "one FIFO received all pushes, in order");
     }
 
     /// Q19: a typed access with the wrong C panics naming the requested kind.
@@ -159,8 +152,11 @@ mod tests {
         let _ = any.take_all::<SceneChange>();
     }
 
-    fn transform_change() -> crate::Change<crate::Transform> {
-        let id = crate::id_generator::acquire::<crate::Transform>();
-        Change::Update(id, crate::Transform::IDENTITY)
+    fn transform_id() -> Id<Transform> {
+        crate::id_generator::acquire::<Transform>()
+    }
+
+    fn update(id: Id<Transform>) -> Change<Transform> {
+        Change::Update(id, Transform::IDENTITY)
     }
 }

@@ -50,8 +50,9 @@ fn with_sink(f: &mut dyn FnMut(&mut dyn ChangeSink)) {
         .is_some_and(|with_current_sink| with_current_sink(f));
     if !reached {
         log::error!("A scene handle was used outside a task context, so its change is lost");
+        // A drop during a panic's unwinding would abort the process with a second panic.
         debug_assert!(
-            reached,
+            reached || std::thread::panicking(),
             "A scene handle was used outside a task context (ADR 0040)"
         );
     }
