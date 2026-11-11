@@ -158,8 +158,8 @@ async fn host(
     scale_factor: f64,
 ) -> Result<()> {
     // The root stays alive until the host ends, so the instance's views keep their parent while it
-    // is served.
-    let (_root_transform, root) = identity_location().submit();
+    // is served. Its transform needs no handle, because the root location keeps it alive.
+    let (_, root) = identity_location().submit();
 
     let instance_id = InstanceId::new();
     let (instance_events, instance_events_receiver) = unbounded_channel();
