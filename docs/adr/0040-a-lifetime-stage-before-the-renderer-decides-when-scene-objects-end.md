@@ -58,7 +58,12 @@ the instance root had two writers. The instance presenter and its movement closu
   own transform or parent, which mt showed as content without its padding transform.
 - The values are the render objects. `Visual`, `Location` and `Transform` travel to the renderer as
   they are, and `VisualRenderObj`, `LocationRenderObj` and `LocationParentId` go away. The `Object`
-  trait becomes a marker without an associated change type.
+  trait loses its associated change type. It is sealed, and it names the object's kind, the
+  objects its value refers to, and the conversions of its changes into `SceneChange` and the
+  renderer's change type. The lifetime stage resolves the three kinds through it with one generic
+  function.
+- The id generator keeps one generator per kind in a fixed array, indexed by the kind, instead of a
+  map keyed by `TypeId`.
 - `Handle` keeps only `Debug`. It is not `PartialEq` or `Hash`, because a unique handle only equals
   itself. `Ref` keeps only `Debug` and its counted `Clone`, because nothing compares or hashes
   references.
@@ -95,26 +100,33 @@ the shell only transports `Change<T>`. The stage takes each drained batch and do
   records those targets. An update that changes the targets counts the new ones before it releases
   the previous ones, so a target both refer to never reaches zero in between. An update that keeps
   its targets leaves the counts alone.
-- It emits `Delete` when an object's count reaches zero, and returns the object's id to the id
-  generator. It then releases the ended object's targets, which may end them in the same batch.
+- It notes every object whose count reaches zero. At the end of the batch, it ends each noted
+  object whose count is still zero. It emits the object's `Delete`, returns its id to the id
+  generator, and releases what the object referred to, which may end those objects, too. An object
+  that a later change in the same batch refers to again stays alive, so a value may take an id from
+  a `Ref` that is dropped before the value is submitted.
 
 The stage keeps its counts, and the targets of live locations and visuals, in one plain vector per
-object kind, indexed by id, because ids are dense per kind. Its code lives in `massive-scene`, next to the id generator it takes over. Each window
-renderer has its own stage.
+object kind, indexed by id, because ids are dense per kind. Its code lives in `massive-scene`, next
+to the id generator it takes over. Each window renderer has its own stage.
 
 ### Where a handle sends its changes
 
 - A handle sends every change to the change queue of the task in which the change happens. It does
   not store a sink. A `Ref` dropped on an instance thread therefore sends its `Release` to that
   instance's queue, even when the object was submitted by the desktop.
-- `massive-scene` reaches the current task's queue through a hook. `massive-applications` registers
-  the hook before it installs any task context, and backs it with the task-local of ADR 0008. The
+- `massive-scene` reaches the current task's queue through a hook, a plain function
+  (`CollectChange`) that collects one change and reports whether a queue was reached.
+  `massive-applications` registers it once per process, before it installs any task context, and
+  backs it with the task-local of ADR 0008. The
   choice of mechanism therefore stays in the layer that knows the runtimes. A later switch to
   thread-locals touches only that layer. The hook adds one indirect call to each clone, update and
   drop. That call is small compared to the task-local lookup, which the path already pays.
 - `scene::submit(&collector, value)` and `submit_to(collector)` lose their explicit collector,
   because every later change of the object follows the hook anyway. Submitting always goes to the
-  current task's queue.
+  current task's queue. The `Submit` trait moves from `massive-applications` into `massive-scene`,
+  which the applications prelude re-exports. It is implemented for every object, and for an
+  unsubmitted location, which creates its transform before the location that refers to it.
 
 ### The task-local owns its change queue
 
@@ -135,14 +147,14 @@ for it stays next to its cause.
 - The queue's type stays erased, because one task-local serves tasks whose change type is
   `SceneChange` and tasks whose change type is `InstanceChange` (ADR 0008). The erased queue sits in
   a `Box`, not behind an `Arc`.
-- No code runs while the queue is borrowed. A push only converts and appends the change, and changes
-  carry ids and render objects, not handles. Draining is a `mem::take`. So no drop can reach the
-  queue while it is borrowed, and the `RefCell` never fails. Code that builds a value from a handle,
-  such as `submit_pair`, does so before it borrows the queue. ADR 0008 rejected `RefCell` for
-  borrows that cross an `await` or nest, and a push does neither.
-- `AnyCollector::sink` and `task_context::sink` go away. The latter has no callers today.
-  `ChangeSink::send_all` goes away as well, because nothing sends a batch of scene changes any
-  more. `ChangeSink` no longer needs to be `Send` or `Sync`, and `send` takes `&mut self`.
+- No code runs while the queue is borrowed. A push converts the change and moves it into the queue,
+  and draining moves all changes out with `mem::take`. Neither drops a value, so no `Drop` of a
+  handle can run and reach the queue while it is borrowed, and the `RefCell` never fails. A value is
+  built from handles before the push borrows the queue. ADR 0008 rejected `RefCell` for borrows that
+  cross an `await` or nest, and a push does neither. During unwinding, the hook uses
+  `try_borrow_mut`, so a failed borrow there cannot panic a second time.
+- `AnyCollector::sink`, `task_context::sink` and the `ChangeSink` trait go away. The hook collects
+  each change directly, and nothing sends a batch of scene changes any more.
 - `task_context::with_changes` goes away. It handed the queue to a closure, which would hold the
   borrow while the closure runs, so any handle used inside it would fail the borrow. Nothing outside
   `task_context` used it.
@@ -174,9 +186,11 @@ enforced.
 
 ### Call sites
 
-- The clones that only keep a parent alive become `Ref<Location>`. These are in `ProjectPresenter`,
-  `LauncherPresenter`, `project_matrix_location`, the title bar presenters, the root project's
-  parent in `command_dispatch.rs`, and mt's `ScrollLocations`.
+- The clones that only keep a parent alive become `Ref<Location>` where they are stored, such as
+  an instance's `view_parent` and mt's `ScrollLocations`. A function that only reads a parent
+  location, such as the constructors of the project, launcher, title bar and instance presenters,
+  or `project_matrix_location`, takes or returns an `Id<Location>`, because its caller keeps the
+  parent alive.
 - The launcher presenter moves its transform handle into its movement closure instead of cloning it.
 - `DesktopChange::SpawnInstance` carries `view_parent: Ref<Location>` instead of the whole
   `InstanceRoot`, because spawning only uses `InstanceRoot::view_parent`. `InstanceRoot` loses
@@ -188,8 +202,8 @@ enforced.
   because construction sets it and the movement's `view_alpha` starts at zero. The `modify` that
   starts the fade-in also reaches the same submission, because `Frame::submission` runs the
   movement actions before it drains the queue.
-- `InstancePresenter::latest_transform` returns the presenter's `target_transform`, because the
-  presenter can no longer read the transform the closure wrote. The two differ only while the
+- `InstancePresenter::latest_transform` gives way to `target_transform`, which returns the
+  presenter's target, because the presenter can no longer read the transform the closure wrote. The two differ only while the
   instance is still animating. Starting a new instance from it within the 500 ms of a layout
   animation lets the new instance appear at the originator's destination instead of its position on
   screen.
@@ -205,15 +219,17 @@ enforced.
   message from it. If a `Ref` ever reaches another task by any other path, its `Release` can
   overtake its `Retain`. The stage then deletes an object that is still referenced, and no error
   reports it.
-- **A batch stays whole.** The stage ends an object and releases what it referred to while it
-  resolves the batch that holds the object's last `Release`, so their deletes land in the same
-  batch. Each task drains its queue only in its own frame submission, so the changes of one
-  synchronous call land in the same batch, too. The stage must neither split a batch nor carry a
-  `Delete` into the next one.
-- **An id outlives its source until it is submitted.** An `Id` does not keep its object
-  alive. The handle or `Ref` it was taken from has to live until the value holding the id is
-  submitted. Today every value is built in the expression that submits it, and the stage's
-  `Retain` assertion fails loudly when an id refers to an object that has already ended.
+- **A batch stays whole.** The stage ends objects at the end of the batch that holds their last
+  `Release`, together with what they referred to, so all their deletes land in that batch. Each
+  task drains its queue only in its own frame submission, so the changes between two submissions
+  of a task land in the same batch, too. The stage must neither split a batch nor carry a `Delete`
+  into the next one.
+- **An id's source lives until the task's next submission.** An `Id` does not keep its object
+  alive. The handle or `Ref` it was taken from may drop before the value holding the id is
+  submitted, because the stage ends objects only at the end of a batch. But it has to live until
+  the task's next submission. An id kept across a submission can refer to an object that has
+  already ended. If the id was reused meanwhile, it refers to another object, and no error
+  reports it. Today every value is built shortly before it is submitted.
 - **The renderer resolves references only between batches.** `SceneState::apply_changes` only
   writes table rows, and locations are resolved later, in `prepare`. So the order of changes inside
   a batch does not matter, only the state at its end. Drop order is not involved.
@@ -276,6 +292,11 @@ run it at its own edge.
   `massive-scene` would decide how a task is identified, and it would need tokio's `rt` feature.
 - **A read path on `Movement` for `latest_transform`.** It would keep today's exact behavior, at the
   cost of a new read API in `massive-animation` for one caller.
+- **Builders that borrow the sources of their ids.** A value under construction would borrow the
+  handle or `Ref` each id was taken from, so the compiler would prove that the sources live until
+  the value is submitted. It needed a lifetime on every builder, on `update` and on `set_parent`,
+  which was too much for a gap that ending objects at the end of a batch already closes for every
+  value submitted before the task's next submission.
 
 ## Consequences
 
@@ -291,3 +312,6 @@ run it at its own edge.
 - Switching the hook to thread-locals later requires that every task holding handles runs on a
   current-thread runtime. Today the shell's runtime and instances with `RuntimeKind::MultiThread`
   move tasks between threads.
+- Creating an object still takes a process-wide lock, the one `Mutex` of the id generator, which
+  every task that creates objects and every lifetime stage share. A follow-up could give each task
+  its own range of ids, if that lock ever shows up in a profile.
