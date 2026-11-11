@@ -6,6 +6,7 @@ use massive_animation::Movement;
 use massive_applications::prelude::*;
 use massive_geometry::{SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset};
+use massive_scene::Id;
 use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
@@ -39,20 +40,20 @@ impl ProjectPresenter {
         id: ProjectId,
         header_text: &str,
         mcp_activation: McpActivation,
-        parent_location: Ref<Location>,
+        parent_location: Id<Location>,
     ) -> Self {
         let (mut scene_transform, location) =
-            identity_location().relative_to(&parent_location).submit();
+            identity_location().relative_to(parent_location).submit();
         let mut header = TitleBarPresenter::new(
             TitleBarStyle {
                 background_color: mcp_activation.project_header_background(),
                 font_size: project::HEADER_FONT_SIZE,
                 indent: 0.0,
             },
-            location.to_ref(),
+            location.id(),
         );
         header.set_text(header_text);
-        let matrix = ProjectMatrixPresenter::new(location.to_ref());
+        let matrix = ProjectMatrixPresenter::new(location.id());
         let movement = movement(SlotLayout::default(), move |layout, progress| {
             if let Some(layout) = layout.proceed_with(progress) {
                 scene_transform.update_if_changed(layout.pivoted_at_origin());
@@ -77,7 +78,7 @@ impl ProjectPresenter {
             .set_background_color(mcp_activation.project_header_background());
     }
 
-    pub fn set_parent_location(&mut self, parent: &Ref<Location>) {
+    pub fn set_parent_location(&mut self, parent: Id<Location>) {
         self.location.set_parent(parent);
     }
 
@@ -232,9 +233,8 @@ pub struct ProjectMatrixPresenter {
 }
 
 impl ProjectMatrixPresenter {
-    pub fn new(parent_location: Ref<Location>) -> Self {
-        let (scene_transform, location) =
-            identity_location().relative_to(&parent_location).submit();
+    pub fn new(parent_location: Id<Location>) -> Self {
+        let (scene_transform, location) = identity_location().relative_to(parent_location).submit();
 
         Self {
             scene_transform,
@@ -242,8 +242,8 @@ impl ProjectMatrixPresenter {
         }
     }
 
-    pub fn location(&self) -> Ref<Location> {
-        self.location.to_ref()
+    pub fn location(&self) -> Id<Location> {
+        self.location.id()
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform) {

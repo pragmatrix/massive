@@ -14,8 +14,8 @@ use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize,
 };
 use massive_renderer::RenderPacing;
-use massive_scene::Ref;
 use massive_scene::prelude::*;
+use massive_scene::{Id, Ref};
 use massive_shapes::{self as shapes, Shape};
 
 use crate::desktop_system::McpActivation;
@@ -192,7 +192,7 @@ impl InstancePresenter {
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
-        parent: Ref<Location>,
+        parent: Id<Location>,
         kind: InstanceKind,
         launcher_name: &str,
         mcp_activation: McpActivation,
@@ -204,7 +204,7 @@ impl InstancePresenter {
             locations,
         } = root;
 
-        layout_location.set_parent(&parent);
+        layout_location.set_parent(parent);
 
         let has_initial_center_translation = initial_center_translation.is_some();
         let initial_center_translation = initial_center_translation.unwrap_or_default();
@@ -241,7 +241,7 @@ impl InstancePresenter {
             mcp_activation,
             title_bar_metrics,
             &launcher_title,
-            locations.content_location.to_ref(),
+            locations.content_location.id(),
         );
 
         Self {
@@ -745,7 +745,7 @@ fn new_title_bar(
     mcp_activation: McpActivation,
     metrics: InstanceTitleBarMetrics,
     launcher_title: &str,
-    parent_location: Ref<Location>,
+    parent_location: Id<Location>,
 ) -> TitleBarPresenter {
     let style = TitleBarStyle {
         background_color: mcp_activation.instance_title_bar_background(kind),

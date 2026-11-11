@@ -66,7 +66,7 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
         let changes = changes.release();
         let location = system.aggregates.launchers[&launcher].location();
         let resolved = super::transform_resolver::TransformResolver::new(&changes)
-            .resolve(location.id())
+            .resolve(location)
             .transform;
 
         let placement = system.placement(&DesktopTarget::Launcher(launcher));

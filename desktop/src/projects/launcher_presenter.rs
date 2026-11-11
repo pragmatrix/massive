@@ -13,6 +13,7 @@ use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
     Size as LayoutSize,
 };
+use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
@@ -72,7 +73,7 @@ impl LauncherPresenter {
     // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
     // introduce something new that exports more ergonomic UI components.
     pub fn new(
-        parent_location: Ref<Location>,
+        parent_location: Id<Location>,
         id: LaunchProfileId,
         name: String,
         mcp_activation: McpActivation,
@@ -83,7 +84,7 @@ impl LauncherPresenter {
         let background_shape = background_shape(size.to_rect(), background_color);
 
         let (mut scene_transform, our_location) =
-            identity_location().relative_to(&parent_location).submit();
+            identity_location().relative_to(parent_location).submit();
 
         // Instances are parented to `our_location`, so the fade needs its own child location;
         // the renderer skips it at alpha 0, keeping it out of the depth buffer under instances.
@@ -221,8 +222,8 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn location(&self) -> Ref<Location> {
-        self.location.to_ref()
+    pub fn location(&self) -> Id<Location> {
+        self.location.id()
     }
 
     /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
@@ -236,7 +237,7 @@ impl LauncherPresenter {
 
     /// Attaches the launcher's scene location to another parent location. This is used when the
     /// launcher's slot moves to the matrix of another project.
-    pub fn set_parent_location(&mut self, parent: &Ref<Location>) {
+    pub fn set_parent_location(&mut self, parent: Id<Location>) {
         self.location.set_parent(parent);
     }
 

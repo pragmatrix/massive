@@ -3,6 +3,7 @@ use std::iter;
 use massive_animation::{Animated, Movement};
 use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
@@ -35,9 +36,9 @@ pub struct TitleBarPresenter {
 }
 
 impl TitleBarPresenter {
-    pub fn new(style: TitleBarStyle, parent_location: Ref<Location>) -> Self {
+    pub fn new(style: TitleBarStyle, parent_location: Id<Location>) -> Self {
         let (mut scene_transform, location) =
-            identity_location().relative_to(&parent_location).submit();
+            identity_location().relative_to(parent_location).submit();
         let (text_transform, text_location) = identity_location().relative_to(&location).submit();
 
         let mut background = background_shape(Rect::default(), style.background_color)

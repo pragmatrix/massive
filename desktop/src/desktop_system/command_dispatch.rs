@@ -792,7 +792,7 @@ impl DesktopSystem {
         // no host — is placed in the desktop's own space.
         let location = match host.map(|parent| self.aggregates.project_matrix_location(parent)) {
             Some(location) => location,
-            None => self.desktop_presenter.location.to_ref(),
+            None => self.desktop_presenter.location.id(),
         };
         let presenter = ProjectPresenter::new(
             id,

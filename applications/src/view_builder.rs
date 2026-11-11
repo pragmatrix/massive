@@ -36,6 +36,6 @@ impl ViewBuilder {
     }
 
     pub fn build(self) -> Result<View> {
-        View::new(self.parent, self.extent, self.role)
+        View::new(self.parent.id(), self.extent, self.role)
     }
 }

@@ -4,8 +4,8 @@ use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, Rect, Size, SizePx};
-use massive_scene::Ref;
 use massive_scene::prelude::*;
+use massive_scene::{Id, Ref};
 
 use crate::prelude::*;
 use crate::{InstanceChange, ViewId};
@@ -29,12 +29,12 @@ impl Drop for View {
 }
 
 impl View {
-    pub(crate) fn new(parent: Ref<Location>, extents: BoxPx, role: ViewRole) -> Result<Self> {
+    pub(crate) fn new(parent: Id<Location>, extents: BoxPx, role: ViewRole) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
         let size: Size = SizePx::from(extents.size().cast()).into();
         let local_transform = Transform::from(-size.center()).submit();
-        let location = local_transform.to_location().relative_to(&parent).submit();
+        let location = local_transform.to_location().relative_to(parent).submit();
 
         submit(InstanceChange::CreateView(ViewCreationInfo {
             id,

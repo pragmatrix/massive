@@ -92,12 +92,12 @@ impl Reparenting {
                 .launchers
                 .get_mut(&launcher)
                 .expect("a re-parented launcher has a presenter")
-                .set_parent_location(&matrix_location),
+                .set_parent_location(matrix_location),
             SlotContent::Project(project) => aggregates
                 .projects
                 .get_mut(&project)
                 .expect("a re-parented project has a presenter")
-                .set_parent_location(&matrix_location),
+                .set_parent_location(matrix_location),
         }
         self.previous_parent_origins
             .insert(what.clone(), previous_origin);
