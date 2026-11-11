@@ -4,9 +4,9 @@
 //! An object is a value that has an id assigned to it and is referable by any other objects. Its
 //! [`Handle`] is its single owner and writer. A [`Ref`] keeps it alive without writing it.
 //!
-//! Internal representations are not visible nor accessible here. They are put into a change tracker
-//! and forwarded to the renderer. This is because the renderer needs a different representation of
-//! the objects to be efficient.
+//! A handle sends each change of its object to the current task's change queue. The queues forward
+//! the changes to the lifetime stage, which turns them into the changes the renderer applies. The
+//! renderer keeps its own tables of the values it receives.
 //!
 //! The changes a task collects are its [`AnyCollector`] change queue: one per task, its change
 //! type fixed at install time (ADR 0008). The word "scene" here names the content the renderer

@@ -55,7 +55,8 @@ impl AnyCollector {
 
 impl fmt::Debug for AnyCollector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // The erased value is not inspectable: report the queue, not the contents.
+        // The changes sit behind a trait object that does not require `Debug`, so only the
+        // collector's name is shown.
         f.debug_struct("AnyCollector").finish_non_exhaustive()
     }
 }

@@ -52,9 +52,9 @@ output burst (e.g. `cat` of a large file) at display refresh rate:
   - `GlyphRun` glyphs carry `FaceId(u64)`, which is local to the process: a
     sequential number over the producing engine's font database, resolved through
     that process's `FontRegistry` at rasterization time.
-  - Scene `Id`s are dense `u32`s from one global allocator per process
-    (`TypeIdGenerator`) and serve as renderer row indices, so two processes would
-    hand out colliding ids.
+  - Scene `Id`s are dense `u32`s from one global allocator per process and object
+    kind (`scene/src/id_generator.rs`) and serve as renderer row indices, so two
+    processes would hand out colliding ids.
   - `ViewEvent` carries winit types (`DeviceId`, `KeyEvent`, `Key`).
 - Shaping and animation run inside the instance (`TaskContext`, `ShapingContext`),
   driven by desktop vblank ticks.
