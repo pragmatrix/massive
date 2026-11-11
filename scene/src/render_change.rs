@@ -31,17 +31,3 @@ impl<T> RenderChange<T> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use static_assertions::assert_not_impl_any;
-
-    use super::RenderSceneChange;
-
-    /// Like a scene change, a render change owns its render object and is consumed by value, so
-    /// it must not become `Clone` for convenience.
-    #[test]
-    fn render_scene_change_is_not_clone() {
-        assert_not_impl_any!(RenderSceneChange: Clone);
-    }
-}

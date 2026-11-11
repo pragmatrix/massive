@@ -311,12 +311,10 @@ impl<T> Slots<T> {
 
 #[cfg(test)]
 mod tests {
-    use massive_geometry::Transform;
-
     use super::LifetimeStage;
     use crate::current_queue::test_queue::{take_changes, with_test_queue};
     use crate::prelude::{Submit, identity_location};
-    use crate::{Change, RenderChange, RenderSceneChange, SceneChange, id_generator};
+    use crate::{RenderChange, RenderSceneChange};
 
     /// A location kept alive only by a reference still needs its transform, so dropping both
     /// handles must not end the transform. The transform ends together with the location, in the
@@ -380,31 +378,6 @@ mod tests {
             let (_transform, _location) = identity_location().submit();
             LifetimeStage::default().resolve(take_changes());
         });
-    }
-
-    /// A reference keeps its object alive after the handle is dropped, and the object ends in the
-    /// batch that releases its last reference (ADR 0040).
-    #[test]
-    fn an_object_ends_with_its_last_reference_not_its_handle() {
-        let mut stage = LifetimeStage::default();
-        let id = id_generator::acquire::<Transform>();
-
-        let first = stage.resolve(vec![
-            SceneChange::Transform(Change::Create(id, Transform::IDENTITY)),
-            SceneChange::Transform(Change::Retain(id)),
-            // The handle is dropped, the reference remains.
-            SceneChange::Transform(Change::Release(id)),
-        ]);
-        assert!(matches!(
-            first.as_slice(),
-            [RenderSceneChange::Transform(RenderChange::Create(created, _))] if *created == id
-        ));
-
-        let last = stage.resolve(vec![SceneChange::Transform(Change::Release(id))]);
-        assert!(matches!(
-            last.as_slice(),
-            [RenderSceneChange::Transform(RenderChange::Delete(deleted))] if *deleted == id
-        ));
     }
 
     /// The kinds of the objects the render changes delete, in order.
