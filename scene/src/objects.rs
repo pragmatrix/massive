@@ -192,6 +192,37 @@ impl Location {
     pub fn sanitized_alpha(&self) -> f32 {
         sanitize_alpha(self.alpha)
     }
+
+    /// Resolve the location from the value of its transform and, unless it is a root, from its
+    /// resolved parent, which `resolve_parent` provides.
+    ///
+    /// This is the one rule for composing locations. A root's own transform and alpha are its
+    /// resolved state, in its own space. A child composes its transform and alpha with its
+    /// parent's and inherits the parent's space.
+    pub fn resolve(
+        &self,
+        transform: Transform,
+        resolve_parent: impl FnOnce(Id<Location>) -> ResolvedLocation,
+    ) -> ResolvedLocation {
+        // Each factor is sanitized before composition, because clamping only the product would
+        // change its meaning.
+        let alpha = self.sanitized_alpha();
+        match self.parent {
+            LocationParent::Root(space) => ResolvedLocation {
+                transform,
+                alpha,
+                space,
+            },
+            LocationParent::Location(parent) => {
+                let parent = resolve_parent(parent);
+                ResolvedLocation {
+                    transform: parent.transform * transform,
+                    alpha: parent.alpha * alpha,
+                    space: parent.space,
+                }
+            }
+        }
+    }
 }
 
 /// The setters of a submitted location. Each one sends the update only when the field changes.

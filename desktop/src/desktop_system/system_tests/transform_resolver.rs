@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use massive_scene::{
-    Change, Id, Location, LocationParent, ResolvedLocation, SceneChange, Transform,
-};
+use massive_scene::{Change, Id, Location, ResolvedLocation, SceneChange, Transform};
 
 /// Resolve final transforms of locations from a batch of submitted scene changes, for tests that
 /// check where the scene draws a target.
@@ -65,25 +63,7 @@ impl TransformResolver {
             .unwrap_or_else(|| {
                 panic!("Transform {:?} was not submitted", location_value.transform)
             });
-        let local_alpha = location_value.sanitized_alpha();
-
-        let resolved = match location_value.parent {
-            // Roots are terminal: their space is the resolved space.
-            LocationParent::Root(space) => ResolvedLocation {
-                transform: local_transform,
-                alpha: local_alpha,
-                space,
-            },
-            // A child inherits its root space from the resolved parent.
-            LocationParent::Location(parent) => {
-                let parent_resolved = self.resolve(parent);
-                ResolvedLocation {
-                    transform: parent_resolved.transform * local_transform,
-                    alpha: parent_resolved.alpha * local_alpha,
-                    space: parent_resolved.space,
-                }
-            }
-        };
+        let resolved = location_value.resolve(local_transform, |parent| self.resolve(parent));
 
         self.resolved.insert(location, resolved);
         resolved

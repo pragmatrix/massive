@@ -128,34 +128,9 @@ impl DependencyResolver for VisualLocation {
         caches: &LocationTransforms,
         source: &Self::Source,
     ) -> Self::Computed {
-        // Sanitize each factor before composition; clamping only the product changes its meaning.
-        let local_alpha = source.sanitized_alpha();
-        let (parent_id, transform_id) = match source.parent {
-            LocationParent::Location(parent) => (Some(parent), source.transform),
-            LocationParent::Root(space) => {
-                return ResolvedLocation {
-                    transform: *scene.transforms[source.transform],
-                    alpha: local_alpha,
-                    space,
-                };
-            }
-        };
-        let local_transform = &*scene.transforms[transform_id];
-        parent_id.map_or_else(
-            || ResolvedLocation {
-                transform: *local_transform,
-                alpha: local_alpha,
-                space: LocationSpace::World,
-            },
-            |parent_id| {
-                let parent = &caches.location_properties[parent_id];
-                ResolvedLocation {
-                    transform: parent.transform * *local_transform,
-                    alpha: parent.alpha * local_alpha,
-                    space: parent.space,
-                }
-            },
-        )
+        source.resolve(*scene.transforms[source.transform], |parent| {
+            *caches.location_properties[parent]
+        })
     }
 }
 
