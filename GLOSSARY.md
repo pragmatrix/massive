@@ -375,8 +375,21 @@ _Avoid_: connect, enter
 **Lifetime stage**:
 The step between the shell's hosted instance and its renderer that decides when scene objects end.
 It counts the handle and the live objects that refer to each object. It deletes an object at the
-end of a batch once the last of them is gone (ADR 0040).
+end of a scene change batch once the last of them is gone (ADR 0040).
 _Avoid_: garbage collector, gc, reference counter
+
+**Reference**:
+An object that a scene object's value names by id, such as a location's transform and parent, or a
+visual's location. The lifetime stage keeps an object's references alive for as long as the object
+lives, and the renderer resolves an object through them (ADR 0040).
+_Avoid_: target, dependency
+
+**Scene change batch**:
+The scene changes a window renderer takes at once. It holds one or more submissions of the task
+the window renders, in their order. The lifetime stage resolves a scene change batch as a whole
+into render changes, and the renderer applies them together, so it resolves references only
+between scene change batches (ADR 0040).
+_Avoid_: batch, render batch, frame batch, change batch
 
 **Render change**:
 A change to a scene object as the renderer receives it: a create, an update, or a delete. Only the

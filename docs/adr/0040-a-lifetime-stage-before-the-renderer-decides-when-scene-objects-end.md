@@ -58,12 +58,17 @@ the instance root had two writers. The instance presenter and its movement closu
   outlive its own transform or parent, which mt showed as content without its padding transform.
 - The values are the render objects. `Visual`, `Location` and `Transform` travel to the renderer as
   they are, and `VisualRenderObj`, `LocationRenderObj` and `LocationParentId` go away. The `Object`
-  trait loses its associated change type. It is sealed, and it names the object's kind, the
+  trait loses its associated change type. It is sealed, and it names the kind's index, the
   objects its value refers to, and the conversions of its changes into `SceneChange` and the
   renderer's change type. The lifetime stage resolves the three kinds through it with one generic
   function.
-- The id generator keeps one generator per kind in a fixed array, indexed by the kind, instead of a
-  map keyed by `TypeId`.
+- The kinds' indices and their number, `OBJECT_KINDS`, are defined together, in one module of
+  `massive-scene` that is not part of its API. The id generator and the lifetime stage keep one
+  entry per kind in arrays of that length, instead of a map keyed by `TypeId`. Where objects of
+  every kind are handled together, such as in the stage's worklist, they are named by a
+  `TaggedId`, the index of an id tagged with its kind's index. The one step that needs the type
+  back, the renderer's typed delete, looks it up in a table of one function per kind, defined next
+  to the indices.
 - `Handle` keeps only `Debug`. It is not `PartialEq` or `Hash`, because a unique handle only equals
   itself.
 - `Handle::update_if_changed_with` gives way to typed setters: `set_parent` and `set_alpha` on a
@@ -89,23 +94,24 @@ each side, so the compiler enforces both rules. Both kinds of change travel in t
 
 The lifetime stage decides when scene objects end. It runs in the shell, at the boundary between
 the hosted instance's submission and the renderer, in place of `id_generator::gc`. Everything above
-the shell only transports `Change<T>`. The stage takes each drained batch and does the following.
+the shell only transports `Change<T>`. The stage takes each scene change batch, the scene changes a
+window renderer takes at once, and does the following.
 
 - It passes `Create` and `Update` on.
 - It counts each object's `Release`.
 - It counts one reference for every object that a created location or visual refers to, and
-  records those targets. An update that changes the targets counts the new ones before it releases
-  the previous ones, so a target both refer to never reaches zero in between. An update that keeps
-  its targets leaves the counts alone.
+  records those references. An update that changes the references counts the new ones before it
+  releases the previous ones, so an object both refer to never reaches zero in between. An update
+  that keeps its references leaves the counts alone.
 - It notes every object whose count reaches zero. At the end of the batch, it ends each noted
   object whose count is still zero. It emits the object's `Delete`, returns its id to the id
   generator, and releases what the object referred to, which may end those objects, too. An object
   that a later change in the same batch refers to again stays alive, so a value may take an id from
   a handle that is dropped before the value is submitted.
 
-The stage keeps its counts, and the targets of live locations and visuals, in one plain vector per
-object kind, indexed by id, because ids are dense per kind. Its code lives in `massive-scene`, next
-to the id generator it takes over. Each window renderer has its own stage.
+The stage keeps its counts, and the references of live locations and visuals, in one plain vector
+per object kind, indexed by id, because ids are dense per kind. Its code lives in `massive-scene`,
+next to the id generator it takes over. Each window renderer has its own stage.
 
 ### Where a handle sends its changes
 
@@ -273,7 +279,7 @@ run it at its own edge.
 - **A dropped handle hands its value's `Ref`s over to the stage.** `Handle::drop` would suppress the
   releases of the `Ref`s in its value through a thread-local flag, and the stage would release them
   when the object ends. That keeps `Ref` in the values, but a hidden flag would change what
-  dropping a `Ref` means, and the stage would need the same record of targets anyway.
+  dropping a `Ref` means, and the stage would need the same record of references anyway.
 - **The value lives as long as the object.** That needs shared ownership of the value, which is an
   `Arc` per object again.
 - **Arena handles.** The renderer side already is an arena. `Id` is a dense, recycled `u32`, and
