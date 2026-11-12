@@ -1,3 +1,5 @@
+use std::mem;
+
 use crate::id_generator;
 use crate::object_kinds::{OBJECT_KINDS, RENDER_DELETES, References, TaggedId};
 use crate::{Change, Object, RenderChange, RenderSceneChange, SceneChange};
@@ -32,7 +34,6 @@ impl LifetimeStage {
         let mut resolution = Resolution {
             render_changes: Vec::with_capacity(changes.len()),
             unreferenced: Vec::new(),
-            ended: Vec::new(),
         };
 
         for change in changes {
@@ -44,7 +45,6 @@ impl LifetimeStage {
         }
 
         self.end_unreferenced(&mut resolution);
-        id_generator::release_all(&resolution.ended);
         resolution.render_changes
     }
 
@@ -104,9 +104,11 @@ impl LifetimeStage {
     ///
     /// Nothing can refer to an object again once the batch has been read, so what an ended object
     /// referred to ends right away when its count reaches zero. A worklist instead of recursion,
-    /// because a chain of locations can be arbitrarily long.
+    /// because a chain of locations can be arbitrarily long. The ids of the ended objects return to
+    /// the id generator together, under one lock.
     fn end_unreferenced(&mut self, resolution: &mut Resolution) {
-        let mut pending = std::mem::take(&mut resolution.unreferenced);
+        let mut pending = mem::take(&mut resolution.unreferenced);
+        let mut ended = Vec::new();
         while let Some(id) = pending.pop() {
             let TaggedId { kind, index } = id;
             let table = &mut self.tables[kind];
@@ -119,8 +121,10 @@ impl LifetimeStage {
                     pending.push(reference);
                 }
             }
-            resolution.end(id);
+            resolution.emit(RENDER_DELETES[kind](index));
+            ended.push(id);
         }
+        id_generator::release_all(&ended);
     }
 }
 
@@ -145,25 +149,18 @@ impl Table {
     }
 }
 
-/// What resolving one batch produces: the render changes, and the objects that ended.
+/// What resolving one batch produces: the render changes, and the objects to check at its end.
 #[derive(Debug)]
 struct Resolution {
     render_changes: Vec<RenderSceneChange>,
     /// Objects whose count reached zero during the batch, which end at its end unless something
     /// referred to them again.
     unreferenced: Vec<TaggedId>,
-    ended: Vec<TaggedId>,
 }
 
 impl Resolution {
     fn emit(&mut self, change: RenderSceneChange) {
         self.render_changes.push(change);
-    }
-
-    /// Record an ended object: its delete goes to the renderer, and its id back to the generator.
-    fn end(&mut self, id: TaggedId) {
-        self.ended.push(id);
-        self.render_changes.push(RENDER_DELETES[id.kind](id.index));
     }
 }
 
