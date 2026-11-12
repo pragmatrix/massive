@@ -1,7 +1,6 @@
-use massive_geometry::Transform;
-
 use crate::id_generator;
-use crate::{Change, Id, Location, Object, RenderChange, RenderSceneChange, SceneChange, Visual};
+use crate::object_kinds::{OBJECT_KINDS, RENDER_DELETES, References, TaggedId};
+use crate::{Change, Object, RenderChange, RenderSceneChange, SceneChange};
 
 /// Decides when scene objects end (ADR 0040).
 ///
@@ -9,23 +8,24 @@ use crate::{Change, Id, Location, Object, RenderChange, RenderSceneChange, Scene
 /// reference count for each object. The object's handle counts as one reference, and so does every
 /// live object that refers to it by id.
 ///
-/// An object whose count reaches zero ends at the end of the batch, and only if its count is still
-/// zero then. A later change in the same batch may refer to it again, so a value can take an id
-/// from a handle that is dropped before the value is submitted, as long as both happen before the
-/// task's next submission. When an object ends, the stage emits its delete, returns its id to
-/// the id generator, and releases what the object referred to, which may end those objects in turn.
+/// The stage resolves one scene change batch at a time. A scene change batch is the set of scene
+/// changes a window renderer takes at once. An object whose count reaches zero ends at the end of
+/// the scene change batch, and only if its count is still zero then. A later change in the same
+/// batch may refer to it again, so a value can take an id from a handle that is dropped before the
+/// value is submitted, as long as both happen before the task's next submission. When an object
+/// ends, the stage emits its delete, returns its id to the id generator, and releases what the
+/// object referred to, which may end those objects in turn.
 ///
-/// Each batch stays whole, its deletes included. The renderer relies on that, because it resolves
-/// references only between batches.
+/// Each scene change batch stays whole, its deletes included. The renderer relies on that, because
+/// it resolves references only between scene change batches.
 #[derive(Debug, Default)]
 pub struct LifetimeStage {
-    transforms: Table,
-    locations: Table,
-    visuals: Table,
+    /// One table per object kind, indexed by [`Object::INDEX`].
+    tables: [Table; OBJECT_KINDS],
 }
 
 impl LifetimeStage {
-    /// Resolve one drained batch into the changes the renderer applies.
+    /// Resolve one scene change batch into the changes the renderer applies.
     pub fn resolve(&mut self, changes: Vec<SceneChange>) -> Vec<RenderSceneChange> {
         // Most changes resolve into one render change, so the batch's length is a good first
         // capacity.
@@ -51,37 +51,37 @@ impl LifetimeStage {
     fn resolve_change<T: Object>(&mut self, change: Change<T>, resolution: &mut Resolution) {
         match change {
             Change::Create(id, value) => {
-                let targets = value.targets();
-                self.retain_all(targets);
-                let table = self.table(T::KIND);
+                let references = value.references();
+                self.retain_all(references);
+                let table = &mut self.tables[T::INDEX];
                 table.counts.create(id.index());
-                table.targets.set(id.index(), targets);
+                table.references.set(id.index(), references);
                 resolution.emit(T::render_change(RenderChange::Create(id, value)));
             }
             Change::Update(id, value) => {
-                let targets = value.targets();
-                let table = self.table(T::KIND);
+                let references = value.references();
+                let table = &mut self.tables[T::INDEX];
                 debug_assert!(
                     table.is_alive(id.index()),
                     "Updated object {id:?} is not alive"
                 );
-                let previous = table.targets.replace(id.index(), targets);
-                if targets != previous {
-                    // The new targets are counted before the previous ones are released, so a
-                    // target both refer to, such as a transform kept under a new parent, never
+                let previous = table.references.replace(id.index(), references);
+                if references != previous {
+                    // The new references are counted before the previous ones are released, so an
+                    // object both refer to, such as a transform kept under a new parent, never
                     // reaches zero in between.
-                    self.retain_all(targets);
+                    self.retain_all(references);
                     self.release_all(previous.iter(), resolution);
                 }
                 resolution.emit(T::render_change(RenderChange::Update(id, value)));
             }
-            Change::Release(id) => self.release_all([Target::from(id)], resolution),
+            Change::Release(id) => self.release_all([id.into()], resolution),
         }
     }
 
-    fn retain_all(&mut self, targets: Targets) {
-        for target in targets.iter() {
-            self.table(target.kind).retain(target.index);
+    fn retain_all(&mut self, references: References) {
+        for reference in references.iter() {
+            self.tables[reference.kind].retain(reference.index);
         }
     }
 
@@ -89,12 +89,12 @@ impl LifetimeStage {
     /// can decide whether it ends.
     fn release_all(
         &mut self,
-        targets: impl IntoIterator<Item = Target>,
+        references: impl IntoIterator<Item = TaggedId>,
         resolution: &mut Resolution,
     ) {
-        for target in targets {
-            if self.table(target.kind).counts.release(target.index) {
-                resolution.unreferenced.push(target);
+        for reference in references {
+            if self.tables[reference.kind].counts.release(reference.index) {
+                resolution.unreferenced.push(reference);
             }
         }
     }
@@ -107,107 +107,41 @@ impl LifetimeStage {
     /// because a chain of locations can be arbitrarily long.
     fn end_unreferenced(&mut self, resolution: &mut Resolution) {
         let mut pending = std::mem::take(&mut resolution.unreferenced);
-        while let Some(Target { kind, index }) = pending.pop() {
-            let table = self.table(kind);
+        while let Some(id) = pending.pop() {
+            let TaggedId { kind, index } = id;
+            let table = &mut self.tables[kind];
             // An object noted twice, or referred to again later in the batch, does not end here.
             if !table.is_alive(index) || table.counts.is_referenced(index) {
                 continue;
             }
-            for target in table.targets.take(index).iter() {
-                if self.table(target.kind).counts.release(target.index) {
-                    pending.push(target);
+            for reference in table.references.take(index).iter() {
+                if self.tables[reference.kind].counts.release(reference.index) {
+                    pending.push(reference);
                 }
             }
-            resolution.end(kind, index);
-        }
-    }
-
-    fn table(&mut self, kind: Kind) -> &mut Table {
-        match kind {
-            Kind::Transform => &mut self.transforms,
-            Kind::Location => &mut self.locations,
-            Kind::Visual => &mut self.visuals,
+            resolution.end(id);
         }
     }
 }
 
-/// The kind of a scene object, which selects its id space and its tables.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Transform,
-    Location,
-    Visual,
-}
-
-impl Kind {
-    /// The position of this kind's id space and tables in arrays of all three.
-    pub(crate) fn index(self) -> usize {
-        self as usize
-    }
-
-    /// The delete the renderer receives for an ended object of this kind.
-    fn delete(self, index: u32) -> RenderSceneChange {
-        match self {
-            Kind::Transform => RenderChange::Delete(Id::<Transform>::from_index(index)).into(),
-            Kind::Location => RenderChange::Delete(Id::<Location>::from_index(index)).into(),
-            Kind::Visual => RenderChange::Delete(Id::<Visual>::from_index(index)).into(),
-        }
-    }
-}
-
-/// An object that one reference count belongs to.
-///
-/// It holds the kind and the raw index instead of a typed id, because one worklist holds targets
-/// of every kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Target {
-    pub(crate) kind: Kind,
-    pub(crate) index: u32,
-}
-
-impl<T: Object> From<Id<T>> for Target {
-    fn from(object: Id<T>) -> Self {
-        Self {
-            kind: T::KIND,
-            index: object.index(),
-        }
-    }
-}
-
-/// What an object refers to. Two at most: a location refers to its transform and, unless it is a
-/// root, to its parent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Targets([Option<Target>; 2]);
-
-impl Targets {
-    /// The targets of one object, built by its [`Object::targets`].
-    pub fn new(targets: [Option<Target>; 2]) -> Self {
-        Self(targets)
-    }
-
-    fn iter(self) -> impl Iterator<Item = Target> {
-        self.0.into_iter().flatten()
-    }
-}
-
-/// The counts and the targets of every object of one kind.
+/// The counts and the references of every object of one kind.
 #[derive(Debug, Default)]
 struct Table {
     counts: ReferenceCounts,
     /// What each live object refers to, from its latest create or update. An object is live from
     /// its create until it ends, even while its count is zero within a batch.
-    targets: Slots<Targets>,
+    references: Slots<References>,
 }
 
 impl Table {
     /// Add one reference to a live object.
     fn retain(&mut self, index: u32) {
-        assert!(self.is_alive(index), "Retained object {index} is not alive");
+        debug_assert!(self.is_alive(index), "Retained object {index} is not alive");
         self.counts.retain(index);
     }
 
     fn is_alive(&self, index: u32) -> bool {
-        self.targets.is_set(index)
+        self.references.is_set(index)
     }
 }
 
@@ -217,8 +151,8 @@ struct Resolution {
     render_changes: Vec<RenderSceneChange>,
     /// Objects whose count reached zero during the batch, which end at its end unless something
     /// referred to them again.
-    unreferenced: Vec<Target>,
-    ended: Vec<Target>,
+    unreferenced: Vec<TaggedId>,
+    ended: Vec<TaggedId>,
 }
 
 impl Resolution {
@@ -227,9 +161,9 @@ impl Resolution {
     }
 
     /// Record an ended object: its delete goes to the renderer, and its id back to the generator.
-    fn end(&mut self, kind: Kind, index: u32) {
-        self.ended.push(Target { kind, index });
-        self.render_changes.push(kind.delete(index));
+    fn end(&mut self, id: TaggedId) {
+        self.ended.push(id);
+        self.render_changes.push(RENDER_DELETES[id.kind](id.index));
     }
 }
 
@@ -336,7 +270,7 @@ mod tests {
     }
 
     /// A location that keeps its transform under a new parent must not end the transform, even when
-    /// nothing else holds it: the stage counts the new targets before it releases the previous ones.
+    /// nothing else holds it: the stage counts the new references before it releases the previous ones.
     #[test]
     fn a_new_parent_keeps_the_transform_alive() {
         with_test_queue(|| {

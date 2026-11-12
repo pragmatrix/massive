@@ -36,6 +36,7 @@ mod handle;
 mod id;
 pub mod id_generator;
 mod lifetime_stage;
+mod object_kinds;
 mod objects;
 mod render_change;
 

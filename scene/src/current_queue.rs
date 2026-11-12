@@ -33,7 +33,7 @@ pub fn register_current_queue(collect_change: CollectChange) {
 /// Handles must be used inside a task (ADR 0040). Outside of one, the change is lost and its object
 /// stays in the renderer. This does not panic in release builds, because a handle's drop can run
 /// while a panic unwinds, and a second panic would abort the process.
-pub(crate) fn send(change: SceneChange) {
+pub fn send(change: SceneChange) {
     let reached = COLLECT_CHANGE
         .get()
         .is_some_and(|collect_change| collect_change(change));

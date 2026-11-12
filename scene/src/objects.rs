@@ -3,9 +3,7 @@ use std::sync::Arc;
 use massive_geometry::{Bounds, Transform};
 use massive_shapes::Shape;
 
-use crate::handle::sealed::Sealed;
-use crate::lifetime_stage::{Kind, Targets};
-use crate::{Change, Handle, Id, Object, RenderChange, RenderSceneChange, SceneChange};
+use crate::{Handle, Id};
 
 /// The coordinate space root a location hierarchy starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,24 +126,6 @@ impl Handle<Visual> {
     }
 }
 
-impl Sealed for Visual {}
-
-impl Object for Visual {
-    const KIND: Kind = Kind::Visual;
-
-    fn targets(&self) -> Targets {
-        Targets::new([Some(self.location.into()), None])
-    }
-
-    fn scene_change(change: Change<Self>) -> SceneChange {
-        SceneChange::Visual(change)
-    }
-
-    fn render_change(change: RenderChange<Self>) -> RenderSceneChange {
-        RenderSceneChange::Visual(change)
-    }
-}
-
 /// A location places what refers to it: its transform applies relative to its parent.
 ///
 /// The renderer receives the location itself with every change, so it refers to its parent and
@@ -230,28 +210,6 @@ impl Handle<Location> {
     }
 }
 
-impl Sealed for Location {}
-
-impl Object for Location {
-    const KIND: Kind = Kind::Location;
-
-    fn targets(&self) -> Targets {
-        let parent = match self.parent {
-            LocationParent::Location(parent) => Some(parent.into()),
-            LocationParent::Root(_) => None,
-        };
-        Targets::new([Some(self.transform.into()), parent])
-    }
-
-    fn scene_change(change: Change<Self>) -> SceneChange {
-        SceneChange::Location(change)
-    }
-
-    fn render_change(change: RenderChange<Self>) -> RenderSceneChange {
-        RenderSceneChange::Location(change)
-    }
-}
-
 /// Clamp an alpha into `[0, 1]`, treating a non-finite value as opaque.
 ///
 /// A location's alpha is stored as set, so every consumer of it must sanitize.
@@ -260,24 +218,6 @@ fn sanitize_alpha(alpha: f32) -> f32 {
         alpha.clamp(0.0, 1.0)
     } else {
         1.0
-    }
-}
-
-impl Sealed for Transform {}
-
-impl Object for Transform {
-    const KIND: Kind = Kind::Transform;
-
-    fn targets(&self) -> Targets {
-        Targets::default()
-    }
-
-    fn scene_change(change: Change<Self>) -> SceneChange {
-        SceneChange::Transform(change)
-    }
-
-    fn render_change(change: RenderChange<Self>) -> RenderSceneChange {
-        RenderSceneChange::Transform(change)
     }
 }
 

@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::lifetime_stage::{Kind, Targets};
+use crate::object_kinds::{References, Sealed};
+
 use crate::{
     Change, Id, RenderChange, RenderSceneChange, SceneChange, current_queue, id_generator,
 };
@@ -86,20 +87,16 @@ impl<T: Object> Drop for Handle<T> {
 /// The renderer receives the value itself with every change, which is why a value refers to other
 /// objects by [`Id`] (ADR 0040). The trait is sealed, because the
 /// lifetime stage and the renderer handle exactly these three kinds.
-pub trait Object: Sized + Clone + fmt::Debug + sealed::Sealed {
-    /// The kind, which selects the object's id space and its tables.
-    const KIND: Kind;
+pub trait Object: Sized + Clone + fmt::Debug + Sealed {
+    /// The kind's position in arrays with one entry per kind, whose length is the number of kinds
+    /// defined next to the object types.
+    const INDEX: usize;
 
     /// The objects this value refers to. The lifetime stage counts them for as long as the object
     /// lives.
-    fn targets(&self) -> Targets;
+    fn references(&self) -> References;
 
     fn scene_change(change: Change<Self>) -> SceneChange;
 
     fn render_change(change: RenderChange<Self>) -> RenderSceneChange;
-}
-
-/// Keeps [`Object`] implemented by the crate's own object types only.
-pub mod sealed {
-    pub trait Sealed {}
 }
