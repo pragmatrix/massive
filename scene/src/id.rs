@@ -71,33 +71,3 @@ impl<T> fmt::Debug for Id<T> {
         formatter.debug_tuple("Id").field(&self.index).finish()
     }
 }
-
-/// Hands out the dense indices of one object type's ids, reusing released ones first.
-#[derive(Debug)]
-pub struct Generator {
-    next_index: u32,
-    free_list: Vec<u32>,
-}
-
-impl Generator {
-    pub const fn new() -> Self {
-        Self {
-            next_index: 0,
-            free_list: Vec::new(),
-        }
-    }
-
-    pub fn acquire(&mut self) -> u32 {
-        if let Some(free) = self.free_list.pop() {
-            return free;
-        }
-
-        let index = self.next_index;
-        self.next_index += 1;
-        index
-    }
-
-    pub fn release(&mut self, index: u32) {
-        self.free_list.push(index);
-    }
-}
