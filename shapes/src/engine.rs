@@ -7,6 +7,7 @@
 //! the published [`FontRegistry`].
 
 use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -93,7 +94,7 @@ impl FontRegistry {
             .iter()
             .map(|(id, face)| (*id, face.font_data.clone()))
             .collect();
-        entries.sort_unstable_by_key(|(id, _)| std::cmp::Reverse(id.payload()));
+        entries.sort_unstable_by_key(|(id, _)| Reverse(id.payload()));
         entries.reverse();
         entries
     }

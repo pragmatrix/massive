@@ -7,9 +7,11 @@
 //! fills it with a redraw request. It prints "regressed" and exits with 1 when the shell returns
 //! anything other than the instance's own error.
 
+use std::process;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+use tokio::time;
 
 use massive_applications::{Application, DrawTarget, InstanceContext};
 use massive_renderer::{FontPolicy, ShapingEngineKind};
@@ -30,7 +32,7 @@ fn main() {
         }
         other => {
             println!("regressed: the shell returned {other:?} instead of the instance's result");
-            std::process::exit(1);
+            process::exit(1);
         }
     }
 }
@@ -41,6 +43,6 @@ async fn instance(context: InstanceContext) -> Result<()> {
     drop(context);
     // A window event in the gap, which the shell tries to send to the closed receiver.
     window.request_redraw();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    time::sleep(Duration::from_millis(500)).await;
     Err(anyhow!(INSTANCE_ERROR))
 }

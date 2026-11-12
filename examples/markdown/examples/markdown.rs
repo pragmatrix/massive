@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
 use log::info;
+use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Registry};
@@ -39,7 +40,7 @@ use markdown::FontBridge;
 
 fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
-    let console_formatter = tracing_subscriber::fmt::Layer::default();
+    let console_formatter = fmt::Layer::default();
     // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
 
     let now: DateTime<Local> = Local::now();

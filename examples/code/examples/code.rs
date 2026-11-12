@@ -8,6 +8,7 @@ use anyhow::Result;
 use base_db::SourceDatabase;
 use chrono::{DateTime, Local};
 use tracing::info;
+use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Registry};
@@ -31,6 +32,7 @@ use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
 use massive_shell::shell;
 
 use shared::attributed_text::{self, AttributedText, TextAttribute};
+use shared::fonts;
 use shared::gesture_transform::{GestureTransform, UpdateResponse};
 use shared::view_center::ViewCenter;
 
@@ -38,7 +40,7 @@ fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env()
         .add_directive("salsa=warn".parse()?)
         .add_directive("hir_ty=warn".parse()?);
-    let console_formatter = tracing_subscriber::fmt::Layer::default();
+    let console_formatter = fmt::Layer::default();
     // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
 
     let now: DateTime<Local> = Local::now();
@@ -77,7 +79,7 @@ async fn code(mut ctx: InstanceContext) -> Result<()> {
 
     // The shell built the task's manager from the font policy this application names, so shaping
     // and rendering share one identity world (ADR 0005).
-    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
+    fonts().load_font(fonts::JETBRAINS_MONO)?;
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.

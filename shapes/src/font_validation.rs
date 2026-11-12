@@ -7,7 +7,7 @@ use swash::{FontDataRef, FontRef};
 
 /// Why a font file cannot be admitted to a shaping engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum FontValidationError {
+pub enum FontValidationError {
     /// Swash cannot recognize the bytes as a font or collection.
     InvalidFile,
     /// Swash recognizes no faces in the file.
@@ -32,7 +32,7 @@ impl Error for FontValidationError {}
 
 /// Validate every face before registering a font file as a unit: a face the registry cannot
 /// fully serve must not become selectable.
-pub(crate) fn validate_font_file(data: &[u8]) -> Result<(), FontValidationError> {
+pub fn validate_font_file(data: &[u8]) -> Result<(), FontValidationError> {
     let faces = FontDataRef::new(data).ok_or(FontValidationError::InvalidFile)?;
     if faces.is_empty() {
         return Err(FontValidationError::NoFaces);

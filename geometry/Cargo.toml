@@ -11,3 +11,5 @@ derive_more = { workspace = true }
 log = { workspace = true }
 glam = { workspace = true }
 euclid = { workspace = true }
+[lints]
+workspace = true

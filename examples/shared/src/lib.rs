@@ -1,6 +1,8 @@
 use std::future::Future;
 
 use anyhow::Result;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::runtime;
 
 pub mod attributed_text;
 pub mod fonts;
@@ -20,7 +22,7 @@ where
         // Don't force initialization of the env logger (calling main may already initialized it)
         let _ = env_logger::try_init();
 
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+        let rt = runtime::Runtime::new().expect("Failed to create tokio runtime");
         // Use the runtime to block on the async function
         rt.block_on(main())
     }

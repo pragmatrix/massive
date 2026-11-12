@@ -5,14 +5,14 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::shell::ShellCommand;
 
-pub(crate) fn initialize_platform_menu(proxy: EventLoopProxy<ShellCommand>) {
+pub fn initialize_platform_menu(proxy: EventLoopProxy<ShellCommand>) {
     #[cfg(target_os = "macos")]
     macos_menu::initialize_platform_menu(proxy);
     #[cfg(not(target_os = "macos"))]
     let _ = proxy;
 }
 
-pub(crate) fn toggle_fullscreen() {
+pub fn toggle_fullscreen() {
     #[cfg(target_os = "macos")]
     macos_menu::toggle_fullscreen();
 }
@@ -21,7 +21,7 @@ pub(crate) fn toggle_fullscreen() {
 /// scheduler keeps it on performance cores and does not delay it behind background work.
 ///
 /// Does nothing unless the `interactive-thread-priority` feature is enabled.
-pub(crate) fn set_current_thread_user_interactive(name: &str) {
+pub fn set_current_thread_user_interactive(name: &str) {
     #[cfg(all(target_os = "macos", feature = "interactive-thread-priority"))]
     {
         // SAFETY: Only affects the calling thread.

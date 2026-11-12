@@ -4,8 +4,8 @@
 //! at install time by [`AnyCollector::for_type`]. Typed access downcasts and panics on a kind
 //! mismatch.
 
-use std::any::{Any, TypeId};
-use std::fmt;
+use std::any::{self, Any, TypeId};
+use std::{fmt, mem};
 
 use massive_util::ChangeSet;
 
@@ -49,7 +49,7 @@ impl AnyCollector {
     where
         C: From<SceneChange> + fmt::Debug + Send + 'static,
     {
-        std::mem::take(typed_changes::<C>(&mut *self.changes))
+        mem::take(typed_changes::<C>(&mut *self.changes))
     }
 }
 
@@ -97,13 +97,13 @@ where
 fn panic_kind_mismatch<C: 'static>(installed: TypeId) -> ! {
     panic!(
         "change collector was installed for another change type: asked for {:?}, installed type id {installed:?}",
-        std::any::type_name::<C>()
+        any::type_name::<C>()
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{AnyCollector, Change, Id, SceneChange, Transform};
+    use crate::{AnyCollector, Change, Id, SceneChange, Transform, id_generator};
 
     /// A second change type that embeds scene changes: the kind the wrong-drain test installs.
     #[derive(Debug)]
@@ -153,7 +153,7 @@ mod tests {
     }
 
     fn transform_id() -> Id<Transform> {
-        crate::id_generator::acquire::<Transform>()
+        id_generator::acquire::<Transform>()
     }
 
     fn update(id: Id<Transform>) -> Change<Transform> {

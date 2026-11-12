@@ -17,3 +17,6 @@ plotters = { version = "0.3.7", default-features = false, features = ["bitmap_ba
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-time = { version = "1.1.0" }
+
+[lints]
+workspace = true

@@ -1,11 +1,14 @@
 use std::collections::HashMap;
+#[cfg(feature = "metrics")]
+use std::env;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
-use tokio::runtime::RuntimeFlavor;
+use tokio::runtime::{self, RuntimeFlavor};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
@@ -41,7 +44,7 @@ pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
     let _ = env_logger::try_init();
 
     #[cfg(feature = "metrics")]
-    if let Ok(push_gateway) = std::env::var("MASSIVE_METRICS_PUSHGATEWAY") {
+    if let Ok(push_gateway) = env::var("MASSIVE_METRICS_PUSHGATEWAY") {
         use std::time::Duration;
 
         match metrics_exporter_prometheus::PrometheusBuilder::new().with_push_gateway(
@@ -67,7 +70,7 @@ pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
     // Power up a tokio runtime, if none is running yet. The instance, and for an instance that
     // draws into views also the host task, run on it while the event loop blocks this thread, so a
     // caller's runtime needs worker threads.
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+    if let Ok(handle) = runtime::Handle::try_current() {
         if handle.runtime_flavor() != RuntimeFlavor::MultiThread {
             bail!(
                 "the shell needs a multi-thread runtime, because its event loop blocks this thread"
@@ -75,7 +78,7 @@ pub fn run(application: Application, font_policy: FontPolicy) -> Result<()> {
         }
         return run_event_loop(application, font_policy);
     }
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = runtime::Builder::new_multi_thread()
         .on_thread_start(|| {
             platform::set_current_thread_user_interactive("tokio worker");
         })
@@ -175,7 +178,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             panic!("Resumed called in an invalid state");
         };
 
-        crate::platform::initialize_platform_menu(proxy.clone());
+        platform::initialize_platform_menu(proxy.clone());
 
         let (event_sender, event_receiver) = unbounded_channel();
 
@@ -265,7 +268,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
-            ShellCommand::ToggleFullscreen => crate::platform::toggle_fullscreen(),
+            ShellCommand::ToggleFullscreen => platform::toggle_fullscreen(),
             ShellCommand::FullscreenRequested => {
                 // The menu sends this from outside the instance, so it can arrive after the
                 // instance's end was reported. No instance receives it then.
@@ -352,7 +355,7 @@ impl WinitApplicationHandler {
 /// Time a closure and log its duration.
 #[allow(unused)]
 pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     let r = f();
     info!("{name}: {:?}", start.elapsed());
     r
@@ -388,9 +391,7 @@ mod tests {
     /// hanging.
     #[test]
     fn run_refuses_a_current_thread_runtime() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = runtime::Builder::new_current_thread().build().unwrap();
         let application = Application::new("never runs", |_| async { Ok(()) });
 
         let result = runtime.block_on(async {

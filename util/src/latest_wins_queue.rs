@@ -85,6 +85,8 @@ impl<T: Hash + Eq + Clone> LatestWinsQueue<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::hash::Hash;
+
     use super::LatestWinsQueue;
 
     #[test]
@@ -127,7 +129,7 @@ mod tests {
         assert_eq!(drain(&mut queue), [1, 2, 3]);
     }
 
-    fn drain<T: std::hash::Hash + Eq + Clone>(queue: &mut LatestWinsQueue<T>) -> Vec<T> {
+    fn drain<T: Hash + Eq + Clone>(queue: &mut LatestWinsQueue<T>) -> Vec<T> {
         let mut items = Vec::new();
         while let Some(item) = queue.pop_next() {
             items.push(item);

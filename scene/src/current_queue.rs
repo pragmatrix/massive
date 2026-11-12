@@ -5,6 +5,7 @@
 //! update, retain and release of a handle goes through it.
 
 use std::sync::OnceLock;
+use std::thread;
 
 use crate::SceneChange;
 
@@ -43,7 +44,7 @@ pub fn send(change: SceneChange) {
         );
         // A drop during a panic's unwinding would abort the process with a second panic.
         debug_assert!(
-            reached || std::thread::panicking(),
+            reached || thread::panicking(),
             "A scene handle could not reach its task's change queue (ADR 0040)"
         );
     }

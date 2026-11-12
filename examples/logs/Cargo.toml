@@ -26,3 +26,6 @@ tracing-subscriber = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1.17.0", features = ["js"] }
+
+[lints]
+workspace = true

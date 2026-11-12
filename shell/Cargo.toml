@@ -56,3 +56,6 @@ web-time = { version = "1.1.0" }
 [dev-dependencies]
 # The `lost_result` example widens a shutdown gap with a timer.
 tokio = { workspace = true, features = ["time"] }
+
+[lints]
+workspace = true
