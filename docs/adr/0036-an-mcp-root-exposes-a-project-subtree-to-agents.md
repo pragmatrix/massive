@@ -384,3 +384,13 @@ and the known ways around it.
   notifications ([`docs/desktop-notifications-plan.md`](../desktop-notifications-plan.md)).
 - Enabling MCP and changing access scopes from the keyboard.
 - Application-qualified access scopes such as `act:term`.
+- A fuzz test that drives the decoding of frames and tool arguments. If
+  [ADR 0038](./0038-the-desktop-serves-mcp-on-the-desktop-socket.md) replaces the tool protocol,
+  the test drives the desktop's MCP decoding instead.
+- A separate event type for instances. `InstanceEvent` serves both the shell's application (the
+  desktop) and instances. The desktop and the examples therefore carry an arm for tool events that
+  they never receive. Both tool events arrive as one `InstanceEvent::Tool`, so that costs one arm
+  per place.
+- A typed target path. A target path would be a sequence of `TargetName`s instead of a string.
+- A typed bridge call, which is optional. `massive-mcp`'s `call` takes the arguments as text. It
+  could take a JSON object and encode it where the frame is built.
