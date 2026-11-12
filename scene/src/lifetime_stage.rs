@@ -12,10 +12,10 @@ use crate::{Change, Object, RenderChange, RenderSceneChange, SceneChange};
 /// The stage resolves one scene change batch at a time. A scene change batch is the set of scene
 /// changes a window renderer takes at once. An object whose count reaches zero ends at the end of
 /// the scene change batch, and only if its count is still zero then. A later change in the same
-/// scene change batch may refer to it again, so a value can take an id from a handle that is dropped before the
-/// value is submitted, as long as both happen before the task's next submission. When an object
-/// ends, the stage emits its delete, returns its id to the id generator, and releases what the
-/// object referred to, which may end those objects in turn.
+/// scene change batch may refer to it again, so a value can take an id from a handle that is
+/// dropped before the value is submitted, as long as both happen before the task's next submission.
+/// When an object ends, the stage emits its delete, returns its id to the id generator, and
+/// releases what the object referred to, which may end those objects in turn.
 ///
 /// Each scene change batch stays whole, its deletes included. The renderer relies on that, because
 /// it resolves references only between scene change batches.
@@ -28,8 +28,8 @@ pub struct LifetimeStage {
 impl LifetimeStage {
     /// Resolve one scene change batch into the changes the renderer applies.
     pub fn resolve(&mut self, changes: Vec<SceneChange>) -> Vec<RenderSceneChange> {
-        // Most changes resolve into one render change, so the scene change batch's length is a good first
-        // capacity.
+        // Most changes resolve into one render change, so the scene change batch's length is a good
+        // first capacity.
         let mut resolution = Resolution {
             render_changes: Vec::with_capacity(changes.len()),
             unreferenced: Vec::new(),
@@ -95,20 +95,23 @@ impl LifetimeStage {
         }
     }
 
-    /// End every object whose count is still zero at the end of the scene change batch, together with what only
-    /// it kept alive.
+    /// End every object whose count is still zero at the end of the scene change batch, together
+    /// with what only it kept alive.
     ///
-    /// Nothing can refer to an object again once the scene change batch has been read, so what an ended object
-    /// referred to ends right away when its count reaches zero. A worklist instead of recursion,
-    /// because a chain of locations can be arbitrarily long. The ids of the ended objects return to
-    /// the id generator together, under one lock.
+    /// Nothing can refer to an object again once the scene change batch has been read, so what an
+    /// ended object referred to ends right away when its count reaches zero. A worklist instead of
+    /// recursion, because a chain of locations can be arbitrarily long.
+    ///
+    /// The ended ids return to the id generator in one call, so the batch takes the generator's
+    /// lock, which every task that creates objects shares, only once.
     fn end_unreferenced(&mut self, resolution: &mut Resolution) {
         let mut pending = mem::take(&mut resolution.unreferenced);
         let mut ended = Vec::new();
         while let Some(id) = pending.pop() {
             let TaggedId { kind, index } = id;
             let table = &mut self.tables[kind];
-            // An object noted twice, or referred to again later in the scene change batch, does not end here.
+            // An object noted twice, or referred to again later in the scene change batch, does not
+            // end here.
             if !table.is_alive(index) || table.counts.is_referenced(index) {
                 continue;
             }
@@ -145,12 +148,13 @@ impl Table {
     }
 }
 
-/// What resolving one scene change batch produces: the render changes, and the objects to check at its end.
+/// The state of resolving one scene change batch: the render changes it produces, and the objects
+/// to check at its end.
 #[derive(Debug)]
 struct Resolution {
     render_changes: Vec<RenderSceneChange>,
-    /// Objects whose count reached zero during the scene change batch, which end at its end unless something
-    /// referred to them again.
+    /// Objects whose count reached zero during the scene change batch, which end at its end unless
+    /// something referred to them again.
     unreferenced: Vec<TaggedId>,
 }
 
