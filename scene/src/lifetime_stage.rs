@@ -6,13 +6,13 @@ use crate::{Change, Id, Location, Object, RenderChange, RenderSceneChange, Scene
 /// Decides when scene objects end (ADR 0040).
 ///
 /// The stage sits between the queues that collect scene changes and the renderer. It keeps a
-/// reference count for each object. The object's handle counts as one reference, every counted
-/// [`Ref`](crate::Ref) as one more, and so does every live object that refers to it by id.
+/// reference count for each object. The object's handle counts as one reference, and so does every
+/// live object that refers to it by id.
 ///
 /// An object whose count reaches zero ends at the end of the batch, and only if its count is still
 /// zero then. A later change in the same batch may refer to it again, so a value can take an id
-/// from a reference that is dropped before the value is submitted, as long as both happen before
-/// the task's next submission. When an object ends, the stage emits its delete, returns its id to
+/// from a handle that is dropped before the value is submitted, as long as both happen before the
+/// task's next submission. When an object ends, the stage emits its delete, returns its id to
 /// the id generator, and releases what the object referred to, which may end those objects in turn.
 ///
 /// Each batch stays whole, its deletes included. The renderer relies on that, because it resolves
@@ -75,7 +75,6 @@ impl LifetimeStage {
                 }
                 resolution.emit(T::render_change(RenderChange::Update(id, value)));
             }
-            Change::Retain(id) => self.table(T::KIND).retain(id.index()),
             Change::Release(id) => self.release_all([Target::from(id)], resolution),
         }
     }
@@ -314,23 +313,25 @@ mod tests {
     use super::LifetimeStage;
     use crate::current_queue::test_queue::{take_changes, with_test_queue};
     use crate::prelude::{Submit, identity_location};
-    use crate::{RenderChange, RenderSceneChange};
+    use crate::{RenderChange, RenderSceneChange, Visual};
 
-    /// A location kept alive only by a reference still needs its transform, so dropping both
-    /// handles must not end the transform. The transform ends together with the location, in the
-    /// batch that releases the location's last reference.
+    /// A location kept alive only by a visual that refers to it still needs its transform, so
+    /// dropping both handles must not end the transform. The location and the transform end
+    /// together with the visual, in the batch that releases the visual.
     #[test]
     fn a_live_object_keeps_what_it_refers_to_until_it_ends() {
         with_test_queue(|| {
             let mut stage = LifetimeStage::default();
-            let location = identity_location().submit().1.to_ref();
+            let (transform, location) = identity_location().submit();
+            let visual = Visual::new(&location, Vec::new()).submit();
+            drop((transform, location));
 
             let deleted = deletes(stage.resolve(take_changes()));
             assert!(deleted.is_empty(), "a live location lost: {deleted:?}");
 
-            drop(location);
+            drop(visual);
             let deleted = deletes(stage.resolve(take_changes()));
-            assert_eq!(deleted, ["location", "transform"]);
+            assert_eq!(deleted, ["visual", "location", "transform"]);
         });
     }
 
@@ -351,14 +352,14 @@ mod tests {
         });
     }
 
-    /// A value may take an id from a reference that is dropped before the value is submitted. The
+    /// A value may take an id from a handle that is dropped before the value is submitted. The
     /// object stays alive, because an object ends only if its count is still zero at the end of the
     /// batch.
     #[test]
-    fn a_reference_dropped_before_its_referrer_is_submitted_keeps_the_object() {
+    fn a_handle_dropped_before_its_referrer_is_submitted_keeps_the_object() {
         with_test_queue(|| {
             let mut stage = LifetimeStage::default();
-            let parent = identity_location().submit().1.to_ref();
+            let (_parent_transform, parent) = identity_location().submit();
             stage.resolve(take_changes());
 
             let child = identity_location().relative_to(&parent);

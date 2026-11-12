@@ -1,4 +1,4 @@
-use std::{fmt, marker::PhantomData};
+use std::fmt;
 
 use crate::lifetime_stage::{Kind, Targets};
 use crate::{
@@ -9,8 +9,8 @@ use crate::{
 ///
 /// Its changes go to the change queue of the task it is used in, so it must be used inside a task
 /// (ADR 0040). A handle is not `Clone`, because a clone would hold its own copy of the value, and
-/// two writers would overwrite each other's snapshots. Code that only keeps the object alive holds
-/// a [`Ref`].
+/// two writers would overwrite each other's snapshots. The object lives as long as its handle, and
+/// after that as long as live objects refer to it by [`Id`].
 #[derive(Debug)]
 pub struct Handle<T: Object> {
     id: Id<T>,
@@ -28,11 +28,6 @@ impl<T: Object> Handle<T> {
 
     pub fn id(&self) -> Id<T> {
         self.id
-    }
-
-    /// A counted reference that keeps the object alive, also after this handle is dropped.
-    pub fn to_ref(&self) -> Ref<T> {
-        Ref::retain(self.id)
     }
 
     pub fn value(&self) -> &T {
@@ -86,52 +81,10 @@ impl<T: Object> Drop for Handle<T> {
     }
 }
 
-/// A counted reference that keeps an object alive.
-///
-/// Each reference counts once in the lifetime stage, which deletes the object only after its handle,
-/// every reference, and every live object that refers to it are gone (ADR 0040). A reference
-/// carries only the object's id, so it cannot read the value.
-pub struct Ref<T: Object> {
-    id: Id<T>,
-    object: PhantomData<fn() -> T>,
-}
-
-impl<T: Object> Ref<T> {
-    pub fn id(&self) -> Id<T> {
-        self.id
-    }
-
-    fn retain(id: Id<T>) -> Self {
-        current_queue::send(T::scene_change(Change::Retain(id)));
-        Self {
-            id,
-            object: PhantomData,
-        }
-    }
-}
-
-impl<T: Object> fmt::Debug for Ref<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Ref").field("id", &self.id).finish()
-    }
-}
-
-impl<T: Object> Clone for Ref<T> {
-    fn clone(&self) -> Self {
-        Self::retain(self.id)
-    }
-}
-
-impl<T: Object> Drop for Ref<T> {
-    fn drop(&mut self) {
-        current_queue::send(T::scene_change(Change::Release(self.id)));
-    }
-}
-
 /// A kind of scene object: a transform, a location, or a visual.
 ///
 /// The renderer receives the value itself with every change, which is why a value refers to other
-/// objects by [`Id`], never by a counted reference (ADR 0040). The trait is sealed, because the
+/// objects by [`Id`] (ADR 0040). The trait is sealed, because the
 /// lifetime stage and the renderer handle exactly these three kinds.
 pub trait Object: Sized + Clone + fmt::Debug + sealed::Sealed {
     /// The kind, which selects the object's id space and its tables.

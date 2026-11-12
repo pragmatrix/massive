@@ -21,7 +21,7 @@ pub enum DesktopCommand {
     ConfigureSelection(SelectionOperation),
     /// Present an instance under its launcher, spawning it if necessary.
     ///
-    /// Boxed, because the instance root it may carry holds six scene handles with their values
+    /// Boxed, because the instance root it may carry holds several scene handles with their values
     /// inline (ADR 0040). Unboxed, every command would be as large as this one.
     StartInstance(Box<StartInstance>),
     StopInstance(InstanceId),

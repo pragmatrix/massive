@@ -89,7 +89,7 @@ async fn code_viewer(mut ctx: InstanceContext) -> Result<()> {
     let mut transform = gestures.get_transform(content_size).submit();
     let location = transform
         .to_location()
-        .relative_to(&center.location())
+        .relative_to(center.location())
         .submit();
 
     // Hold the visual in this context, otherwise it will disappear.

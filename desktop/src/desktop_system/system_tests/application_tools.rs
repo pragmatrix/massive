@@ -219,7 +219,7 @@ impl EchoDesktop {
                 .get_named("terminal")
                 .unwrap(),
             CreationMode::Restore,
-            InstanceRoot::new().view_parent(),
+            InstanceRoot::new().1,
         )?;
         let directory = tempfile::tempdir()?;
         let socket = directory.path().join("run").join("desktop.sock");

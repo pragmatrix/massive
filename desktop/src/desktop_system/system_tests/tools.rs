@@ -839,7 +839,7 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
         let spawned = StartInstance {
             launcher,
             instance,
-            root: Some(InstanceRoot::new()),
+            root: Some(InstanceRoot::new().0),
             parameters,
             kind,
             focus,

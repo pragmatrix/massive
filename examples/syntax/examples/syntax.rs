@@ -96,7 +96,7 @@ async fn syntax(mut ctx: InstanceContext) -> Result<()> {
     let mut transform = gestures.get_transform(content_size).submit();
     let position = transform
         .to_location()
-        .relative_to(&center.location())
+        .relative_to(center.location())
         .submit();
 
     // Hold the submitted visual, otherwise it will disappear.

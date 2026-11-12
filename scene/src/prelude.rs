@@ -7,4 +7,4 @@ pub use crate::ergonomics::{
     At, IntoVisual, Submit, ToCamera, ToLocation, ToTransform, UnsubmittedLocation,
     VisualWithoutLocation, identity_location,
 };
-pub use crate::{Handle, Location, Object, Ref, Transform, Visual};
+pub use crate::{Handle, Id, Location, Object, Transform, Visual};

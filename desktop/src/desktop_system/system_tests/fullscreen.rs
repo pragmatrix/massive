@@ -36,7 +36,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
         let start = system.plan(StartInstance {
             launcher,
             instance,
-            root: Some(InstanceRoot::new()),
+            root: Some(InstanceRoot::new().0),
             parameters: Default::default(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Follow,
@@ -102,7 +102,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
         let start_b = system.plan(StartInstance {
             launcher,
             instance: instance_b,
-            root: Some(InstanceRoot::new()),
+            root: Some(InstanceRoot::new().0),
             parameters: Default::default(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Follow,

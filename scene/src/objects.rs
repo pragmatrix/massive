@@ -5,7 +5,7 @@ use massive_shapes::Shape;
 
 use crate::handle::sealed::Sealed;
 use crate::lifetime_stage::{Kind, Targets};
-use crate::{Change, Handle, Id, Object, Ref, RenderChange, RenderSceneChange, SceneChange};
+use crate::{Change, Handle, Id, Object, RenderChange, RenderSceneChange, SceneChange};
 
 /// The coordinate space root a location hierarchy starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,12 +40,6 @@ impl From<Id<Location>> for LocationParent {
 
 impl From<&Handle<Location>> for LocationParent {
     fn from(location: &Handle<Location>) -> Self {
-        Self::Location(location.into())
-    }
-}
-
-impl From<&Ref<Location>> for LocationParent {
-    fn from(location: &Ref<Location>) -> Self {
         Self::Location(location.into())
     }
 }

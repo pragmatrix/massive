@@ -261,7 +261,7 @@ fn start_instance(
                 launcher,
                 initial_center_translation: None,
                 instance,
-                root: InstanceRoot::new(),
+                root: InstanceRoot::new().0,
                 parameters: Default::default(),
                 kind: InstanceKind::Primary,
             }

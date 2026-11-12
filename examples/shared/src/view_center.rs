@@ -2,7 +2,7 @@ use massive_applications::View;
 use massive_applications::prelude::*;
 use massive_geometry::{Size, SizePx, Transform};
 use massive_scene::prelude::*;
-use massive_scene::{Handle, Location, Ref};
+use massive_scene::{Handle, Id, Location};
 
 /// The location at the center of an example's view.
 ///
@@ -20,7 +20,7 @@ impl ViewCenter {
         let transform = center_of(size).submit();
         let location = transform
             .to_location()
-            .relative_to(&view.location())
+            .relative_to(view.location())
             .submit();
         Self {
             transform,
@@ -28,8 +28,8 @@ impl ViewCenter {
         }
     }
 
-    pub fn location(&self) -> Ref<Location> {
-        self.location.to_ref()
+    pub fn location(&self) -> Id<Location> {
+        self.location.id()
     }
 
     /// Follows the host's new extent of `view`.

@@ -4,8 +4,8 @@ use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, Rect, Size, SizePx};
+use massive_scene::Id;
 use massive_scene::prelude::*;
-use massive_scene::{Id, Ref};
 
 use crate::prelude::*;
 use crate::{InstanceChange, ViewId};
@@ -53,8 +53,8 @@ impl View {
     }
 
     /// A reference to the location that is used to position the view in the parent desktop space.
-    pub fn location(&self) -> Ref<Location> {
-        self.location.to_ref()
+    pub fn location(&self) -> Id<Location> {
+        self.location.id()
     }
 
     /// Updates the view's local origin for a desktop-assigned extent.

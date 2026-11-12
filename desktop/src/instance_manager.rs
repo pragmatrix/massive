@@ -18,7 +18,7 @@ use massive_applications::{
     InstanceFuture, InstanceId, InstanceMessage, RuntimeKind, ViewEvent, ViewId,
 };
 use massive_scene::AnyCollector;
-use massive_scene::{Location, Ref};
+use massive_scene::{Handle, Location};
 use massive_shell::Result;
 use massive_util::ChangeSet;
 
@@ -83,7 +83,7 @@ impl InstanceManager {
         instance_id: InstanceId,
         application: &Application,
         creation_mode: CreationMode,
-        root: Ref<Location>,
+        root: Handle<Location>,
     ) -> Result<()> {
         let (events_tx, events_rx) = unbounded_channel();
         let environment = self.environment.clone();
@@ -289,15 +289,15 @@ mod tests {
 
     use super::*;
 
-    /// An instance holds its view parent until it ends, so the parent's last reference is
-    /// released after the instance's final submission. That release must still reach the desktop,
-    /// or the view parent never ends (ADR 0040).
+    /// An instance owns its view parent until it ends, so the parent's handle is released after the
+    /// instance's final submission. That release must still reach the desktop, or the view parent
+    /// never ends (ADR 0040).
     #[tokio::test]
     async fn an_ended_instance_releases_its_view_parent() -> Result<()> {
         task_context::with_context(desktop_task_context(), async {
             let (outputs_tx, mut outputs_rx) = unbounded_channel();
             let mut manager = InstanceManager::new(InstanceEnvironment::new(outputs_tx, 1.0, None));
-            let (transform, location) = identity_location().submit();
+            let (_, location) = identity_location().submit();
             let location_id = location.id();
             let application = Application::new("ends", |context| async move {
                 drop(context);
@@ -307,9 +307,8 @@ mod tests {
                 Uuid::new_v4().into(),
                 &application,
                 CreationMode::New(InstanceParameters::default()),
-                location.to_ref(),
+                location,
             )?;
-            drop((transform, location));
             let end = manager.join_next().await?;
             end.result?;
 

@@ -23,8 +23,8 @@ use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{Application, InstanceContext, InstanceEvent, KeyEvent, ViewEvent};
 use massive_geometry::{SizePx, Vector3};
-use massive_scene::Ref;
 use massive_scene::prelude::*;
+use massive_scene::{Id, Location};
 use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};
 use massive_shell::shell;
 
@@ -166,14 +166,14 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(view_center: Ref<Location>) -> Self {
+    fn new(view_center: Id<Location>) -> Self {
         let content_width = 1280;
         let gestures = GestureTransform::default();
 
         let application_transform = gestures.get_transform((0, 0)).submit();
         let application_location = application_transform
             .to_location()
-            .relative_to(&view_center)
+            .relative_to(view_center)
             .submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.

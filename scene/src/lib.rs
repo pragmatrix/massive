@@ -2,7 +2,7 @@
 //! accessed through handles and references.
 //!
 //! An object is a value that has an id assigned to it and is referable by any other objects. Its
-//! [`Handle`] is its single owner and writer. A [`Ref`] keeps it alive without writing it.
+//! [`Handle`] is its single owner and writer.
 //!
 //! A handle sends each change of its object to the current task's change queue. The queues forward
 //! the changes to the lifetime stage, which turns them into the changes the renderer applies. The

@@ -14,15 +14,14 @@ pub enum SceneChange {
     Visual(Change<Visual>),
 }
 
-/// A create, update, retain, or release of one object, keyed by its id.
+/// A create, update, or release of one object, keyed by its id.
 ///
-/// Handles and references never send a delete. They release the object, and the lifetime stage
-/// decides when it ends (ADR 0040).
+/// A handle never sends a delete. Its drop releases the object, and the lifetime stage decides when
+/// the object ends (ADR 0040).
 #[derive(Debug)]
 pub enum Change<T> {
     Create(Id<T>, T),
     Update(Id<T>, T),
-    Retain(Id<T>),
     Release(Id<T>),
 }
 

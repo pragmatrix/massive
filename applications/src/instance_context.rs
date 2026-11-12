@@ -9,7 +9,7 @@ use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_renderer::RenderPacing;
-use massive_scene::{Location, Ref, SceneChange};
+use massive_scene::{Handle, Location, SceneChange};
 use massive_util::{ChangeSet, CoalescingReceiver};
 
 use crate::prelude::*;
@@ -57,8 +57,9 @@ enum DrawTargetState {
 /// hang and which pacing the instance last submitted to the host.
 #[derive(Debug)]
 struct ViewHost {
-    /// The location the instance's views hang below.
-    view_parent: Ref<Location>,
+    /// The location the instance's views hang below. The host submitted it with its parent already
+    /// set, and handed its handle over to the instance (ADR 0040).
+    view_parent: Handle<Location>,
     /// This is here so that we don't submit empty instance submissions when the pacing did not
     /// change.
     last_submitted_pacing: RenderPacing,
@@ -112,7 +113,7 @@ impl InstanceContext {
         id: InstanceId,
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
-        view_parent: Ref<Location>,
+        view_parent: Handle<Location>,
         events: UnboundedReceiver<InstanceMessage>,
     ) -> Self {
         Self {
@@ -230,7 +231,7 @@ impl InstanceContext {
             .views()
             .expect("an instance that draws its own windows has no views")
             .view_parent
-            .clone();
+            .id();
         ViewBuilder::new(view_parent, extent.into().into())
     }
 
@@ -394,12 +395,12 @@ mod tests {
     ) {
         let (events, events_receiver) = unbounded_channel();
         let (output_sender, _outputs) = unbounded_channel();
-        let (_root_transform, root) = identity_location().submit();
+        let (_, root) = identity_location().submit();
         let mut context = InstanceContext::new(
             InstanceId::new(),
             CreationMode::Restore,
             InstanceEnvironment::new(output_sender, 1.0, None),
-            root.to_ref(),
+            root,
             events_receiver,
         );
 

@@ -1,6 +1,6 @@
 use std::{fmt, hash, marker::PhantomData};
 
-use crate::{Handle, Object, Ref};
+use crate::{Handle, Object};
 
 /// The identifier of a scene object of type `T`, which also indexes the renderer's tables of that
 /// type.
@@ -11,8 +11,8 @@ use crate::{Handle, Object, Ref};
 ///
 /// An object's value refers to other objects by their ids. An id does not keep its object alive by
 /// itself. Once the referring object is submitted, the lifetime stage counts the reference for as
-/// long as that object lives (ADR 0040). Until then, the handle or reference the id was taken from
-/// has to keep the object alive until the task's next submission, because the stage ends an object
+/// long as that object lives (ADR 0040). Until then, the handle the id was taken from has to keep
+/// the object alive until the task's next submission, because the stage ends an object
 /// only when its count is still zero at the end of a batch.
 pub struct Id<T> {
     index: u32,
@@ -39,12 +39,6 @@ impl<T> Id<T> {
 impl<T: Object> From<&Handle<T>> for Id<T> {
     fn from(handle: &Handle<T>) -> Self {
         handle.id()
-    }
-}
-
-impl<T: Object> From<&Ref<T>> for Id<T> {
-    fn from(reference: &Ref<T>) -> Self {
-        reference.id()
     }
 }
 

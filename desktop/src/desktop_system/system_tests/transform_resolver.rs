@@ -33,8 +33,8 @@ impl TransformResolver {
                 ) => {
                     locations.insert(*id, *location);
                 }
-                SceneChange::Transform(Change::Retain(_) | Change::Release(_))
-                | SceneChange::Location(Change::Retain(_) | Change::Release(_))
+                SceneChange::Transform(Change::Release(_))
+                | SceneChange::Location(Change::Release(_))
                 | SceneChange::Visual(_) => {}
             }
         }

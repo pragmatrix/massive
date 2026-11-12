@@ -100,13 +100,13 @@ impl Desktop {
             .get_named(&env.primary_application)
             .expect("No primary application");
 
-        let primary_root = InstanceRoot::new();
+        let (primary_root, primary_view_parent) = InstanceRoot::new();
         let primary_instance = Uuid::new_v4().into();
         instance_manager.spawn(
             primary_instance,
             primary_application,
             CreationMode::New(boot_parameters.clone()),
-            primary_root.view_parent(),
+            primary_view_parent,
         )?;
 
         // First wait for the initial submission so the window can match the primary view.

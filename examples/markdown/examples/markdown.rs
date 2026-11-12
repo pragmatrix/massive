@@ -103,7 +103,7 @@ async fn markdown(mut ctx: InstanceContext) -> Result<()> {
     let mut transform = page_transform.submit();
     let location = transform
         .to_location()
-        .relative_to(&center.location())
+        .relative_to(center.location())
         .submit();
 
     // Hold the submitted visual, otherwise it will disappear.

@@ -14,8 +14,8 @@ use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize,
 };
 use massive_renderer::RenderPacing;
+use massive_scene::Id;
 use massive_scene::prelude::*;
-use massive_scene::{Id, Ref};
 use massive_shapes::{self as shapes, Shape};
 
 use crate::desktop_system::McpActivation;
@@ -94,34 +94,43 @@ struct InstanceLocations {
     content_location: Handle<Location>,
 
     // The view's own placement inside the content: centered, scaled smaller in full-screen mode.
+    // The view location itself belongs to the instance, which places its views relative to it.
     view_transform: Handle<Transform>,
-    view_location: Handle<Location>,
+
+    // Where the desktop draws behind the view. It shares the view transform with the view
+    // location, so it sits where the view sits, but it does not refer to the location the instance
+    // owns (ADR 0040).
+    background_location: Handle<Location>,
 }
 
 impl InstanceRoot {
-    pub fn new() -> Self {
+    /// A new root, and the view location to hand over to the instance with its spawn.
+    ///
+    /// The instance owns the view location from then on (ADR 0040). The root keeps the transform
+    /// that places it.
+    pub fn new() -> (Self, Handle<Location>) {
         let (layout_transform, layout_location) = identity_location().submit();
         let (content_transform, content_location) =
             identity_location().relative_to(&layout_location).submit();
 
         let (view_transform, view_location) =
             identity_location().relative_to(&content_location).submit();
+        let background_location = view_transform
+            .to_location()
+            .relative_to(&content_location)
+            .submit();
 
-        Self {
+        let root = Self {
             layout_transform,
             layout_location,
             locations: InstanceLocations {
                 content_transform,
                 content_location,
                 view_transform,
-                view_location,
+                background_location,
             },
-        }
-    }
-
-    /// The view's parent location.
-    pub fn view_parent(&self) -> Ref<Location> {
-        self.locations.view_location.to_ref()
+        };
+        (root, view_location)
     }
 }
 
@@ -211,15 +220,11 @@ impl InstancePresenter {
         layout_transform.update_if_changed(Transform::from_translation(initial_center_translation));
         layout_location.set_alpha(0.0);
 
-        let background = show_background.then(|| {
-            let visual = InstanceBackground::shapes(Rect::ZERO)
-                .at(&locations.view_location)
-                .submit();
-
-            InstanceBackground {
-                visual,
-                local_rect: Rect::ZERO,
-            }
+        let background = show_background.then(|| InstanceBackground {
+            visual: InstanceBackground::shapes(Rect::ZERO)
+                .at(&locations.background_location)
+                .submit(),
+            local_rect: Rect::ZERO,
         });
 
         let movement = movement(

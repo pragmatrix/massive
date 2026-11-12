@@ -129,14 +129,17 @@ impl DesktopSystem {
                     .as_ref()
                     .map(|d| d.insertion_pos)
                     .unwrap_or(0);
-                let (root, spawn) = match root {
-                    Some(root) => (root, false),
+                let (root, view_parent) = match root {
+                    Some(root) => (root, None),
                     // Rare case: only a spawned instance needs new scene objects, so the ambient
                     // change queue is used here instead of being threaded through `plan`.
-                    None => (InstanceRoot::new(), true),
+                    None => {
+                        let (root, view_parent) = InstanceRoot::new();
+                        (root, Some(view_parent))
+                    }
                 };
 
-                let mut changes: Changes = if spawn {
+                let mut changes: Changes = if let Some(view_parent) = view_parent {
                     // The spawned application's `size_px` seeds its canvas: a
                     // fullscreen primary instance presents at the window below its
                     // title bar, not the panel, so it must start at that size or
@@ -157,7 +160,7 @@ impl DesktopSystem {
                     );
                     vec![DesktopChange::SpawnInstance {
                         instance,
-                        view_parent: root.view_parent(),
+                        view_parent,
                         parameters: spawn_parameters,
                     }]
                 } else {

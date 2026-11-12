@@ -1,13 +1,13 @@
 use anyhow::Result;
 
 use massive_geometry::{BoxPx, Color};
-use massive_scene::{Location, Ref};
+use massive_scene::{Id, Location};
 
 use crate::view::{View, ViewRole};
 
 #[derive(Debug)]
 pub struct ViewBuilder {
-    parent: Ref<Location>,
+    parent: Id<Location>,
     extent: BoxPx,
 
     role: ViewRole,
@@ -16,7 +16,7 @@ pub struct ViewBuilder {
 }
 
 impl ViewBuilder {
-    pub(crate) fn new(parent: Ref<Location>, extent: BoxPx) -> Self {
+    pub(crate) fn new(parent: Id<Location>, extent: BoxPx) -> Self {
         Self {
             parent,
             extent,
@@ -36,6 +36,6 @@ impl ViewBuilder {
     }
 
     pub fn build(self) -> Result<View> {
-        View::new(self.parent.id(), self.extent, self.role)
+        View::new(self.parent, self.extent, self.role)
     }
 }

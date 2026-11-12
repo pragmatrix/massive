@@ -157,8 +157,8 @@ async fn host(
     shell_events: &mut UnboundedReceiver<InstanceMessage>,
     scale_factor: f64,
 ) -> Result<()> {
-    // The root stays alive until the host ends, so the instance's views keep their parent while it
-    // is served. Its transform needs no handle, because the root location keeps it alive.
+    // The instance owns the root its views hang below (ADR 0040). Its transform needs no handle,
+    // because the root location keeps it alive.
     let (_, root) = identity_location().submit();
 
     let instance_id = InstanceId::new();
@@ -168,7 +168,7 @@ async fn host(
         instance_id,
         CreationMode::New(Default::default()),
         InstanceEnvironment::new(output_sender, scale_factor, None),
-        root.to_ref(),
+        root,
         instance_events_receiver,
     );
     let (end_sender, mut instance_end) = oneshot::channel();
