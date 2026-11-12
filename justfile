@@ -40,7 +40,8 @@ flame:
 run:
 	cd .. && cargo run 
 
-# The lint and format checks of .github/workflows/qa.yaml, to run before pushing.
+# The checks of .github/workflows/qa.yaml, plus the lint opt-in check CI lacks, to run before
+# pushing.
 qa: lints-opt-in
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
@@ -49,16 +50,27 @@ qa: lints-opt-in
 # Every workspace member of this repository opts into the workspace lints, because clippy applies
 # them only to crates that do, and a crate without the opt-in passes `qa` silently. Members inside
 # a submodule, such as the vendored inlyne, are foreign code and skipped.
+#
+# Each step exits on failure, so a missing tool or a failing `cargo metadata` fails the check
+# instead of letting it pass without looking at any crate.
 lints-opt-in:
 	#!/bin/sh
+	set -eu
+	command -v jq >/dev/null || { echo "lints-opt-in needs jq"; exit 1; }
 	root=$(git rev-parse --show-toplevel)
-	missing=$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].manifest_path' |
-		while read -r manifest; do
-			[ "$(git -C "$(dirname "$manifest")" rev-parse --show-toplevel)" = "$root" ] || continue
-			grep -q '^\[lints\]' "$manifest" || echo "$manifest"
-		done)
+	metadata=$(cargo metadata --no-deps --format-version 1)
+	manifests=$(printf '%s' "$metadata" | jq -r '.packages[].manifest_path')
+	missing=$(printf '%s\n' "$manifests" | while read -r manifest; do
+		[ "$(git -C "$(dirname "$manifest")" rev-parse --show-toplevel)" = "$root" ] || continue
+		awk '
+			/^\[/ { in_lints = ($0 ~ /^\[lints\][ \t]*$/) }
+			in_lints && /^[ \t]*workspace[ \t]*=[ \t]*true/ { found = 1 }
+			/^[ \t]*lints\.workspace[ \t]*=[ \t]*true/ { found = 1 }
+			END { exit !found }
+		' "$manifest" || echo "$manifest"
+	done)
 	if [ -n "$missing" ]; then
-		echo "These crates lack '[lints] workspace = true':"
+		echo "These crates do not opt into the workspace lints with '[lints] workspace = true':"
 		echo "$missing"
 		exit 1
 	fi
