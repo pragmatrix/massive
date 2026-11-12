@@ -92,7 +92,7 @@ impl DesktopSystem {
         let originating_presenter = self.aggregates.instances.get(&originator);
 
         let initial_center_translation =
-            originating_presenter.map(|presenter| presenter.latest_transform().translate);
+            originating_presenter.map(|presenter| presenter.target_transform().translate);
 
         let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
 

@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
 use massive_renderer::RenderPacing;
-use massive_scene::{Location, Ref, SceneChange};
+use massive_scene::SceneChange;
 use massive_util::ChangeSet;
 
 use crate::{
@@ -104,11 +104,6 @@ pub enum InstanceChange {
     /// (discriminated by type), so that the interface stays abstract over what outer shell is
     /// driving the instance.
     Configuration(ConfigurationRequest),
-
-    /// The instance ended. The `Ref<Location>` can just be dropped now as soon this event got
-    /// received (and so may enqueue its deletion into the `ChangeCollector` after all other events
-    /// have been received).
-    End(Ref<Location>),
 }
 
 /// Requests sent by the terminal CLI as JSON over its desktop request stream.

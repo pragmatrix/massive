@@ -62,11 +62,7 @@ async fn zooming_out_in_the_root_keeps_focus_on_the_root_slot() -> Result<()> {
         let (mut system, receiver) = system();
         let mut instance_manager = instance_manager(&receiver);
         for command in projects::to_commands(&system.aggregates.configuration) {
-            run(
-                &mut system,
-                &mut instance_manager,
-                DesktopCommand::Configuration(command),
-            )?;
+            run(&mut system, &mut instance_manager, command.into())?;
         }
         let launcher = system
             .aggregates

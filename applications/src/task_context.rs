@@ -6,13 +6,14 @@
 use std::cell::RefCell;
 use std::fmt;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::Once;
 
 use tokio::task_local;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, ShapingContext};
-use massive_scene::{AnyCollector, ChangeSink, SceneChange};
+use massive_scene::{AnyCollector, SceneChange, register_current_queue};
+use massive_util::ChangeSet;
 
 pub(crate) mod animation;
 mod shaper;
@@ -30,7 +31,9 @@ pub(crate) use animation::{
 };
 
 task_local! {
-    static CHANGES: AnyCollector;
+    // A `RefCell`, because the task-local hands out a shared reference. Every access borrows it
+    // for one push or drain only, so no handle code runs while the queue is borrowed (ADR 0040).
+    static CHANGES: RefCell<AnyCollector>;
     static ANIMATION: RefCell<AnimationState>;
     // `Option` so an owning `Shaper` can move the context out and restore it on drop;
     // `fonts()` borrows the slot in place instead, so a manager read never creates a handle.
@@ -71,25 +74,109 @@ impl TaskContext {
 
 /// Run a future with the supplied contexts installed as task-local values.
 pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Output {
-    let TaskContext {
-        changes,
-        animation,
-        movement,
-        shaping_context,
-    } = contexts;
-    // One `AnimationState` owns the coordinator and the movement runtime for the task's lifetime.
-    let animation_state = RefCell::new(AnimationState::new(animation, movement));
+    let cells = TaskCells::new(contexts);
     CHANGES
-        .scope(changes, async move {
+        .scope(cells.changes, async move {
             ANIMATION
-                .scope(animation_state, async move {
-                    SHAPER
-                        .scope(RefCell::new(Some(shaping_context)), future)
-                        .await
-                })
+                .scope(cells.animation, SHAPER.scope(cells.shaper, future))
                 .await
         })
         .await
+}
+
+/// Run a future with the supplied contexts installed, and return its output together with the
+/// changes the task made after its final submission.
+///
+/// The task's animation state and shaping context drop before the queue is drained, so the
+/// releases of what they held, such as the handles in movement closures, are part of these
+/// changes. An instance's host forwards them, so what the instance held until its end still ends
+/// (ADR 0040).
+pub async fn with_context_and_final_changes<C, F>(
+    contexts: TaskContext,
+    future: F,
+) -> (F::Output, ChangeSet<C>)
+where
+    C: From<SceneChange> + fmt::Debug + Send + 'static,
+    F: Future,
+{
+    let cells = TaskCells::new(contexts);
+    CHANGES
+        .scope(cells.changes, async move {
+            let output = ANIMATION
+                .scope(cells.animation, SHAPER.scope(cells.shaper, future))
+                .await;
+            (output, take_changes::<C>())
+        })
+        .await
+}
+
+/// Drop a value with the supplied contexts installed, for a value that holds scene handles but
+/// never ran inside its task, such as an instance future whose runtime failed to start. Returns
+/// the changes the drop made, like [`with_context_and_final_changes`].
+///
+/// Handles must be dropped inside a task, so their releases reach a change queue (ADR 0040).
+pub fn drop_with_context<C, T>(contexts: TaskContext, value: T) -> ChangeSet<C>
+where
+    C: From<SceneChange> + fmt::Debug + Send + 'static,
+{
+    let cells = TaskCells::new(contexts);
+    CHANGES.sync_scope(cells.changes, || {
+        ANIMATION.sync_scope(cells.animation, || {
+            SHAPER.sync_scope(cells.shaper, || drop(value))
+        });
+        take_changes::<C>()
+    })
+}
+
+/// The task-local values a task context installs.
+struct TaskCells {
+    changes: RefCell<AnyCollector>,
+    /// One `AnimationState` owns the coordinator and the movement runtime for the task's lifetime.
+    animation: RefCell<AnimationState>,
+    shaper: RefCell<Option<ShapingContext>>,
+}
+
+impl TaskCells {
+    fn new(contexts: TaskContext) -> Self {
+        register_current_queue_once();
+        let TaskContext {
+            changes,
+            animation,
+            movement,
+            shaping_context,
+        } = contexts;
+        Self {
+            changes: RefCell::new(changes),
+            animation: RefCell::new(AnimationState::new(animation, movement)),
+            shaper: RefCell::new(Some(shaping_context)),
+        }
+    }
+}
+
+/// Register, once per process, how scene handles reach the current task's change queue.
+///
+/// Every function that installs task contexts builds its cells through [`TaskCells::new`], which
+/// calls this, so the registration happens before any handle can be used.
+fn register_current_queue_once() {
+    static REGISTERED: Once = Once::new();
+    REGISTERED.call_once(|| register_current_queue(collect_change));
+}
+
+/// The hook through which scene handles reach the change queue of the task they are used in
+/// (ADR 0040).
+///
+/// It does not panic when the queue is borrowed already. That only happens when a handle drops while
+/// a panic unwinds out of a push, and a second panic would abort the process.
+fn collect_change(change: SceneChange) -> bool {
+    CHANGES
+        .try_with(|changes| {
+            let Ok(mut changes) = changes.try_borrow_mut() else {
+                return false;
+            };
+            changes.send(change);
+            true
+        })
+        .unwrap_or(false)
 }
 
 /// The font manager of the current task's shaping owner: the manager the shell built from the
@@ -128,24 +215,14 @@ pub fn submit<C>(change: C)
 where
     C: From<SceneChange> + fmt::Debug + Send + 'static,
 {
-    with_changes(|collector| collector.collect::<C>(change));
+    CHANGES.with(|changes| changes.borrow_mut().collect::<C>(change));
 }
 
-pub fn take_changes<C>() -> massive_util::ChangeSet<C>
+pub fn take_changes<C>() -> ChangeSet<C>
 where
     C: From<SceneChange> + fmt::Debug + Send + 'static,
 {
-    with_changes(|collector| collector.take_all::<C>())
-}
-
-/// The erased sink of the task's change queue, for callers that cannot borrow the task-local
-/// collector across calls (long-lived visuals, builder chains).
-pub fn sink() -> Arc<dyn ChangeSink> {
-    with_changes(|collector| collector.sink().clone())
-}
-
-pub fn with_changes<R>(f: impl FnOnce(&AnyCollector) -> R) -> R {
-    CHANGES.with(f)
+    CHANGES.with(|changes| changes.borrow_mut().take_all::<C>())
 }
 
 #[cfg(test)]

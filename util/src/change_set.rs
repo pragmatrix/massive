@@ -3,48 +3,6 @@ use std::mem;
 use std::time::Instant;
 
 use derive_more::Deref;
-use parking_lot::Mutex;
-
-#[derive(Debug)]
-pub struct ChangeCollector<C> {
-    changes: Mutex<ChangeSet<C>>,
-}
-
-impl<C> Default for ChangeCollector<C> {
-    fn default() -> Self {
-        Self {
-            changes: Mutex::new(ChangeSet::default()),
-        }
-    }
-}
-
-impl<C> ChangeCollector<C> {
-    pub fn collect(&self, change: impl Into<C>) {
-        let change = change.into();
-        self.changes.lock().push(change);
-    }
-
-    /// Collect a whole batch under one lock acquisition.
-    pub fn collect_all(&self, changes: impl IntoIterator<Item = C>) {
-        let mut queued = self.changes.lock();
-        for change in changes {
-            // Pushing one by one instead of extending keeps the batch's arrival time on record.
-            queued.push(change);
-        }
-    }
-
-    pub fn collect_many(&self, changes: impl Into<ChangeSet<C>>) {
-        let changes = changes.into();
-        self.changes.lock().accumulate(changes);
-    }
-
-    /// Temporary API: this exists while scenes can still be created without
-    /// requiring a separately owned change collector.
-    pub fn take_all(&self) -> ChangeSet<C> {
-        // Performance: Preserve capacity here?
-        mem::take(&mut self.changes.lock())
-    }
-}
 
 // Architecture: This should be replaced by `CollectingVec`, but we need a kind of time tracker and
 // drop checks (may optionally add this to `CollectingVec`).

@@ -10,5 +10,4 @@ metrics = []
 anyhow.workspace = true
 derive_more.workspace = true
 log.workspace = true
-parking_lot.workspace = true
 tokio.workspace = true

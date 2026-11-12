@@ -42,11 +42,7 @@ fn boot(config: &str) -> Result<(DesktopSystem, InstanceManager)> {
     let (mut system, receiver) = system_from(config);
     let mut instance_manager = instance_manager(&receiver);
     for command in projects::to_commands(&system.aggregates.configuration) {
-        run(
-            &mut system,
-            &mut instance_manager,
-            DesktopCommand::Configuration(command),
-        )?;
+        run(&mut system, &mut instance_manager, command.into())?;
     }
     Ok((system, instance_manager))
 }

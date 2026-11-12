@@ -12,7 +12,7 @@ async fn startup_setup_snaps_camera_to_the_focused_instance() -> Result<()> {
             .expect("the test configuration has a startup launcher");
         let frame = massive_applications::begin_frame();
         for command in projects::to_commands(&system.aggregates.configuration) {
-            let changes = system.plan(DesktopCommand::Configuration(command))?;
+            let changes = system.plan(command.into())?;
             system.transact(
                 changes,
                 &mut instance_manager,
@@ -48,7 +48,7 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
         let mut instance_manager = instance_manager(&receiver);
         let frame = massive_applications::begin_frame();
         for command in projects::to_commands(&system.aggregates.configuration) {
-            let changes = system.plan(DesktopCommand::Configuration(command))?;
+            let changes = system.plan(command.into())?;
             system.transact(
                 changes,
                 &mut instance_manager,
@@ -62,10 +62,11 @@ async fn nested_project_launcher_scene_transform_matches_its_placement() -> Resu
             .boot_launcher()
             .expect("the test configuration has a startup launcher");
         // Submitting the frame runs the queued movements that move the launcher's scene transform.
-        drop(frame.submission::<SceneChange>());
+        let (changes, _) = frame.submission::<SceneChange>().into_parts();
+        let changes = changes.release();
         let location = system.aggregates.launchers[&launcher].location();
-        let resolved = massive_scene::TransformResolver::default()
-            .resolve(&location.to_ref())
+        let resolved = super::transform_resolver::TransformResolver::new(&changes)
+            .resolve(location)
             .transform;
 
         let placement = system.placement(&DesktopTarget::Launcher(launcher));

@@ -14,7 +14,7 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
         for command in projects::to_commands(&system.aggregates.configuration) {
             // Tests at panel size: the system's constructor already
             // committed the 800×600 window state.
-            let changes = system.plan(DesktopCommand::Configuration(command))?;
+            let changes = system.plan(command.into())?;
             system.transact(changes, &mut instance_manager, TransactionEffectsMode::Setup)?;
         }
 
@@ -33,14 +33,14 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
             .boot_launcher()
             .expect("the test configuration has a startup launcher");
         let instance = uuid::Uuid::new_v4().into();
-        let start = system.plan(DesktopCommand::StartInstance {
+        let start = system.plan(StartInstance {
             launcher,
             instance,
-            root: Some(InstanceRoot::new()),
+            root: Some(InstanceRoot::new().0),
             parameters: Default::default(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Follow,
-        })?;
+        }.into())?;
         let mut submission_changes = massive_util::ChangeSet::default();
         submission_changes.push(InstanceChange::CreateView(
             massive_applications::ViewCreationInfo {
@@ -99,14 +99,14 @@ async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Resul
         // measurements in the same transaction — not only after the next
         // focus change or arc rotation (regression: stale view measurement).
         let instance_b = uuid::Uuid::new_v4().into();
-        let start_b = system.plan(DesktopCommand::StartInstance {
+        let start_b = system.plan(StartInstance {
             launcher,
             instance: instance_b,
-            root: Some(InstanceRoot::new()),
+            root: Some(InstanceRoot::new().0),
             parameters: Default::default(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Follow,
-        })?;
+        }.into())?;
         let mut submission_b = massive_util::ChangeSet::default();
         submission_b.push(InstanceChange::CreateView(
             massive_applications::ViewCreationInfo {
@@ -311,14 +311,14 @@ async fn a_new_base_instance_in_a_fullscreen_launcher_frames_fullscreen_from_its
 
         // A real spawn: root None, so plan emits SpawnInstance with the
         // seed parameters whose `size_px` this test pins.
-        let start = system.plan(DesktopCommand::StartInstance {
+        let start = system.plan(StartInstance {
             launcher,
             instance: uuid::Uuid::new_v4().into(),
             root: None,
             parameters: Default::default(),
             kind: InstanceKind::Primary,
             focus: FocusIntent::Follow,
-        })?;
+        }.into())?;
         let seed = start
             .iter()
             .find_map(|change| match change {

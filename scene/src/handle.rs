@@ -1,337 +1,102 @@
-use std::{fmt, hash, ops::Deref, sync::Arc};
+use std::fmt;
 
-use parking_lot::{Mutex, MutexGuard};
+use crate::object_kinds::{References, Sealed};
 
-use crate::{Change, ChangeSink, Id, SceneChange, id_generator};
+use crate::{
+    Change, Id, RenderChange, RenderSceneChange, SceneChange, current_queue, id_generator,
+};
 
-/// A handle is a mutable representation of an object submitted to a queue.
+/// The single owner and writer of an object submitted to a queue.
 ///
-/// Although all queues share a common id space, a handle can only be submitted to one queue.
+/// Its changes go to the change queue of the task it is used in, so it must be used inside a task
+/// (ADR 0040). A handle is not `Clone`, because a clone would hold its own copy of the value, and
+/// two writers would overwrite each other's snapshots. The object lives as long as its handle, and
+/// after that as long as live objects refer to it by [`Id`].
 #[derive(Debug)]
-pub struct Handle<T: Object>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    inner: Arc<InnerHandle<T>>,
+pub struct Handle<T: Object> {
+    id: Id<T>,
+    // Optimization: Some values might be too large to be duplicated between the application and the
+    // renderer.
+    value: T,
 }
 
-impl<T: Object> Clone for Handle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-// PartialEq implements reference equality based on the Id.
-//
-// Robustness: Should probably be based on the Arc pointer.
-impl<T: Object> PartialEq for Handle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.inner.id.eq(&other.inner.id)
-    }
-}
-
-impl<T: Object> Eq for Handle<T> where SceneChange: From<Change<T::Change>> {}
-
-impl<T: Object> hash::Hash for Handle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.inner.id.hash(state);
-    }
-}
-
-impl<T: Object> Handle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    pub(crate) fn new(value: T, change_collector: Arc<dyn ChangeSink>) -> Self
-    where
-        T: 'static,
-    {
-        let (handle, create) = Self::unpublished(value, &change_collector);
-        change_collector.send(create.into());
-
-        handle
-    }
-
-    /// Construct a handle without publishing its create change, returning that change.
-    ///
-    /// Invariant: the returned change must reach the queue before the handle is observable by
-    /// other code, otherwise a later drop deletes an id the queue never saw created.
-    #[must_use = "the returned create change must be published, or the handle's id is unknown to the queue"]
-    pub(crate) fn unpublished(
-        value: T,
-        change_collector: &Arc<dyn ChangeSink>,
-    ) -> (Self, Change<T::Change>)
-    where
-        T: 'static,
-    {
-        // Ids are keyed by type, which is what needs the 'static bound here.
+impl<T: Object> Handle<T> {
+    pub(crate) fn new(value: T) -> Self {
         let id = id_generator::acquire::<T>();
-        let create = Change::Create(id, T::to_change(&value));
-
-        let handle = Self {
-            inner: InnerHandle {
-                id,
-                change_collector: change_collector.clone(),
-                value: value.into(),
-            }
-            .into(),
-        };
-
-        (handle, create)
+        current_queue::send(T::scene_change(Change::Create(id, value.clone())));
+        Self { id, value }
     }
 
-    pub fn id(&self) -> Id {
-        self.inner.id
+    pub fn id(&self) -> Id<T> {
+        self.id
     }
 
-    pub fn to_ref(&self) -> Ref<T> {
-        Ref {
-            inner: self.inner.clone(),
-        }
-    }
-
-    pub fn update_if_changed(&self, update: T)
-    where
-        T: PartialEq,
-    {
-        self.inner.update_if_changed(update)
+    pub fn value(&self) -> &T {
+        &self.value
     }
 
     /// Update the value of the handle.
-    pub fn update(&self, update: T) {
-        self.inner.update(update)
+    pub fn update(&mut self, value: T) {
+        self.value = value;
+        self.send_update();
     }
 
-    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
-        self.inner.update_with(f);
-    }
-
-    pub fn update_if_changed_with(&self, f: impl FnOnce(&mut T))
-    where
-        T: Clone + PartialEq,
-    {
-        self.inner.update_if_changed_with(f);
-    }
-
-    pub fn value(&self) -> HandleValue<'_, T> {
-        HandleValue {
-            value: self.inner.value.lock(),
-        }
-    }
-}
-
-/// A read-only handle to an object submitted to a queue.
-#[derive(Debug)]
-pub struct Ref<T: Object>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    inner: Arc<InnerHandle<T>>,
-}
-
-impl<T: Object> Clone for Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-impl<T: Object> PartialEq for Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.inner.id.eq(&other.inner.id)
-    }
-}
-
-impl<T: Object> Eq for Ref<T> where SceneChange: From<Change<T::Change>> {}
-
-impl<T: Object> hash::Hash for Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.inner.id.hash(state);
-    }
-}
-
-impl<T: Object> From<Handle<T>> for Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn from(value: Handle<T>) -> Self {
-        value.to_ref()
-    }
-}
-
-impl<T: Object> From<&Handle<T>> for Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn from(value: &Handle<T>) -> Self {
-        value.to_ref()
-    }
-}
-
-impl<T: Object> From<&Ref<T>> for Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    fn from(value: &Ref<T>) -> Self {
-        value.clone()
-    }
-}
-
-impl<T: Object> Ref<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    pub fn id(&self) -> Id {
-        self.inner.id
-    }
-
-    pub fn value(&self) -> HandleValue<'_, T> {
-        HandleValue {
-            value: self.inner.value.lock(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct HandleValue<'a, T: Object>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    value: MutexGuard<'a, T>,
-}
-
-impl<T: Object> Deref for HandleValue<'_, T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
-
-/// Internal representation of the object handle.
-struct InnerHandle<T: Object>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    id: Id,
-    change_collector: Arc<dyn ChangeSink>,
-    // Optimization: Some values might be too large to be duplicated between the application and the
-    // renderer.
-    value: Mutex<T>,
-}
-
-impl<T: Object> fmt::Debug for InnerHandle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    // The shared sink can hold the task's full pending queue, which every handle would repeat.
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = self.value.lock();
-        formatter
-            .debug_struct("InnerHandle")
-            .field("id", &self.id)
-            .field("value", &*value)
-            .finish_non_exhaustive()
-    }
-}
-
-impl<T: Object> InnerHandle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    // Invariant: mutate the value and enqueue its update while holding the same lock so change
-    // ordering matches committed state under concurrent writers.
-    pub fn update(&self, value: T) {
-        self.update_locked(|current| {
-            *current = value;
-            true
-        });
-    }
-
-    pub fn update_if_changed(&self, value: T)
+    pub fn update_if_changed(&mut self, value: T)
     where
         T: PartialEq,
     {
-        self.update_locked(|current| {
-            if *current == value {
-                return false;
-            }
-
-            *current = value;
-            true
-        });
+        if self.value != value {
+            self.update(value);
+        }
     }
 
-    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
-        self.update_locked(|current| {
-            f(current);
-            true
-        });
+    pub fn update_with(&mut self, f: impl FnOnce(&mut T)) {
+        f(&mut self.value);
+        self.send_update();
     }
 
-    pub fn update_if_changed_with(&self, f: impl FnOnce(&mut T))
-    where
-        T: Clone + PartialEq,
-    {
-        self.update_locked(|current| {
-            let before = current.clone();
-            f(current);
-            *current != before
-        });
-    }
-
-    fn update_locked(&self, mutate: impl FnOnce(&mut T) -> bool) {
-        let mut current = self.value.lock();
-        if !mutate(&mut *current) {
+    /// Set one field of the value, and send the update only when the field changes.
+    ///
+    /// `field` selects the field, so its current value and `value` can be compared directly.
+    pub(crate) fn set_if_changed<F: PartialEq>(
+        &mut self,
+        field: impl FnOnce(&mut T) -> &mut F,
+        value: F,
+    ) {
+        let slot = field(&mut self.value);
+        if *slot == value {
             return;
         }
+        *slot = value;
+        self.send_update();
+    }
 
-        let change = T::to_change(&*current);
-        self.change_collector
-            .send(Change::Update(self.id, change).into());
+    fn send_update(&self) {
+        current_queue::send(T::scene_change(Change::Update(self.id, self.value.clone())));
     }
 }
 
-impl<T: Object> Drop for InnerHandle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
+impl<T: Object> Drop for Handle<T> {
     fn drop(&mut self) {
-        self.change_collector.send(Change::Delete(self.id).into());
+        current_queue::send(T::scene_change(Change::Release(self.id)));
     }
 }
 
-pub trait Object: Sized + fmt::Debug
-where
-    SceneChange: From<Change<Self::Change>>,
-{
-    /// The type of the change the renderer needs to receive.
-    type Change;
+/// A kind of scene object: a transform, a location, or a visual.
+///
+/// The renderer receives the value itself with every change, which is why a value refers to other
+/// objects by [`Id`] (ADR 0040). The trait is sealed, because the
+/// lifetime stage and the renderer handle exactly these three kinds.
+pub trait Object: Sized + Clone + fmt::Debug + Sealed {
+    /// The kind's position in arrays with one entry per kind, whose length is the number of kinds
+    /// defined next to the object types.
+    const INDEX: usize;
 
-    /// Convert the current value to something that can be uploaded.
-    fn to_change(&self) -> Self::Change;
+    /// The objects this value refers to. The lifetime stage counts them for as long as the object
+    /// lives.
+    fn references(&self) -> References;
+
+    fn scene_change(change: Change<Self>) -> SceneChange;
+
+    fn render_change(change: RenderChange<Self>) -> RenderSceneChange;
 }

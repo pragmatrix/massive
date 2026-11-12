@@ -8,7 +8,7 @@ use smallvec::{SmallVec, smallvec};
 use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
-use massive_scene::{Id, LocationSpace, SceneChange, VisualRenderObj};
+use massive_scene::{Id, Location, LocationSpace, RenderSceneChange, Visual};
 
 use crate::RenderDevice;
 use crate::config::RendererConfig;
@@ -57,7 +57,7 @@ struct DepthBuffer {
 
 #[derive(Debug)]
 pub struct RenderVisual {
-    pub location_id: Id,
+    pub location_id: Id<Location>,
     pub decal_order: Option<usize>,
     pub clip_bounds: Option<massive_geometry::Bounds>,
     pub batches: PipelineBatches,
@@ -206,7 +206,10 @@ impl Renderer {
     /// This touches CPU state only and is safe to call without rendering. The next
     /// [`Self::render_and_present`] prepares the changes for the GPU.
     #[tracing::instrument(skip_all)]
-    pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) -> Result<()> {
+    pub fn apply_changes(
+        &mut self,
+        changes: impl IntoIterator<Item = RenderSceneChange>,
+    ) -> Result<()> {
         self.scene_state.apply_changes(changes);
         Ok(())
     }
@@ -295,8 +298,8 @@ impl Renderer {
     }
 
     fn visual_updated(
-        id: Id,
-        visual: &VisualRenderObj,
+        id: Id<Visual>,
+        visual: &Visual,
         config: &mut RendererConfig,
         pipelines: &[wgpu::RenderPipeline],
         context: &PreparationContext,

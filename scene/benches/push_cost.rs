@@ -1,8 +1,6 @@
-//! Push-cost comparison of the two task-scoped change-collection designs, criterion-timed:
-//!
-//! - `any`:      the [`massive_scene::AnyCollector`] task-local; typed access and the erased
-//!   sink handle path.
-//! - `collector`: the typed `massive_util::ChangeCollector<SceneChange>` task-local.
+//! Push cost of the task's change queue, criterion-timed: the [`massive_scene::AnyCollector`]
+//! task-local in a `RefCell`, as the applications layer installs it, through its typed access and
+//! through the `send` path handles take.
 //!
 //! Each benchmark drains a full batch of `CAPACITY` changes, with
 //! `Throughput::Elements(CAPACITY)`, so the reported time per element is the per-push cost with the
@@ -18,6 +16,7 @@
 //!
 //! Run with: `cargo bench -p massive-scene --bench push_cost`.
 
+use std::cell::RefCell;
 use std::time::Duration;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -29,8 +28,7 @@ const CAPACITY: usize = 100_000;
 const MEASUREMENT: Duration = Duration::from_secs(1);
 
 task_local! {
-    static SCENE: AnyCollector;
-    static TYPED: massive_util::ChangeCollector<SceneChange>;
+    static SCENE: RefCell<AnyCollector>;
 }
 
 fn transform(id: u32) -> massive_geometry::Transform {
@@ -59,41 +57,21 @@ fn any_group(c: &mut Criterion) {
     group.bench_function("typed access: .with per push", |b| {
         b.iter(|| {
             for _ in 0..CAPACITY {
-                SCENE.with(|any| any.collect::<SceneChange>(change()));
+                SCENE.with(|any| any.borrow_mut().collect::<SceneChange>(change()));
             }
             SCENE.with(|any| {
-                let _ = any.take_all::<SceneChange>();
+                let _ = any.borrow_mut().take_all::<SceneChange>();
             });
         })
     });
 
-    group.bench_function("sink(): .with per push", |b| {
+    group.bench_function("send: .with per push", |b| {
         b.iter(|| {
             for _ in 0..CAPACITY {
-                SCENE.with(|any| any.sink().send(change()));
+                SCENE.with(|any| any.borrow_mut().send(change()));
             }
             SCENE.with(|any| {
-                let _ = any.take_all::<SceneChange>();
-            });
-        })
-    });
-
-    group.finish();
-}
-
-fn collector_group(c: &mut Criterion) {
-    let mut group = c.benchmark_group("task-scope collector");
-    group.throughput(Throughput::Elements(CAPACITY as u64));
-    group.measurement_time(MEASUREMENT);
-    group.sample_size(10);
-
-    group.bench_function("typed collect: .with per push", |b| {
-        b.iter(|| {
-            for _ in 0..CAPACITY {
-                TYPED.with(|collector| collector.collect(change()));
-            }
-            TYPED.with(|collector| {
-                let _ = collector.take_all();
+                let _ = any.borrow_mut().take_all::<SceneChange>();
             });
         })
     });
@@ -108,22 +86,10 @@ fn bench(c: &mut Criterion) {
         .expect("tokio current-thread runtime")
         .block_on(async {
             SCENE
-                .scope(AnyCollector::for_type::<SceneChange>(), async {
-                    any_group(c);
-                })
-                .await;
-        });
-
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("tokio current-thread runtime")
-        .block_on(async {
-            TYPED
                 .scope(
-                    massive_util::ChangeCollector::<SceneChange>::default(),
+                    RefCell::new(AnyCollector::for_type::<SceneChange>()),
                     async {
-                        collector_group(c);
+                        any_group(c);
                     },
                 )
                 .await;

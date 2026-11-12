@@ -13,8 +13,7 @@ use winit::window::WindowId;
 use massive_applications::{InstanceMessage, PresentationTick};
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer, ViewProjections};
-use massive_scene::SceneChangeSet;
-use massive_scene::id_generator;
+use massive_scene::{LifetimeStage, SceneChangeSet};
 use massive_util::message_filter;
 
 use crate::shell_window::ShellWindowShared;
@@ -24,6 +23,9 @@ const FULLSCREEN_VSYNC_MAXIMUM_FRAME_LATENCY: u32 = 2;
 
 pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
+    /// Decides when the objects this window renders end. Every change of an object reaches the
+    /// same window, so the stage sees all of its references (ADR 0040).
+    lifetimes: LifetimeStage,
     renderer: Renderer,
     is_fullscreen: bool,
     current_pacing: RenderPacing,
@@ -37,6 +39,7 @@ impl WindowRenderer {
         let is_fullscreen = window.is_fullscreen();
         Self {
             window,
+            lifetimes: LifetimeStage::default(),
             renderer,
             is_fullscreen,
             current_pacing: RenderPacing::Fast,
@@ -277,8 +280,7 @@ impl WindowRenderer {
         let time_of_oldest_change = changes.time_of_oldest_change();
 
         if !changes.is_empty() {
-            let changes = changes.release();
-            id_generator::gc(&changes);
+            let changes = self.lifetimes.resolve(changes.release());
             self.renderer.apply_changes(changes)?;
             #[cfg(feature = "metrics")]
             {

@@ -24,19 +24,27 @@ use crate::Id;
 // This is currently implemented as a HashSet.
 //
 // Performance: A range set / interval set might be an optimization opportunity here.
-#[derive(Debug, Default)]
-pub struct ChangedIds {
-    changed: HashSet<Id>,
+#[derive(Debug)]
+pub struct ChangedIds<T> {
+    changed: HashSet<Id<T>>,
 }
 
-impl ChangedIds {
+impl<T> Default for ChangedIds<T> {
+    fn default() -> Self {
+        Self {
+            changed: HashSet::new(),
+        }
+    }
+}
+
+impl<T> ChangedIds<T> {
     /// Add a single id to the change surface.
-    pub fn add(&mut self, id: Id) {
+    pub fn add(&mut self, id: Id<T>) {
         self.changed.insert(id);
     }
 
     /// Take all the changes out of the change surface.
-    pub fn take_all(&mut self) -> impl Iterator<Item = Id> {
+    pub fn take_all(&mut self) -> impl Iterator<Item = Id<T>> {
         self.changed.drain()
     }
 

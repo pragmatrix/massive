@@ -1,5 +1,6 @@
 use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission, McpConfiguration};
 use massive_geometry::{SizePx, Vector3};
+use massive_scene::{Handle, Location};
 use massive_util::{CollectingSet, CollectingVec};
 
 use super::selection::Selection;
@@ -30,12 +31,15 @@ pub enum DesktopChange {
     // `DesktopSystem`. May introduce something like outside effects that run when transact returns?
     SpawnInstance {
         instance: InstanceId,
-        root: InstanceRoot,
+        /// The location the instance's views hang below, handed over to the instance.
+        view_parent: Handle<Location>,
         parameters: InstanceParameters,
     },
     // Design: This could also be done as an external effect.
     ShutdownInstance(InstanceId),
-    PresentInstance(InstancePresentation),
+    /// Boxed, because the presentation carries the instance root, which holds several scene handles
+    /// with their values inline (ADR 0040). Unboxed, every change would be as large as this one.
+    PresentInstance(Box<InstancePresentation>),
     HideInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,

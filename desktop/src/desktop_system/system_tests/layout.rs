@@ -20,11 +20,7 @@ async fn a_project_name_does_not_change_the_project_size() -> Result<()> {
         let (mut system, receiver) = system_from(LONG_AND_SHORT_NAMES_CONFIG);
         let mut instance_manager = instance_manager(&receiver);
         for command in projects::to_commands(&system.aggregates.configuration) {
-            run(
-                &mut system,
-                &mut instance_manager,
-                DesktopCommand::Configuration(command),
-            )?;
+            run(&mut system, &mut instance_manager, command.into())?;
         }
 
         let measured_sizes: Vec<_> = system
@@ -78,11 +74,7 @@ async fn sibling_projects_lay_out_the_columns_of_the_widest_one() -> Result<()> 
         let (mut system, receiver) = system_from(SIBLINGS_OF_DIFFERENT_SHAPES_CONFIG);
         let mut instance_manager = instance_manager(&receiver);
         for command in projects::to_commands(&system.aggregates.configuration) {
-            run(
-                &mut system,
-                &mut instance_manager,
-                DesktopCommand::Configuration(command),
-            )?;
+            run(&mut system, &mut instance_manager, command.into())?;
         }
         let projects: Vec<ProjectId> = system
             .aggregates
@@ -116,12 +108,13 @@ async fn sibling_projects_lay_out_the_columns_of_the_widest_one() -> Result<()> 
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::Configuration(ConfigurationCommand::ClearSlot {
+            ConfigurationCommand::ClearSlot {
                 parent: projects[0],
                 slot: SlotPosition { column: 2, row: 0 },
                 shift: SlotShift::Keep,
                 instances: RunningInstances::Refuse,
-            }),
+            }
+            .into(),
         )?;
 
         let two_columns = widths(&system);

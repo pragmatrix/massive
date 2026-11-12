@@ -29,8 +29,8 @@ async fn run(mut ctx: InstanceContext) -> Result<()> {
     let window_size =
         LogicalSize::new(1024.0, 768.0).to_physical(ctx.primary_monitor_scale_factor());
     let view_size = SizePx::new(window_size.width, window_size.height);
-    let view = ctx.view(view_size).build()?;
-    let center = ViewCenter::new(&view, view_size);
+    let mut view = ctx.view(view_size).build()?;
+    let mut center = ViewCenter::new(&view, view_size);
 
     // Scene & application
     let mut gestures = GestureTransform::default();
@@ -253,7 +253,7 @@ async fn run(mut ctx: InstanceContext) -> Result<()> {
         }
     }
 
-    let transform = gestures.get_transform((page_width, page_height)).submit();
+    let mut transform = gestures.get_transform((page_width, page_height)).submit();
     let location = transform
         .to_location()
         .relative_to(center.location())
@@ -269,7 +269,7 @@ async fn run(mut ctx: InstanceContext) -> Result<()> {
             match event {
                 InstanceEvent::View(_, view_event) => {
                     if let ViewEvent::Resized(size) = view_event {
-                        center.resize(&view, size);
+                        center.resize(&mut view, size);
                     }
                     match gestures.update(&view_event) {
                         UpdateResponse::Exit => return Ok(()),

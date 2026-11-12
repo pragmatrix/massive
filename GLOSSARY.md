@@ -359,24 +359,43 @@ time, and the frame drains the queue into a submission at animation-cycle end (A
 _Avoid_: change stream
 
 **Change collector**:
-The lock-guarded accumulation a change queue is stored in: an ordered set of changes of
-exactly one type. The change type is fixed when the collector is created, so a collector
-never has to check what it receives; draining takes the accumulated changes out in order.
+The accumulation a change queue is stored in: an ordered set of changes of exactly one type,
+owned by its task. The change type is fixed when the collector is created, so a collector
+never has to check what it receives. Draining takes the accumulated changes out in order.
 Every change queue is backed by exactly one collector.
 _Avoid_: change buffer, change list
 
-**Change sink**:
-The write-only view of a change queue that handles hold. It accepts scene changes and
-retypes them into the queue's own change type, so a handle never knows the queue's change
-kind. Erasing the sink is what lets one queue per task serve every handle.
-_Avoid_: change stream, sender, channel
-
 **Submit**:
 Create an object handle and add it to the task's change queue: the handle publishes
-its create into that queue, and its later updates and deletion follow the same path.
-Because handles hold the erased sink, their changes land in the same FIFO as the task's
-own changes.
+its create into that queue, and its later updates and its release follow the same path.
+Because handles send their changes into the current task's queue, their changes land in the same
+FIFO as the task's own changes.
 _Avoid_: connect, enter
+
+**Lifetime stage**:
+The step between the shell's hosted instance and its renderer that decides when scene objects end.
+It counts the handle and the live objects that refer to each object. It deletes an object at the
+end of a scene change batch once the last of them is gone (ADR 0040).
+_Avoid_: garbage collector, gc, reference counter
+
+**Reference**:
+An object that a scene object's value names by id, such as a location's transform and parent, or a
+visual's location. The lifetime stage keeps an object's references alive for as long as the object
+lives, and the renderer resolves an object through them (ADR 0040).
+_Avoid_: target, dependency
+
+**Scene change batch**:
+The scene changes a window renderer takes at once. It holds one or more submissions of the task
+the window renders, in their order. The lifetime stage resolves a scene change batch as a whole
+into render changes, and the renderer applies them together, so it resolves references only
+between scene change batches (ADR 0040).
+_Avoid_: batch, render batch, frame batch, change batch
+
+**Render change**:
+A change to a scene object as the renderer receives it: a create, an update, or a delete. Only the
+lifetime stage produces render changes, so a delete reaches the renderer only once nothing refers to
+the object any more (ADR 0040).
+_Avoid_: resolved change, renderer change
 
 **Mounting**:
 Wiring a movement's value and apply-animations callback into a task's movement runtime, done once at presenter construction, before any frame exists. Mounting only enqueues the movement's actions; it does not animate or read the animation clock.

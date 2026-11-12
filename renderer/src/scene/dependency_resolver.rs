@@ -19,7 +19,7 @@ pub fn resolve<Resolver: DependencyResolver>(
     head_version: Version,
     shared_storage: &Resolver::SourceStorage,
     computed_storage: &mut Resolver::ComputedStorage,
-    id: Id,
+    id: Id<Resolver::Object>,
 ) -> Version
 where
     Computed<Resolver::Computed>: Default,
@@ -54,6 +54,8 @@ where
 }
 
 pub trait DependencyResolver {
+    /// The object type whose ids select the source and the computed value.
+    type Object;
     /// Type of the source table storage.
     type SourceStorage;
     /// The symmetric _versioned_ source value type. There must be a source value for every computed
@@ -66,7 +68,7 @@ pub trait DependencyResolver {
     type Computed;
 
     /// Retrieve a reference to the versioned source value.
-    fn get_source(scene: &Self::SourceStorage, id: Id) -> &Versioned<Self::Source>;
+    fn get_source(scene: &Self::SourceStorage, id: Id<Self::Object>) -> &Versioned<Self::Source>;
 
     /// Make sure that all dependencies are up to date and return their maximum version.
     fn resolve_dependencies(
@@ -82,7 +84,10 @@ pub trait DependencyResolver {
         source: &Self::Source,
     ) -> Self::Computed;
 
-    fn computed_mut(computed: &mut Self::ComputedStorage, id: Id) -> &mut Computed<Self::Computed>
+    fn computed_mut(
+        computed: &mut Self::ComputedStorage,
+        id: Id<Self::Object>,
+    ) -> &mut Computed<Self::Computed>
     where
         Computed<Self::Computed>: Default;
 }

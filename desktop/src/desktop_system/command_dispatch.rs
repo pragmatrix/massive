@@ -12,8 +12,8 @@ use super::change::{
 use super::selection::Selection;
 use super::{
     ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
-    FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation, ZoomLevel,
-    view_size,
+    FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation,
+    StartInstance, ZoomLevel, view_size,
 };
 use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -90,7 +90,7 @@ impl DesktopSystem {
     /// issuer that tells someone why nothing changes, such as a tool answering an agent (ADR 0036).
     pub fn plan_or_refuse(&self, command: DesktopCommand) -> Result<Planned> {
         match command {
-            DesktopCommand::Configuration(command) => self.configuration_planning().plan(command),
+            DesktopCommand::Configuration(command) => self.configuration_planning().plan(*command),
             command => self.plan(command).map(Planned::Changes),
         }
     }
@@ -100,7 +100,7 @@ impl DesktopSystem {
     pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
             DesktopCommand::Configuration(configuration_command) => Ok(changes_of(
-                self.configuration_planning().plan(configuration_command)?,
+                self.configuration_planning().plan(*configuration_command)?,
             )),
             DesktopCommand::ConfigureSelection(operation) => {
                 let Some(command) = self.command_for_selection(operation) else {
@@ -108,14 +108,15 @@ impl DesktopSystem {
                 };
                 Ok(changes_of(self.configuration_planning().plan(command)?))
             }
-            DesktopCommand::StartInstance {
-                launcher,
-                instance,
-                root,
-                parameters,
-                kind,
-                focus,
-            } => {
+            DesktopCommand::StartInstance(start) => {
+                let StartInstance {
+                    launcher,
+                    instance,
+                    root,
+                    parameters,
+                    kind,
+                    focus,
+                } = *start;
                 // An instance an agent starts does not appear next to, or slide out of, the
                 // instance the user works in, which may lie outside the agent's MCP root.
                 let originator_instance = match focus {
@@ -128,14 +129,17 @@ impl DesktopSystem {
                     .as_ref()
                     .map(|d| d.insertion_pos)
                     .unwrap_or(0);
-                let (root, spawn) = match root {
-                    Some(root) => (root, false),
+                let (root, view_parent) = match root {
+                    Some(root) => (root, None),
                     // Rare case: only a spawned instance needs new scene objects, so the ambient
                     // change queue is used here instead of being threaded through `plan`.
-                    None => (InstanceRoot::new(), true),
+                    None => {
+                        let (root, view_parent) = InstanceRoot::new();
+                        (root, Some(view_parent))
+                    }
                 };
 
-                let mut changes: Changes = if spawn {
+                let mut changes: Changes = if let Some(view_parent) = view_parent {
                     // The spawned application's `size_px` seeds its canvas: a
                     // fullscreen primary instance presents at the window below its
                     // title bar, not the panel, so it must start at that size or
@@ -156,7 +160,7 @@ impl DesktopSystem {
                     );
                     vec![DesktopChange::SpawnInstance {
                         instance,
-                        root: root.clone(),
+                        view_parent,
                         parameters: spawn_parameters,
                     }]
                 } else {
@@ -165,15 +169,18 @@ impl DesktopSystem {
                 .into();
 
                 changes += [
-                    DesktopChange::PresentInstance(InstancePresentation {
-                        launcher,
-                        initial_center_translation: originating_details
-                            .and_then(|od| od.initial_center_translation),
-                        instance,
-                        root,
-                        parameters,
-                        kind,
-                    }),
+                    DesktopChange::PresentInstance(
+                        InstancePresentation {
+                            launcher,
+                            initial_center_translation: originating_details
+                                .and_then(|od| od.initial_center_translation),
+                            instance,
+                            root,
+                            parameters,
+                            kind,
+                        }
+                        .into(),
+                    ),
                     DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
                         at_index: insertion_pos,
@@ -411,7 +418,7 @@ impl DesktopSystem {
         match change {
             DesktopChange::SpawnInstance {
                 instance,
-                root,
+                view_parent,
                 parameters,
             } => {
                 // Probably pull the name of the application into SpawnInstance?
@@ -425,7 +432,7 @@ impl DesktopSystem {
                     instance,
                     application,
                     CreationMode::New(parameters),
-                    root.view_parent(),
+                    view_parent,
                 )?;
             }
             DesktopChange::ShutdownInstance(instance) => {
@@ -436,7 +443,7 @@ impl DesktopSystem {
                 };
             }
             DesktopChange::PresentInstance(presentation) => {
-                self.present_instance(presentation)?;
+                self.present_instance(*presentation)?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
                 self.hide_instance(launcher, instance)?;
@@ -788,7 +795,7 @@ impl DesktopSystem {
         // no host — is placed in the desktop's own space.
         let location = match host.map(|parent| self.aggregates.project_matrix_location(parent)) {
             Some(location) => location,
-            None => self.desktop_presenter.location.clone(),
+            None => self.desktop_presenter.location.id(),
         };
         let presenter = ProjectPresenter::new(
             id,
@@ -876,10 +883,6 @@ impl DesktopSystem {
             InstanceChange::Configuration(request) => {
                 self.apply_configuration_request(instance, request)
             }
-            // This makes sure that all pending Scene Changes from the Instance have been collected
-            // before we drop the last ref the instance has to its parent location (which in turn
-            // may push other deletes to the Scene).
-            InstanceChange::End(_) => Ok(ChangeOutput::default()),
         }
     }
 

@@ -39,6 +39,7 @@ mod layout;
 mod navigation;
 mod selection;
 mod tools;
+mod transform_resolver;
 
 /// Tests run at the scale factor of a standard display.
 const TEST_SCALE_FACTOR: f64 = 1.0;
@@ -79,7 +80,7 @@ fn nested_siblings_with(applications: Vec<Application>) -> Result<NestedSiblings
     let (mut system, receiver) = system_with_applications(NESTED_SIBLINGS_CONFIG, applications);
     let mut instance_manager = instance_manager(&receiver);
     for command in projects::to_commands(&system.aggregates.configuration) {
-        let changes = system.plan(DesktopCommand::Configuration(command))?;
+        let changes = system.plan(command.into())?;
         system.transact(
             changes,
             &mut instance_manager,
@@ -218,7 +219,7 @@ fn fullscreen_system(config: &str) -> Result<(DesktopSystem, InstanceManager, La
     let (mut system, receiver) = system_from(config);
     let mut instance_manager = instance_manager(&receiver);
     for command in projects::to_commands(&system.aggregates.configuration) {
-        let changes = system.plan(DesktopCommand::Configuration(command))?;
+        let changes = system.plan(command.into())?;
         system.transact(
             changes,
             &mut instance_manager,
@@ -255,14 +256,17 @@ fn start_instance(
 ) -> Result<InstanceId> {
     let instance = uuid::Uuid::new_v4().into();
     let mut changes: Changes = [
-        DesktopChange::PresentInstance(InstancePresentation {
-            launcher,
-            initial_center_translation: None,
-            instance,
-            root: InstanceRoot::new(),
-            parameters: Default::default(),
-            kind: InstanceKind::Primary,
-        }),
+        DesktopChange::PresentInstance(
+            InstancePresentation {
+                launcher,
+                initial_center_translation: None,
+                instance,
+                root: InstanceRoot::new().0,
+                parameters: Default::default(),
+                kind: InstanceKind::Primary,
+            }
+            .into(),
+        ),
         DesktopChange::Topology(TopologyChange::Insert {
             what: instance.into(),
             at_index: index,

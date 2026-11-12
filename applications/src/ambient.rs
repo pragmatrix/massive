@@ -1,11 +1,10 @@
-//! Ambient access: scene submission, shaping, and animation resolve the task's installed contexts.
+//! Ambient access: shaping and animation resolve the task's installed contexts.
 //!
-//! Application code runs inside a task whose change queue, shaping context, and animation clock
-//! are installed, so none of them has to be named at the call site (ADR 0008). [`Submit`] submits
-//! scene content to the task's change queue, which is what makes it active; [`AmbientShape`]
-//! shapes text with the installed shaper; [`AmbientAnimation`] starts animations on the installed
-//! animation clock, and [`AmbientTimeScale`] constructs a [`TimeScale`] on that clock and reads
-//! its elapsed frame time.
+//! Application code runs inside a task whose shaping context and animation clock are installed, so
+//! neither has to be named at the call site (ADR 0008). [`AmbientShape`] shapes text with the
+//! installed shaper. [`AmbientAnimation`] starts animations on the installed animation clock, and
+//! [`AmbientTimeScale`] constructs a [`TimeScale`] on that clock and reads its elapsed frame time.
+//! Submitting scene content is `massive_scene::Submit`, which the prelude re-exports.
 //!
 //! The ambient traits mirror the explicit `*_with` methods for code that holds its own shaper or
 //! allocator (tests, benchmarks, code outside a task context). They live in this crate rather than
@@ -13,9 +12,6 @@
 //! them.
 
 use massive_animation::{Animated, Interpolatable, Interpolation, TimeScale};
-use massive_scene::{
-    Change, Handle, Location, Object, SceneChange, Transform, UnsubmittedLocation, Visual,
-};
 use massive_shapes::{GlyphRun, SizedTextShaper};
 use std::time::Duration;
 
@@ -31,60 +27,6 @@ impl AmbientShape for SizedTextShaper<'_> {
         let mut shaper = task_context::shaper();
         SizedTextShaper::shape_with(self, &mut shaper)
     }
-}
-
-/// Submit a scene value to the task's change queue, making it active.
-///
-/// Submitting publishes the create change into the task's change queue, and the returned handle
-/// keeps the object alive and carries later updates. Objects the renderer draws, like
-/// [`Visual`], become visible this way. The associated [`Submitted`](Submit::Submitted) type is
-/// the handle the caller receives: a location yields its transform and location handles,
-/// everything else its own handle.
-pub trait Submit: Sized {
-    type Submitted;
-
-    fn submit(self) -> Self::Submitted;
-}
-
-impl Submit for UnsubmittedLocation {
-    type Submitted = (Handle<Transform>, Handle<Location>);
-
-    /// A location is submitted together with its transform, in one batch.
-    fn submit(self) -> Self::Submitted {
-        task_context::with_changes(|collector| self.submit_to(collector))
-    }
-}
-
-impl Submit for Visual {
-    type Submitted = Handle<Self>;
-
-    fn submit(self) -> Self::Submitted {
-        submit_object(self)
-    }
-}
-
-impl Submit for Location {
-    type Submitted = Handle<Self>;
-
-    fn submit(self) -> Self::Submitted {
-        submit_object(self)
-    }
-}
-
-impl Submit for Transform {
-    type Submitted = Handle<Self>;
-
-    fn submit(self) -> Self::Submitted {
-        submit_object(self)
-    }
-}
-
-fn submit_object<T>(value: T) -> Handle<T>
-where
-    T: Object + 'static,
-    SceneChange: From<Change<T::Change>>,
-{
-    task_context::with_changes(|collector| massive_scene::submit(collector, value))
 }
 
 /// Advance animations on the current task's animation clock: the timestamp comes from the task's

@@ -13,6 +13,7 @@ use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
     Size as LayoutSize,
 };
+use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
@@ -21,8 +22,8 @@ use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, Commands, DesktopCommand, DesktopTarget, FocusIntent, KeyContext, KeyHandler,
-    KeyInput, KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut, TargetLayout,
-    measure_container, place_container_children,
+    KeyInput, KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut,
+    StartInstance, TargetLayout, measure_container, place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
 use crate::policy::colors;
@@ -72,7 +73,7 @@ impl LauncherPresenter {
     // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
     // introduce something new that exports more ergonomic UI components.
     pub fn new(
-        parent_location: Handle<Location>,
+        parent_location: Id<Location>,
         id: LaunchProfileId,
         name: String,
         mcp_activation: McpActivation,
@@ -82,14 +83,14 @@ impl LauncherPresenter {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), background_color);
 
-        let (our_transform, our_location) =
-            identity_location().relative_to(&parent_location).submit();
+        let (mut scene_transform, our_location) =
+            identity_location().relative_to(parent_location).submit();
 
         // Instances are parented to `our_location`, so the fade needs its own child location;
         // the renderer skips it at alpha 0, keeping it out of the depth buffer under instances.
-        let (_, fade_location) = identity_location().relative_to(&our_location).submit();
+        let (_, mut fade_location) = identity_location().relative_to(&our_location).submit();
 
-        let background = background_shape.at(&fade_location).submit();
+        let mut background = background_shape.at(&fade_location).submit();
 
         let name = name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that
@@ -108,11 +109,15 @@ impl LauncherPresenter {
             .with_decal_order(0)
             .submit();
 
-        let scene_transform = our_transform.clone();
         let movement = movement(
             LauncherMovement::new(background_color),
             move |movement, context| {
-                movement.apply_animations(context, &scene_transform, &background, &fade_location);
+                movement.apply_animations(
+                    context,
+                    &mut scene_transform,
+                    &mut background,
+                    &mut fade_location,
+                );
             },
         )
         .mount();
@@ -197,7 +202,7 @@ impl LauncherPresenter {
         };
 
         // Usability: Should pass this rectangle?
-        DesktopCommand::StartInstance {
+        StartInstance {
             launcher: self.id,
             instance: Uuid::new_v4().into(),
             root: None,
@@ -205,6 +210,7 @@ impl LauncherPresenter {
             kind,
             focus: FocusIntent::Follow,
         }
+        .into()
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
@@ -216,8 +222,8 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn location(&self) -> Handle<Location> {
-        self.location.clone()
+    pub fn location(&self) -> Id<Location> {
+        self.location.id()
     }
 
     /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
@@ -231,10 +237,8 @@ impl LauncherPresenter {
 
     /// Attaches the launcher's scene location to another parent location. This is used when the
     /// launcher's slot moves to the matrix of another project.
-    pub fn set_parent_location(&self, parent: &Handle<Location>) {
-        self.location.update_if_changed_with(|location| {
-            location.parent = parent.to_ref().into();
-        });
+    pub fn set_parent_location(&mut self, parent: Id<Location>) {
+        self.location.set_parent(parent);
     }
 
     /// Shows a changed MCP activation (ADR 0036).
@@ -417,13 +421,13 @@ impl LauncherMovement {
     fn apply_animations(
         &mut self,
         progress: AnimationProgress,
-        scene_transform_handle: &Handle<Transform>,
-        background: &Handle<Visual>,
-        fade_location: &Handle<Location>,
+        scene_transform_handle: &mut Handle<Transform>,
+        background: &mut Handle<Visual>,
+        fade_location: &mut Handle<Location>,
     ) {
         let alpha = *self.fader.proceed_with(progress);
         let background_color = *self.background_color.proceed_with(progress);
-        fade_location.update_if_changed_with(|location| location.alpha = alpha);
+        fade_location.set_alpha(alpha);
 
         let Some(layout) = self.layout.proceed_with(progress) else {
             return;
@@ -432,9 +436,7 @@ impl LauncherMovement {
 
         // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
         // is perhaps not reliable.
-        background.update_if_changed_with(|visual| {
-            visual.shapes = [background_shape(layout.rect(), background_color)].into()
-        });
+        background.set_shapes([background_shape(layout.rect(), background_color)].into());
     }
 }
 

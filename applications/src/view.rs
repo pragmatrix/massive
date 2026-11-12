@@ -4,7 +4,7 @@ use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, Rect, Size, SizePx};
-use massive_scene::Ref;
+use massive_scene::Id;
 use massive_scene::prelude::*;
 
 use crate::prelude::*;
@@ -29,7 +29,7 @@ impl Drop for View {
 }
 
 impl View {
-    pub(crate) fn new(parent: Ref<Location>, extents: BoxPx, role: ViewRole) -> Result<Self> {
+    pub(crate) fn new(parent: Id<Location>, extents: BoxPx, role: ViewRole) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
         let size: Size = SizePx::from(extents.size().cast()).into();
@@ -52,18 +52,14 @@ impl View {
         })
     }
 
-    /// The location's transform.
-    pub fn transform(&self) -> Ref<Transform> {
-        self.location().value().transform.clone()
-    }
-
-    /// A reference to the location that is used to position the view in the parent desktop space.
-    pub fn location(&self) -> Ref<Location> {
-        self.location.to_ref()
+    /// The id of the location that positions the view in the parent desktop space. The view keeps
+    /// the location alive.
+    pub fn location(&self) -> Id<Location> {
+        self.location.id()
     }
 
     /// Updates the view's local origin for a desktop-assigned extent.
-    pub fn set_extent(&self, size: SizePx) {
+    pub fn set_extent(&mut self, size: SizePx) {
         let size: Size = size.into();
         self.transform
             .update_if_changed(Transform::from(-size.center()));

@@ -1,44 +1,28 @@
-use std::any::TypeId;
-
 use derive_more::From;
 use massive_geometry::Transform;
 
-use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
+use crate::{Id, Location, Visual};
 
 /// One structural change to a scene object, retyped into the receiving queue's change kind.
+///
+/// Handles send these into their task's change queue. The lifetime stage turns them into
+/// [`RenderSceneChange`](crate::RenderSceneChange)s for the renderer (ADR 0040).
 #[derive(Debug, From)]
 pub enum SceneChange {
     Transform(Change<Transform>),
-    Location(Change<LocationRenderObj>),
-    Visual(Change<VisualRenderObj>),
+    Location(Change<Location>),
+    Visual(Change<Visual>),
 }
 
-impl SceneChange {
-    pub fn destructive_change(&self) -> Option<(TypeId, Id)> {
-        match self {
-            SceneChange::Transform(Change::Delete(id)) => Some((TypeId::of::<Transform>(), *id)),
-            SceneChange::Visual(Change::Delete(id)) => Some((TypeId::of::<Visual>(), *id)),
-            SceneChange::Location(Change::Delete(id)) => Some((TypeId::of::<Location>(), *id)),
-            // ... match exhaustive.
-            SceneChange::Transform(_) | SceneChange::Location(_) | SceneChange::Visual(_) => None,
-        }
-    }
-}
-
-/// A create, update, or delete of one object, keyed by its id.
+/// A create, update, or release of one object, keyed by its id.
+///
+/// A handle never sends a delete. Its drop releases the object, and the lifetime stage decides when
+/// the object ends (ADR 0040).
 #[derive(Debug)]
 pub enum Change<T> {
-    Create(Id, T),
-    Update(Id, T),
-    Delete(Id),
-}
-
-impl<T> Change<T> {
-    pub fn id(&self) -> Id {
-        match *self {
-            Change::Create(id, _) | Change::Update(id, _) | Change::Delete(id) => id,
-        }
-    }
+    Create(Id<T>, T),
+    Update(Id<T>, T),
+    Release(Id<T>),
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use std::iter;
 use massive_animation::{Animated, Movement};
 use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
@@ -35,12 +36,12 @@ pub struct TitleBarPresenter {
 }
 
 impl TitleBarPresenter {
-    pub fn new(style: TitleBarStyle, parent_location: Handle<Location>) -> Self {
-        let (scene_transform, location) =
-            identity_location().relative_to(&parent_location).submit();
+    pub fn new(style: TitleBarStyle, parent_location: Id<Location>) -> Self {
+        let (mut scene_transform, location) =
+            identity_location().relative_to(parent_location).submit();
         let (text_transform, text_location) = identity_location().relative_to(&location).submit();
 
-        let background = background_shape(Rect::default(), style.background_color)
+        let mut background = background_shape(Rect::default(), style.background_color)
             .at(&location)
             .submit();
         let text = Option::<Shape>::None
@@ -56,9 +57,7 @@ impl TitleBarPresenter {
             let layout = *movement.layout.proceed_with(progress);
             let background_color = *movement.background_color.proceed_with(progress);
             scene_transform.update_if_changed(layout.pivoted_at_origin());
-            background.update_if_changed_with(|visual| {
-                visual.shapes = [background_shape(layout.rect(), background_color)].into()
-            });
+            background.set_shapes([background_shape(layout.rect(), background_color)].into());
         })
         .mount();
 
@@ -140,9 +139,7 @@ impl TitleBarPresenter {
             Some((shape, height)) => (Some(shape), height),
             None => (None, 0.0),
         };
-        self.text.update_if_changed_with(|visual| {
-            visual.shapes = shape.into_iter().collect();
-        });
+        self.text.set_shapes(shape.into_iter().collect());
 
         // Centered on the shaped line height, not on glyph bounds, and snapped to whole pixels.
         let top = ((self.layout_height - text_height) * 0.5).round();

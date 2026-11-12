@@ -14,7 +14,7 @@ use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize,
 };
 use massive_renderer::RenderPacing;
-use massive_scene::Ref;
+use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 
@@ -22,8 +22,8 @@ use crate::desktop_system::McpActivation;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, DesktopCommand, FocusIntent, InstancePart, KeyContext, KeyHandler, KeyInput,
-    KeyOutcome, LayoutContext, Shortcut, TargetLayout, fullscreen_scale, place_container_children,
-    view_size,
+    KeyOutcome, LayoutContext, Shortcut, StartInstance, TargetLayout, fullscreen_scale,
+    place_container_children, view_size,
 };
 use crate::policy::colors;
 use crate::policy::constants::{instance_title_bar, structural_animation};
@@ -73,49 +73,64 @@ pub enum InstanceFullScreen {
     Assistant(FullScreenMode),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct InstanceRoot {
+    // The layout location positions the instance in its parent. The presenter writes both handles
+    // once at construction, then hands them to its movement, which stays their only writer
+    // (ADR 0040).
     layout_transform: Handle<Transform>,
     layout_location: Handle<Location>,
 
+    locations: InstanceLocations,
+}
+
+/// The content location, the view transform and the background location of an instance. The
+/// instance presenter keeps and updates them itself.
+#[derive(Debug)]
+struct InstanceLocations {
     // The content origin: The top-left corner of the instance's extent (ADR 0019). The title bar
     // and the view are placed relative to it, with the same coordinates the layout uses.
     content_transform: Handle<Transform>,
     content_location: Handle<Location>,
 
     // The view's own placement inside the content: centered, scaled smaller in full-screen mode.
+    // The view location itself belongs to the instance, which places its views relative to it.
     view_transform: Handle<Transform>,
-    view_location: Handle<Location>,
+
+    // Where the desktop draws behind the view. It shares the view transform with the view
+    // location, so it sits where the view sits, but it does not refer to the location the instance
+    // owns (ADR 0040).
+    background_location: Handle<Location>,
 }
 
 impl InstanceRoot {
-    pub fn new() -> Self {
+    /// A new root, and the view location to hand over to the instance with its spawn.
+    ///
+    /// The instance owns the view location from then on (ADR 0040). The root keeps the transform
+    /// that places it.
+    pub fn new() -> (Self, Handle<Location>) {
         let (layout_transform, layout_location) = identity_location().submit();
-        let (content_transform, content_location) = identity_location()
-            .relative_to(layout_location.to_ref())
+        let (content_transform, content_location) =
+            identity_location().relative_to(&layout_location).submit();
+
+        let (view_transform, view_location) =
+            identity_location().relative_to(&content_location).submit();
+        let background_location = view_transform
+            .to_location()
+            .relative_to(&content_location)
             .submit();
 
-        let (view_transform, view_location) = identity_location()
-            .relative_to(content_location.to_ref())
-            .submit();
-
-        Self {
+        let root = Self {
             layout_transform,
             layout_location,
-            content_transform,
-            content_location,
-            view_transform,
-            view_location,
-        }
-    }
-
-    /// The view's parent location.
-    pub fn view_parent(&self) -> Ref<Location> {
-        self.view_location.to_ref()
-    }
-
-    fn layout_transform(&self) -> Handle<Transform> {
-        self.layout_transform.clone()
+            locations: InstanceLocations {
+                content_transform,
+                content_location,
+                view_transform,
+                background_location,
+            },
+        };
+        (root, view_location)
     }
 }
 
@@ -131,9 +146,9 @@ pub struct InstancePresenter {
     /// The instance's Full Screen presentation (ADR 0014).
     full_screen: InstanceFullScreen,
     movement: Movement<InstanceMovement>,
-    /// Shared animated instance node for background and view.
-    /// This avoids per-child world updates that can drift during animation.
-    root: InstanceRoot,
+    /// These hang under the layout location that the movement animates. Background and view move
+    /// with that one location, so they cannot drift apart during an animation.
+    locations: InstanceLocations,
     /// Cached because hover placement needs the synchronous target while movement updates are queued.
     target_transform: Transform,
     has_applied_layout: bool,
@@ -186,41 +201,36 @@ impl InstancePresenter {
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
-        parent: Handle<Location>,
+        parent: Id<Location>,
         kind: InstanceKind,
         launcher_name: &str,
         mcp_activation: McpActivation,
         title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
-        root.layout_location.update_if_changed_with(|location| {
-            location.parent = parent.to_ref().into();
-        });
+        let InstanceRoot {
+            mut layout_transform,
+            mut layout_location,
+            locations,
+        } = root;
+
+        layout_location.set_parent(parent);
 
         let has_initial_center_translation = initial_center_translation.is_some();
         let initial_center_translation = initial_center_translation.unwrap_or_default();
-        root.layout_transform
-            .update_if_changed(Transform::from_translation(initial_center_translation));
-        root.layout_location.update_if_changed_with(|location| {
-            location.alpha = 0.0;
+        layout_transform.update_if_changed(Transform::from_translation(initial_center_translation));
+        layout_location.set_alpha(0.0);
+
+        let background = show_background.then(|| InstanceBackground {
+            visual: InstanceBackground::shapes(Rect::ZERO)
+                .at(&locations.background_location)
+                .submit(),
+            local_rect: Rect::ZERO,
         });
 
-        let background = show_background.then(|| {
-            let visual = InstanceBackground::shapes(Rect::ZERO)
-                .at(&root.view_location)
-                .submit();
-
-            InstanceBackground {
-                visual,
-                local_rect: Rect::ZERO,
-            }
-        });
-
-        let transform = root.layout_transform();
-        let location = root.layout_location.clone();
         let movement = movement(
             InstanceMovement::new(initial_center_translation),
             move |movement, context| {
-                movement.apply_animations(context, &transform, &location);
+                movement.apply_animations(context, &mut layout_transform, &mut layout_location);
             },
         )
         .mount();
@@ -236,7 +246,7 @@ impl InstancePresenter {
             mcp_activation,
             title_bar_metrics,
             &launcher_title,
-            root.content_location.clone(),
+            locations.content_location.id(),
         );
 
         Self {
@@ -244,7 +254,7 @@ impl InstancePresenter {
             state: InstancePresenterState::WaitingForPrimaryView,
             parameters,
             movement,
-            root,
+            locations,
             target_transform: Transform::from_translation(initial_center_translation),
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
@@ -292,8 +302,12 @@ impl InstancePresenter {
         self.full_screen = InstanceFullScreen::Assistant(mode.toggled());
     }
 
-    pub fn latest_transform(&self) -> Transform {
-        *self.root.layout_transform.value()
+    /// The layout transform the instance is moving to, or rests at.
+    ///
+    /// The movement owns the transform it draws, so the presenter answers with its target. Both
+    /// differ only while a layout animation runs (ADR 0040).
+    pub fn target_transform(&self) -> Transform {
+        self.target_transform
     }
 
     pub fn present_view(&mut self, view_creation_info: &ViewCreationInfo) -> Result<()> {
@@ -309,14 +323,9 @@ impl InstancePresenter {
         }
 
         // Blend in.
-
-        // Architecture: I don't think we should modify alpha here, may be nest another location
-        // below it?
-        self.root.layout_location.update_with(|location| {
-            location.alpha = 0.0;
-        });
         self.movement.modify(move |movement, context| {
-            // Same here, this looks weird.
+            // Architecture: Snapping and animating the layout location's alpha here looks weird, may
+            // be nest another location below it?
             movement.view_alpha.snap(0.0);
             movement.view_alpha.animate_with(
                 context,
@@ -412,7 +421,9 @@ impl InstancePresenter {
         let resize = (view.view_size != new_size).then_some(new_size);
         view.view_size = new_size;
 
-        self.root.view_transform.update_if_changed(layout.transform);
+        self.locations
+            .view_transform
+            .update_if_changed(layout.transform);
 
         if let Some(background) = &mut self.background {
             background.update_rect(layout.rect());
@@ -438,7 +449,7 @@ impl InstancePresenter {
     fn retarget_layout(&mut self, layout: SizedTransform, visible: bool) {
         // The content origin is the top-left corner of the extent, while the layout transform is
         // centered on it.
-        self.root
+        self.locations
             .content_transform
             .update_if_changed(Transform::from_translation(Vector3::new(
                 -layout.size.width * 0.5,
@@ -631,7 +642,7 @@ impl InstancePresenter {
             InstanceKind::Assistant => InstanceParameters::default(),
         };
 
-        DesktopCommand::StartInstance {
+        StartInstance {
             launcher: context.hierarchy.launcher_of_instance(self.id),
             instance: Uuid::new_v4().into(),
             root: None,
@@ -639,6 +650,7 @@ impl InstancePresenter {
             kind,
             focus: FocusIntent::Follow,
         }
+        .into()
     }
 
     fn stop_instance(&self) -> DesktopCommand {
@@ -680,24 +692,21 @@ impl InstanceMovement {
     fn apply_animations(
         &mut self,
         progress: AnimationProgress,
-        transform: &Handle<Transform>,
-        location: &Handle<Location>,
+        transform: &mut Handle<Transform>,
+        location: &mut Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
         transform.update_if_changed(*self.layout_transform.proceed_with(progress));
-        location.update_if_changed_with(|location| {
-            location.alpha = *self.view_alpha.proceed_with(progress)
-                * *self.visibility_alpha.proceed_with(progress);
-        });
+        location.set_alpha(
+            *self.view_alpha.proceed_with(progress) * *self.visibility_alpha.proceed_with(progress),
+        );
     }
 }
 
 impl InstanceBackground {
     fn update_rect(&mut self, rect: Rect) {
         self.local_rect = rect;
-        self.visual.update_if_changed_with(|visual| {
-            visual.shapes = Self::shapes(self.centered_rect());
-        });
+        self.visual.set_shapes(Self::shapes(self.centered_rect()));
     }
 
     fn centered_rect(&self) -> Rect {
@@ -741,7 +750,7 @@ fn new_title_bar(
     mcp_activation: McpActivation,
     metrics: InstanceTitleBarMetrics,
     launcher_title: &str,
-    parent_location: Handle<Location>,
+    parent_location: Id<Location>,
 ) -> TitleBarPresenter {
     let style = TitleBarStyle {
         background_color: mcp_activation.instance_title_bar_background(kind),

@@ -22,14 +22,15 @@ pub fn configure_mcp(
         .configuration
         .resolve_project_path(ProjectId::ROOT, path)
         .expect("the project resolves");
-    let changes = system.plan(DesktopCommand::Configuration(
+    let changes = system.plan(
         ConfigurationCommand::ConfigureMcp {
             project,
             mcp: Some(McpConfiguration {
                 access_scopes: access_scopes.iter().copied().collect(),
             }),
-        },
-    ))?;
+        }
+        .into(),
+    )?;
     Ok(system
         .transact(changes, instance_manager, TransactionEffectsMode::Setup)?
         .effects)
@@ -233,14 +234,15 @@ async fn clearing_a_slot_that_holds_an_mcp_root_reports_the_root_as_changed() ->
             .slot_of_content(labs_a)
             .expect("labs-a sits in a slot");
 
-        let changes = system.plan(DesktopCommand::Configuration(
+        let changes = system.plan(
             ConfigurationCommand::ClearSlot {
                 parent,
                 slot,
                 shift: SlotShift::Keep,
                 instances: RunningInstances::Refuse,
-            },
-        ))?;
+            }
+            .into(),
+        )?;
         let effects = system
             .transact(
                 changes,
@@ -814,15 +816,7 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
 
         let start = serde_json::json!({ "launcher_id": uuid::Uuid::from(shell_a).to_string() });
         let ToolCallPlan::Issue {
-            command:
-                DesktopCommand::StartInstance {
-                    launcher,
-                    instance,
-                    parameters,
-                    kind,
-                    focus,
-                    ..
-                },
+            command: DesktopCommand::StartInstance(start_instance),
             result,
         } = DesktopTools::new(&system).call(
             labs_a,
@@ -832,16 +826,25 @@ async fn group_and_start_instance_keep_the_users_focus() -> Result<()> {
         else {
             panic!("starting an instance issues StartInstance");
         };
-        assert_eq!(created_instance(&result), instance);
-        // The tests register no application to spawn, so the instance counts as spawned already.
-        let spawned = DesktopCommand::StartInstance {
+        let StartInstance {
             launcher,
             instance,
-            root: Some(InstanceRoot::new()),
             parameters,
             kind,
             focus,
-        };
+            ..
+        } = *start_instance;
+        assert_eq!(created_instance(&result), instance);
+        // The tests register no application to spawn, so the instance counts as spawned already.
+        let spawned = StartInstance {
+            launcher,
+            instance,
+            root: Some(InstanceRoot::new().0),
+            parameters,
+            kind,
+            focus,
+        }
+        .into();
         let Planned::Changes(changes) = system.plan_or_refuse(spawned)? else {
             panic!("starting an instance is planned");
         };

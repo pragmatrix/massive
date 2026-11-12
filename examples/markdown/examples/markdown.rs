@@ -82,8 +82,8 @@ async fn markdown(mut ctx: InstanceContext) -> Result<()> {
     let scale_factor = ctx.primary_monitor_scale_factor();
     let physical_size = LogicalSize::new(960, 800).to_physical(scale_factor);
     let view_size = SizePx::new(physical_size.width, physical_size.height);
-    let view = ctx.view(view_size).build()?;
-    let center = ViewCenter::new(&view, view_size);
+    let mut view = ctx.view(view_size).build()?;
+    let mut center = ViewCenter::new(&view, view_size);
 
     let font_system = Arc::new(Mutex::new(font_system));
 
@@ -100,7 +100,7 @@ async fn markdown(mut ctx: InstanceContext) -> Result<()> {
     let mut gestures = GestureTransform::default();
     let page_transform = gestures.get_transform(content_size);
 
-    let transform = page_transform.submit();
+    let mut transform = page_transform.submit();
     let location = transform
         .to_location()
         .relative_to(center.location())
@@ -126,7 +126,7 @@ async fn markdown(mut ctx: InstanceContext) -> Result<()> {
                     info!("View Event: {view_event:?}");
 
                     if let ViewEvent::Resized(size) = view_event {
-                        center.resize(&view, size);
+                        center.resize(&mut view, size);
                     }
                     match gestures.update(&view_event) {
                         UpdateResponse::Exit => {

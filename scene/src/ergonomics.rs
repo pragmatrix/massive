@@ -8,8 +8,7 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
-use crate::scene::submit_pair;
-use crate::{AnyCollector, Handle, Location, LocationParent, LocationSpace, Ref, Visual};
+use crate::{Handle, Id, Location, LocationParent, LocationSpace, Object, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -50,14 +49,14 @@ pub trait ToLocation {
 
 impl ToLocation for Handle<Transform> {
     fn to_location(&self) -> Location {
-        Location::new(LocationSpace::World, self.clone())
+        Location::new(LocationSpace::World, self)
     }
 }
 
 /// A location that has not been submitted yet. Submit it to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not active in the queue until `.submit_to(collector)` is called"]
+#[must_use = "the location is not active in the queue until `.submit()` is called"]
 pub struct UnsubmittedLocation {
     parent: LocationParent,
 }
@@ -70,19 +69,40 @@ impl UnsubmittedLocation {
     }
 
     /// Make the location a child of the given parent location.
-    pub fn relative_to(mut self, parent: impl Into<Ref<Location>>) -> Self {
-        self.parent = parent.into().into();
+    pub fn relative_to(mut self, parent: impl Into<LocationParent>) -> Self {
+        self.parent = parent.into();
         self
     }
+}
 
-    /// Submit a location with an initially-identity transform to `collector`, returning both
-    /// handles.
-    ///
-    /// The transform and the location are submitted together, in one batch.
-    pub fn submit_to(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
-        submit_pair(collector, Transform::IDENTITY, |transform| {
-            Location::new(self.parent, transform.clone())
-        })
+/// Submit a scene value to the current task's change queue, making it active (ADR 0040).
+///
+/// The returned handle keeps the object alive and carries later updates. Objects the renderer
+/// draws, like [`Visual`], become visible this way. A location built by [`identity_location`]
+/// yields its transform and location handles, everything else its own handle.
+pub trait Submit {
+    type Submitted;
+
+    fn submit(self) -> Self::Submitted;
+}
+
+impl<T: Object> Submit for T {
+    type Submitted = Handle<T>;
+
+    fn submit(self) -> Self::Submitted {
+        Handle::new(self)
+    }
+}
+
+impl Submit for UnsubmittedLocation {
+    type Submitted = (Handle<Transform>, Handle<Location>);
+
+    /// The transform is created first, because the location's create counts a reference to it
+    /// (test `a_submitted_location_creates_its_transform_before_referencing_it`).
+    fn submit(self) -> Self::Submitted {
+        let transform = Handle::new(Transform::IDENTITY);
+        let location = Handle::new(Location::new(self.parent, &transform));
+        (transform, location)
     }
 }
 
@@ -145,22 +165,22 @@ impl VisualWithoutLocation {
     }
 
     #[must_use = "the visual is not placed until it is `.submit()`ted"]
-    pub fn at(self, location: impl Into<Ref<Location>>) -> Visual {
-        Visual::new(location.into(), self.shapes)
+    pub fn at(self, location: impl Into<Id<Location>>) -> Visual {
+        Visual::new(location, self.shapes)
     }
 }
 
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
     #[must_use = "the visual is not visible until `.submit()` is called"]
-    fn at(self, location: impl Into<Ref<Location>>) -> Visual;
+    fn at(self, location: impl Into<Id<Location>>) -> Visual;
 }
 
 impl<T> At for T
 where
     T: IntoVisual,
 {
-    fn at(self, location: impl Into<Ref<Location>>) -> Visual {
+    fn at(self, location: impl Into<Id<Location>>) -> Visual {
         self.into_visual().at(location)
     }
 }

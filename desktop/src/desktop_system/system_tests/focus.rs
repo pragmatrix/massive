@@ -9,7 +9,7 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
         let (mut system, receiver) = system_from(CONFIG);
         let mut instance_manager = instance_manager(&receiver);
         for command in projects::to_commands(&system.aggregates.configuration) {
-            let changes = system.plan(DesktopCommand::Configuration(command))?;
+            let changes = system.plan(command.into())?;
             system.transact(
                 changes,
                 &mut instance_manager,
@@ -58,7 +58,7 @@ async fn cmd_enter_on_a_launcher_zooms_first_and_starts_once_fully_in() -> Resul
         ));
         assert!(matches!(
             first_command(true),
-            Some(DesktopCommand::StartInstance { .. })
+            Some(DesktopCommand::StartInstance(_))
         ));
 
         drop(frame);
@@ -216,14 +216,15 @@ async fn adding_content_with_a_kept_focus_leaves_the_focus_alone() -> Result<()>
         run(
             &mut system,
             &mut instance_manager,
-            DesktopCommand::Configuration(ConfigurationCommand::AddNextTo {
+            ConfigurationCommand::AddNextTo {
                 anchor: SlotContent::Project(labs_b),
                 content: SlotAssignment::Project {
                     id: ProjectId::new(),
                     name: "added".into(),
                 },
                 focus: FocusIntent::Keep,
-            }),
+            }
+            .into(),
         )?;
 
         assert_eq!(
@@ -250,10 +251,11 @@ async fn ungrouping_with_a_kept_focus_moves_it_only_off_the_removed_project() ->
         let labs_a = root_project_at(&system, 0);
         let labs_b = root_project_at(&system, 1);
         let ungroup = |project| {
-            DesktopCommand::Configuration(ConfigurationCommand::Ungroup {
+            ConfigurationCommand::Ungroup {
                 project,
                 focus: FocusIntent::Keep,
-            })
+            }
+            .into()
         };
 
         run(&mut system, &mut instance_manager, ungroup(labs_b))?;
