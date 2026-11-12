@@ -29,5 +29,6 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 [[bench]]
 name = "push_cost"
 harness = false
+
 [lints]
 workspace = true

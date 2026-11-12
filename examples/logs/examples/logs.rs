@@ -29,7 +29,7 @@ use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};
 use massive_shell::shell;
 
 use shared::attributed_text;
-use shared::fonts;
+use shared::fonts::JETBRAINS_MONO;
 use shared::gesture_transform::{GestureTransform, UpdateResponse};
 use shared::view_center::ViewCenter;
 
@@ -85,7 +85,7 @@ impl io::Write for Sender {
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: InstanceContext) -> Result<()> {
     // The shell built the task's manager from the font policy this application names, so shaping
     // and rendering share one identity world (ADR 0005).
-    fonts().load_font(fonts::JETBRAINS_MONO)?;
+    fonts().load_font(JETBRAINS_MONO)?;
 
     // View
 

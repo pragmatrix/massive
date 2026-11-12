@@ -54,7 +54,7 @@ impl EngineScratch for CosmicScratch {
 impl CosmicScratch {
     /// `candidate_pool` comes from the canonical engine's scan; a bare engine hands an
     /// empty one. Seed from the current registry so this scratch can shape immediately.
-    pub(crate) fn new(candidate_pool: Arc<fontdb::Database>, published: &FontRegistry) -> Self {
+    pub fn new(candidate_pool: Arc<fontdb::Database>, published: &FontRegistry) -> Self {
         Self {
             engine: CosmicTextEngine::seed_from_registry(published, &candidate_pool),
             synced_faces: published.face_count(),

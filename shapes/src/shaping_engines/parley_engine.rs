@@ -378,8 +378,8 @@ impl ShapingEngine for ParleyEngine {
 /// A clone of the canonical engine's font collection plus a fresh `LayoutContext`; the
 /// collection is in fontique shared mode, so registrations after the clone stay visible.
 pub struct ParleySessionContexts {
-    pub(crate) font_context: FontContext,
-    pub(crate) layout_context: LayoutContext<GlyphBrush>,
+    pub font_context: FontContext,
+    pub layout_context: LayoutContext<GlyphBrush>,
 }
 
 /// Shape one attributed line through the given session contexts.
