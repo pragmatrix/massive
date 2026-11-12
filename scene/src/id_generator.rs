@@ -19,11 +19,8 @@ pub fn acquire<T: Object>() -> Id<T> {
     Id::from_index(GENERATORS.lock()[T::INDEX].acquire())
 }
 
-/// Return the ids of ended objects, so later objects can reuse them.
-///
-/// The lifetime stage calls this once per scene change batch, after it has resolved the batch. A
-/// scene change batch is the set of scene changes a window renderer takes at once, which may hold
-/// several submissions of the task it renders (ADR 0040).
+/// Return the ids of ended objects, so later objects can reuse them. The lifetime stage calls this
+/// once per scene change batch, after resolving it (ADR 0040).
 pub(crate) fn release_all(ended: &[TaggedId]) {
     if ended.is_empty() {
         return;

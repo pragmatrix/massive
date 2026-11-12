@@ -2,7 +2,7 @@
 //! every kind together needs.
 //!
 //! The indices and the number of kinds are defined together here, so arrays with one entry per kind
-//! stay consistent with them. Nothing here is part of the crate's API (ADR 0040).
+//! stay consistent with them. Nothing here can be named outside the crate (ADR 0040).
 
 use massive_geometry::Transform;
 

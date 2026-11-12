@@ -1,5 +1,5 @@
-//! This is the public client-side representation of scene content: a graph of objects that are
-//! accessed through handles and references.
+//! This is the public client-side representation of scene content: a graph of objects, each owned
+//! by its handle and referred to by id.
 //!
 //! An object is a value that has an id assigned to it and is referable by any other objects. Its
 //! [`Handle`] is its single owner and writer.
@@ -13,9 +13,9 @@
 //! materializes, not a client-side collector.
 //!
 //! What's unique about this design is:
-//! - The objects' lifetime is decided before the renderer, by the [`LifetimeStage`]. It counts the
-//!   handle and the references of each object, which guarantees referential integrity, so the
-//!   renderer does not need to care about it (ADR 0040).
+//! - The objects' lifetime is decided before the renderer, by the [`LifetimeStage`]. It counts each
+//!   object's handle and the live objects that refer to it, which guarantees referential integrity,
+//!   so the renderer does not need to care about it (ADR 0040).
 //! - A handle keeps its object's value, and the renderer receives a snapshot of it with each change.
 //!   Shapes are shared through an `Arc`, so a snapshot does not copy them.
 //! - All changes are pooled and transferred manually at once, so that intermediate states are not

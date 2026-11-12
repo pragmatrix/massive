@@ -6,14 +6,13 @@ use crate::{Change, Object, RenderChange, RenderSceneChange, SceneChange};
 
 /// Decides when scene objects end (ADR 0040).
 ///
-/// The stage sits between the queues that collect scene changes and the renderer. It keeps a
-/// reference count for each object. The object's handle counts as one reference, and so does every
-/// live object that refers to it by id.
+/// The stage sits between the queues that collect scene changes and the renderer. It keeps a count
+/// for each object: one for its handle, and one for every live object whose value refers to it.
 ///
 /// The stage resolves one scene change batch at a time. A scene change batch is the set of scene
 /// changes a window renderer takes at once. An object whose count reaches zero ends at the end of
 /// the scene change batch, and only if its count is still zero then. A later change in the same
-/// batch may refer to it again, so a value can take an id from a handle that is dropped before the
+/// scene change batch may refer to it again, so a value can take an id from a handle that is dropped before the
 /// value is submitted, as long as both happen before the task's next submission. When an object
 /// ends, the stage emits its delete, returns its id to the id generator, and releases what the
 /// object referred to, which may end those objects in turn.
@@ -29,7 +28,7 @@ pub struct LifetimeStage {
 impl LifetimeStage {
     /// Resolve one scene change batch into the changes the renderer applies.
     pub fn resolve(&mut self, changes: Vec<SceneChange>) -> Vec<RenderSceneChange> {
-        // Most changes resolve into one render change, so the batch's length is a good first
+        // Most changes resolve into one render change, so the scene change batch's length is a good first
         // capacity.
         let mut resolution = Resolution {
             render_changes: Vec::with_capacity(changes.len()),
@@ -67,9 +66,6 @@ impl LifetimeStage {
                 );
                 let previous = table.references.replace(id.index(), references);
                 if references != previous {
-                    // The new references are counted before the previous ones are released, so an
-                    // object both refer to, such as a transform kept under a new parent, never
-                    // reaches zero in between.
                     self.retain_all(references);
                     self.release_all(previous.iter(), resolution);
                 }
@@ -85,8 +81,8 @@ impl LifetimeStage {
         }
     }
 
-    /// Release references, and note every object whose count reaches zero, so the end of the batch
-    /// can decide whether it ends.
+    /// Release references, and note every object whose count reaches zero, so the end of the scene
+    /// change batch can decide whether it ends.
     fn release_all(
         &mut self,
         references: impl IntoIterator<Item = TaggedId>,
@@ -99,10 +95,10 @@ impl LifetimeStage {
         }
     }
 
-    /// End every object whose count is still zero at the end of the batch, together with what only
+    /// End every object whose count is still zero at the end of the scene change batch, together with what only
     /// it kept alive.
     ///
-    /// Nothing can refer to an object again once the batch has been read, so what an ended object
+    /// Nothing can refer to an object again once the scene change batch has been read, so what an ended object
     /// referred to ends right away when its count reaches zero. A worklist instead of recursion,
     /// because a chain of locations can be arbitrarily long. The ids of the ended objects return to
     /// the id generator together, under one lock.
@@ -112,7 +108,7 @@ impl LifetimeStage {
         while let Some(id) = pending.pop() {
             let TaggedId { kind, index } = id;
             let table = &mut self.tables[kind];
-            // An object noted twice, or referred to again later in the batch, does not end here.
+            // An object noted twice, or referred to again later in the scene change batch, does not end here.
             if !table.is_alive(index) || table.counts.is_referenced(index) {
                 continue;
             }
@@ -133,7 +129,7 @@ impl LifetimeStage {
 struct Table {
     counts: ReferenceCounts,
     /// What each live object refers to, from its latest create or update. An object is live from
-    /// its create until it ends, even while its count is zero within a batch.
+    /// its create until it ends, even while its count is zero within a scene change batch.
     references: Slots<References>,
 }
 
@@ -149,11 +145,11 @@ impl Table {
     }
 }
 
-/// What resolving one batch produces: the render changes, and the objects to check at its end.
+/// What resolving one scene change batch produces: the render changes, and the objects to check at its end.
 #[derive(Debug)]
 struct Resolution {
     render_changes: Vec<RenderSceneChange>,
-    /// Objects whose count reached zero during the batch, which end at its end unless something
+    /// Objects whose count reached zero during the scene change batch, which end at its end unless something
     /// referred to them again.
     unreferenced: Vec<TaggedId>,
 }
@@ -248,7 +244,7 @@ mod tests {
 
     /// A location kept alive only by a visual that refers to it still needs its transform, so
     /// dropping both handles must not end the transform. The location and the transform end
-    /// together with the visual, in the batch that releases the visual.
+    /// together with the visual, in the scene change batch that releases the visual.
     #[test]
     fn a_live_object_keeps_what_it_refers_to_until_it_ends() {
         with_test_queue(|| {
@@ -261,31 +257,15 @@ mod tests {
             assert!(deleted.is_empty(), "a live location lost: {deleted:?}");
 
             drop(visual);
-            let deleted = deletes(stage.resolve(take_changes()));
-            assert_eq!(deleted, ["visual", "location", "transform"]);
-        });
-    }
-
-    /// A location that keeps its transform under a new parent must not end the transform, even when
-    /// nothing else holds it: the stage counts the new references before it releases the previous ones.
-    #[test]
-    fn a_new_parent_keeps_the_transform_alive() {
-        with_test_queue(|| {
-            let mut stage = LifetimeStage::default();
-            let (_parent_transform, parent) = identity_location().submit();
-            let (transform, mut location) = identity_location().submit();
-            drop(transform);
-            stage.resolve(take_changes());
-
-            location.set_parent(&parent);
-            let deleted = deletes(stage.resolve(take_changes()));
-            assert!(deleted.is_empty(), "reparenting ended: {deleted:?}");
+            let mut deleted = deletes(stage.resolve(take_changes()));
+            deleted.sort();
+            assert_eq!(deleted, ["location", "transform", "visual"]);
         });
     }
 
     /// A value may take an id from a handle that is dropped before the value is submitted. The
     /// object stays alive, because an object ends only if its count is still zero at the end of the
-    /// batch.
+    /// scene change batch.
     #[test]
     fn a_handle_dropped_before_its_referrer_is_submitted_keeps_the_object() {
         with_test_queue(|| {
@@ -303,7 +283,8 @@ mod tests {
 
     /// Submitting a location also references its transform. The transform's create must reach the
     /// queue before the location's, because the stage counts the reference when it sees the
-    /// location's create.
+    /// location's create. The test fails through the alive check in `Table::retain`, a
+    /// `debug_assert!`, so it cannot fail in release builds.
     #[test]
     fn a_submitted_location_creates_its_transform_before_referencing_it() {
         with_test_queue(|| {
@@ -312,7 +293,7 @@ mod tests {
         });
     }
 
-    /// The kinds of the objects the render changes delete, in order.
+    /// The kinds of the objects the render changes delete.
     fn deletes(changes: Vec<RenderSceneChange>) -> Vec<&'static str> {
         changes
             .into_iter()

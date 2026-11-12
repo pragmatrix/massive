@@ -52,7 +52,8 @@ impl View {
         })
     }
 
-    /// A reference to the location that is used to position the view in the parent desktop space.
+    /// The id of the location that positions the view in the parent desktop space. The view keeps
+    /// the location alive.
     pub fn location(&self) -> Id<Location> {
         self.location.id()
     }

@@ -84,8 +84,8 @@ pub struct InstanceRoot {
     locations: InstanceLocations,
 }
 
-/// The content and view locations of an instance, with their transforms. The instance presenter
-/// keeps and updates them itself.
+/// The content location, the view transform and the background location of an instance. The
+/// instance presenter keeps and updates them itself.
 #[derive(Debug)]
 struct InstanceLocations {
     // The content origin: The top-left corner of the instance's extent (ADR 0019). The title bar
