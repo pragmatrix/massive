@@ -20,6 +20,11 @@ The MCP bridge is no security boundary. Any same-user process can open the deskt
 socket and speak the tool protocol without it. The boundary is the desktop's tool host, which
 decodes and checks everything that arrives on a tool connection.
 
+Applications run inside the desktop's process and are trusted. Each instance owns the location its
+views hang under (ADR 0040). Once applications run in their own processes, the scene protocol has
+to check every parent id an instance sends, so an instance cannot hang its content under a location
+it does not own.
+
 ## Surfaces
 
 | Surface | Who uses it | Decided in |

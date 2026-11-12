@@ -374,8 +374,8 @@ _Avoid_: connect, enter
 
 **Lifetime stage**:
 The step between the shell's hosted instance and its renderer that decides when scene objects end.
-It counts the handle, the references, and the live objects that refer to each object. It deletes
-an object at the end of a batch once the last of them is gone (ADR 0040).
+It counts the handle and the live objects that refer to each object. It deletes an object at the
+end of a batch once the last of them is gone (ADR 0040).
 _Avoid_: garbage collector, gc, reference counter
 
 **Render change**:

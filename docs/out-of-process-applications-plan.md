@@ -43,8 +43,8 @@ output burst (e.g. `cat` of a large file) at display refresh rate:
   fullscreen, and shutdown (`applications/src/instance_event.rs`).
 - Applications are registered in-process as closures:
   `Application { name, runtime_kind, draw_target, tools, run: Fn(InstanceContext) -> Future }`
-  (`applications/src/application.rs`). Each instance gets a host-owned
-  `view_parent: Ref<Location>` that its views hang under.
+  (`applications/src/application.rs`). Each instance receives the handle of the location its
+  views hang under. The host submitted it with its parent already set (ADR 0040).
 - The payloads are not wire-ready:
   - `Visual` shares shapes and glyph runs through `Arc`.
   - `Shape::Custom` is a type-erased `SmallBox<dyn CustomShape>`. No application
@@ -361,9 +361,9 @@ systems are described from their public documentation.
 
 These points bear on this plan.
 
-- ADR 0040 makes reference counts data, so an instance's `view_parent` can cross the process
-  boundary as an ordinary counted reference. A link token in the style of Flatland is the
-  alternative, and it would spare the client from telling lent objects apart.
+- ADR 0040 makes ownership data, so an instance's view parent can cross the process boundary as an
+  ordinary handle that the instance owns. A link token in the style of Flatland is the alternative,
+  and it would keep the host's location out of the client's id space.
 - Remapping ids per connection needs a rule for reusing remapped ids. Wayland's confirmed deletion is
   the proven model for it.
 - Keeping a crashed instance's last scene frozen differs from the prior art, which releases a

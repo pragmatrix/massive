@@ -30,32 +30,32 @@ the instance root had two writers. The instance presenter and its movement closu
 
 ## Decision
 
-### Handles and references
+### Handles and ids
 
 - `Handle<T>` is the single owner and the only writer of its object. It holds the id and the value
   inline, without a `Mutex`. Updates take `&mut self`. `value()` returns `&T`.
 - `Handle<T>` is not `Clone`. In this design a clone would copy the value, so two clones would send
-  competing snapshots of the whole object, and neither would see the other's writes. Code that needs
-  to keep an object alive uses `Handle::to_ref`. Shared writing, if it is ever needed again, is
-  spelled out as `Arc<Mutex<Handle<T>>>` at the site that needs it.
-- `Ref<T>` is a counted reference that keeps its object alive. It carries only the id, so it cannot
-  read the value. Client code holds a `Ref` where it keeps an object alive without writing it, such
-  as a presenter's parent location, an instance's `view_parent`, or mt's scroll bucket locations.
-  Application code reads values only through its own handles. The one reader through `Ref`s was
-  `TransformResolver`, which a desktop test uses to resolve a launcher's transform. It now resolves
+  competing snapshots of the whole object, and neither would see the other's writes.
+- There is no counted reference. An object lives as long as its handle, and after that as long as
+  live objects refer to it. Code that only places something relative to an object passes the
+  object's `Id`. Code that has to keep an object alive owns its handle. An instance's view parent
+  shows how this works across tasks: the desktop submits the location with its parent already set
+  and moves the handle into the instance, which owns it from then on.
+- Application code reads values only through its own handles. The one reader through shared
+  handles was `TransformResolver`, which a desktop test uses to resolve a launcher's transform. It now resolves
   from a batch of submitted scene changes instead, by walking their parent ids, which is also what
   the renderer receives. Because only that test needs it, it moves from `massive-scene` into the
   desktop's system tests.
 - Ids are typed. `Id<T>` names an object of type `T`, because every object type has its own id
-  space. Handles, references, changes, values and the renderer's tables all use it, so the
+  space. Handles, changes, values and the renderer's tables all use it, so the
   compiler keeps one type's ids out of another type's table. Only the lifetime stage, whose
   worklist mixes kinds, and the id generator keep a raw index, privately.
 - A value refers to other objects by `Id<T>`, which does not count. A visual names its location,
   and a location its transform and its parent, this way. The lifetime stage counts
-  these references itself, for as long as the referring object lives. A counted `Ref` inside a
+  these references itself, for as long as the referring object lives. A counted reference inside a
   value would not do. The value lives in the handle, so dropping the handle would release the
-  value's references while a `Ref` still kept the object alive. The object would then outlive its
-  own transform or parent, which mt showed as content without its padding transform.
+  value's references while other referrers still kept the object alive. The object would then
+  outlive its own transform or parent, which mt showed as content without its padding transform.
 - The values are the render objects. `Visual`, `Location` and `Transform` travel to the renderer as
   they are, and `VisualRenderObj`, `LocationRenderObj` and `LocationParentId` go away. The `Object`
   trait loses its associated change type. It is sealed, and it names the object's kind, the
@@ -65,26 +65,23 @@ the instance root had two writers. The instance presenter and its movement closu
 - The id generator keeps one generator per kind in a fixed array, indexed by the kind, instead of a
   map keyed by `TypeId`.
 - `Handle` keeps only `Debug`. It is not `PartialEq` or `Hash`, because a unique handle only equals
-  itself. `Ref` keeps only `Debug` and its counted `Clone`, because nothing compares or hashes
-  references.
+  itself.
 - `Handle::update_if_changed_with` gives way to typed setters: `set_parent` and `set_alpha` on a
   location's handle, `set_shapes` and `set_clip_bounds` on a visual's handle. Every caller set
   exactly one field. Each setter compares that field with the new value and sends the update only
   when they differ, which needs no snapshot of the old value.
-- `InnerHandle`, `HandleValue`, `Ref::value` and the conversion `From<&Handle<T>> for Handle<T>` go
-  away.
+- `InnerHandle`, `HandleValue`, `Ref` and the conversion `From<&Handle<T>> for Handle<T>` go away.
 
 ### Changes
 
-Handles send `Change<T>`, which has four variants.
+Handles send `Change<T>`, which has three variants.
 
 - `Create(id, value)` starts the object's count at one, for its `Handle`.
 - `Update(id, value)` replaces the value.
-- `Retain(id)` is sent when a `Ref` is created or cloned.
-- `Release(id)` is sent when a `Handle` or a `Ref` is dropped.
+- `Release(id)` is sent when the `Handle` is dropped.
 
 Handles never send `Delete`. The renderer receives a separate type with the three variants
-`Create`, `Update` and `Delete`, and never sees `Retain` or `Release`. `SceneChange` exists once for
+`Create`, `Update` and `Delete`, and never sees `Release`. `SceneChange` exists once for
 each side, so the compiler enforces both rules. Both kinds of change travel in the same queue.
 `SceneChange::destructive_change` goes away together with `gc`.
 
@@ -95,7 +92,7 @@ the hosted instance's submission and the renderer, in place of `id_generator::gc
 the shell only transports `Change<T>`. The stage takes each drained batch and does the following.
 
 - It passes `Create` and `Update` on.
-- It counts `Retain` and `Release` per object.
+- It counts each object's `Release`.
 - It counts one reference for every object that a created location or visual refers to, and
   records those targets. An update that changes the targets counts the new ones before it releases
   the previous ones, so a target both refer to never reaches zero in between. An update that keeps
@@ -104,7 +101,7 @@ the shell only transports `Change<T>`. The stage takes each drained batch and do
   object whose count is still zero. It emits the object's `Delete`, returns its id to the id
   generator, and releases what the object referred to, which may end those objects, too. An object
   that a later change in the same batch refers to again stays alive, so a value may take an id from
-  a `Ref` that is dropped before the value is submitted.
+  a handle that is dropped before the value is submitted.
 
 The stage keeps its counts, and the targets of live locations and visuals, in one plain vector per
 object kind, indexed by id, because ids are dense per kind. Its code lives in `massive-scene`, next
@@ -113,8 +110,8 @@ to the id generator it takes over. Each window renderer has its own stage.
 ### Where a handle sends its changes
 
 - A handle sends every change to the change queue of the task in which the change happens. It does
-  not store a sink. A `Ref` dropped on an instance thread therefore sends its `Release` to that
-  instance's queue, even when the object was submitted by the desktop.
+  not store a sink. A handle dropped on an instance thread therefore sends its `Release` to that
+  instance's queue, even when the desktop submitted the object, as it does for the view parent.
 - `massive-scene` reaches the current task's queue through a hook, a plain function
   (`CollectChange`) that collects one change and reports whether a queue was reached.
   `massive-applications` registers it once per process, before it installs any task context, and
@@ -167,7 +164,7 @@ task-local lookup and a `RefCell` borrow.
 
 ### Handles are used inside a task
 
-A handle is created, cloned, updated and dropped only while a task context is installed. This is
+A handle is created, updated and dropped only while a task context is installed. This is
 enforced.
 
 - The hook uses `try_with`. When no task context is installed, a `debug_assert!` fails, and release
@@ -179,22 +176,31 @@ enforced.
   integrates these final changes after the instance's last outputs. The desktop receives them with
   the instance's end (`InstanceEnd` in `desktop/src/instance_manager.rs`). The shell ends with its
   one instance, so it discards them. `InstanceChange::End` goes away, because it only carried the
-  view parent's reference. This also covers an instance future that is dropped without ever
+  release of the view parent. This also covers an instance future that is dropped without ever
   running, because building its runtime failed.
 - Tests that submit through an explicit collector install a task context instead. The tests of
   `massive-scene`, which sits below `massive-applications`, register a hook backed by a test queue.
 
 ### Call sites
 
-- The clones that only keep a parent alive become `Ref<Location>` where they are stored, such as
-  an instance's `view_parent` and mt's `ScrollLocations`. A function that only reads a parent
+- The clones that only keep a parent alive become ids. A function that only reads a parent
   location, such as the constructors of the project, launcher, title bar and instance presenters,
-  or `project_matrix_location`, takes or returns an `Id<Location>`, because its caller keeps the
-  parent alive.
+  `project_matrix_location`, and `View::location`, takes or returns an `Id<Location>`, because the
+  parent's owner keeps it alive. mt keeps the handle of its padded content location next to its
+  view, and its scroll buckets and lines refer to locations by id. The handles of the scroll
+  buckets keep them alive, because the buckets in use always cover every line.
 - The launcher presenter moves its transform handle into its movement closure instead of cloning it.
-- `DesktopChange::SpawnInstance` carries `view_parent: Ref<Location>` instead of the whole
-  `InstanceRoot`, because spawning only uses `InstanceRoot::view_parent`. `InstanceRoot` loses
-  `Clone`.
+- The instance owns its view parent. `InstanceRoot::new` returns the root together with the handle
+  of its view location, whose parent is the content location. `DesktopChange::SpawnInstance`
+  carries that handle into `InstanceManager::spawn`, and from there into the `InstanceContext`.
+  The presenter keeps the view transform, which places the view location, but no handle of the
+  view location itself. `InstanceRoot` loses `Clone`. The shell's host hands its root location to
+  its instance the same way.
+- The instance background no longer hangs below the view location, which the instance owns. A
+  background created on presentation could otherwise take the id of a location that an already
+  ended instance had released. It hangs below a second location that the desktop owns and that
+  shares the view transform, so it sits where the view sits. ADR 0041 proposes to turn it into a
+  background of each view.
 - The instance root has a single writer per handle. The presenter writes the parent, the initial
   transform and the initial alpha in `InstancePresenter::new`, before it mounts the movement. Then it
   moves `layout_transform` and `layout_location` into the movement closure.
@@ -203,29 +209,28 @@ enforced.
   starts the fade-in also reaches the same submission, because `Frame::submission` runs the
   movement actions before it drains the queue.
 - `InstancePresenter::latest_transform` gives way to `target_transform`, which returns the
-  presenter's target, because the presenter can no longer read the transform the closure wrote. The two differ only while the
-  instance is still animating. Starting a new instance from it within the 500 ms of a layout
+  presenter's target, because the presenter can no longer read the transform the closure wrote.
+  The two differ only while the instance is still animating. Starting a new instance from it within the 500 ms of a layout
   animation lets the new instance appear at the originator's destination instead of its position on
   screen.
 
 ### Conditions this design relies on
 
 - **Tasks form a tree.** Changes travel up only through submissions, and siblings do not
-  communicate. A `Ref` crosses tasks only from a task to a task it starts, or inside a submission.
-  Under this condition, the stage always sees a `Ref`'s `Retain` before its `Release`. The desktop,
-  and the shell's host, push an instance's scene changes into their own queue in the order of the
-  instance's output (`apply_instance_change` in `command_dispatch.rs`, `apply_change` in
+  communicate. A handle crosses tasks only from a task to a task it starts, as the view parent
+  does. Under this condition, the stage always sees a handle's `Create` before its `Release`. The
+  desktop, and the shell's host, push an instance's scene changes into their own queue in the order
+  of the instance's output (`apply_instance_change` in `command_dispatch.rs`, `apply_change` in
   `instance_host.rs`). So the instance's earlier changes are queued before the desktop acts on a
-  message from it. If a `Ref` ever reaches another task by any other path, its `Release` can
-  overtake its `Retain`. The stage then deletes an object that is still referenced, and no error
-  reports it.
+  message from it. If a handle ever reaches another task by any other path, its `Release` can
+  overtake its `Create`.
 - **A batch stays whole.** The stage ends objects at the end of the batch that holds their last
   `Release`, together with what they referred to, so all their deletes land in that batch. Each
   task drains its queue only in its own frame submission, so the changes between two submissions
   of a task land in the same batch, too. The stage must neither split a batch nor carry a `Delete`
   into the next one.
 - **An id's source lives until the task's next submission.** An `Id` does not keep its object
-  alive. The handle or `Ref` it was taken from may drop before the value holding the id is
+  alive. The handle it was taken from may drop before the value holding the id is
   submitted, because the stage ends objects only at the end of a batch. But it has to live until
   the task's next submission. An id kept across a submission can refer to an object that has
   already ended. If the id was reused meanwhile, it refers to another object, and no error
@@ -242,15 +247,17 @@ The out-of-process plan (`docs/out-of-process-applications-plan.md`) moves appli
 their own processes, with scene changes as the boundary. This decision prepares for that in three
 ways.
 
-- **Reference counts are data.** Each instance gets a host-owned `view_parent: Ref<Location>`.
-  Today that `Ref` is an `Arc` into the desktop's memory, which no other process can hold. Under this
-  decision a `Ref` is an id, and its `Retain` and `Release` are changes that travel over a
-  connection like any other change.
+- **Ownership is data.** Each instance gets its view parent from the host. Before this decision
+  that was a `Ref`, an `Arc` into the desktop's memory, which no other process can hold. Under this
+  decision the instance receives the handle itself, which is an id and a value. Its updates and its
+  `Release` are changes that travel over a connection like any other change. A process that owns
+  its view parent may change the parent's parent, so the protocol has to check every parent id it
+  receives, which it has to do for any location anyway.
 - **Handles hold no pointers.** An application process registers its own hook, so its
   `InstanceContext` works without changes to application code.
 - **This decision must land before `scene::v1` is frozen.** The plan never edits a protocol version
-  after release. `Retain` and `Release` belong in the scene protocol, and adding them later would
-  need a `scene::v2`.
+  after release. `Release` belongs in the scene protocol, and adding it later would need a
+  `scene::v2`.
 
 One gap remains. The lifetime stage returns ids to the id generator, and it runs only in front of
 a renderer. An application process has no renderer, so the ids of its own objects would never be
@@ -278,13 +285,13 @@ run it at its own edge.
 - **Counts in each change queue.** This works, but every queue would carry a count table. The user
   preferred one place that decides lifetimes for all queues.
 - **A stored sink in every handle.** Every change of an object would go to the queue it was
-  submitted to, so the order of `Retain` and `Release` would hold even if siblings communicated, and
+  submitted to, so the order of its changes would hold even if siblings communicated, and
   a drop outside a task would be harmless. The cost is one shared `Arc` per handle. Within the tree
   of tasks the order holds without it, so the user chose handles without any `Arc`.
 - **`Ref` as a borrow of its `Handle`.** The compiler would prove that a reference never outlives its
   object. But views own both a location and the visuals that refer to it, so they would become
   self-referential.
-- **A separate queue for `Retain` and `Release`.** It keeps lifetime events out of the change
+- **A separate queue for lifetime changes.** It keeps lifetime events out of the change
   stream. But every submission step would need a second path, and the queues would have to be
   drained together to keep a batch whole. The separation is only needed at the renderer, so separate
   types in one queue suffice.
@@ -292,16 +299,27 @@ run it at its own edge.
   `massive-scene` would decide how a task is identified, and it would need tokio's `rt` feature.
 - **A read path on `Movement` for `latest_transform`.** It would keep today's exact behavior, at the
   cost of a new read API in `massive-animation` for one caller.
+- **Counted references (`Ref<T>`).** An earlier version of this decision kept them, with a
+  `Retain` change for each one. Client code held them to keep an object alive without writing it.
+  Every such use was either a temporary that only needed the id, or a keep-alive that a handle or
+  a referring object already provides. The one reference that crossed tasks, an instance's view
+  parent, became a handle the instance owns. Removing them leaves one way to keep an object alive
+  and one change fewer in the protocol.
+- **A check for stale ids.** In debug builds, `Id` could carry a generation that the stage compares
+  with the live object's, so a reused id would fail loudly. Alternatively, an id passed between
+  functions could be a token that panics when it is dropped without being placed in a value. The
+  token checks the wrong thing, because dropping an id is harmless while dropping its source too
+  early is not. The user kept the documented rule without a check.
 - **Builders that borrow the sources of their ids.** A value under construction would borrow the
-  handle or `Ref` each id was taken from, so the compiler would prove that the sources live until
+  handle each id was taken from, so the compiler would prove that the sources live until
   the value is submitted. It needed a lifetime on every builder, on `update` and on `set_parent`,
   which was too much for a gap that ending objects at the end of a batch already closes for every
   value submitted before the task's next submission.
 
 ## Consequences
 
-- A `Ref` that is forgotten with `mem::forget`, or caught in a cycle, leaks its object. It never
-  leaves a reference dangling.
+- A handle that is forgotten with `mem::forget` leaks its object, and so do locations whose parents
+  form a cycle. Neither leaves a reference dangling.
 - Building a value sends nothing, because it holds ids, so values can be built and cloned freely.
   The desktop's hover and zoom level indicator still set only their shapes through `set_shapes`,
   which leaves their location and decal order alone.
