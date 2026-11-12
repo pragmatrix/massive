@@ -6,7 +6,9 @@
 use std::fmt;
 
 use derive_more::From;
-use schemars::{JsonSchema, Schema, schema_for};
+use schemars::generate::SchemaSettings;
+use schemars::transform::RecursiveTransform;
+use schemars::{JsonSchema, Schema};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -38,9 +40,31 @@ impl ToolDeclaration {
             tool,
             access_scope,
             description: description.to_string(),
-            input_schema: schema_for!(Params),
-            output_schema: schema_for!(Output),
+            input_schema: tool_schema::<Params>(),
+            output_schema: tool_schema::<Output>(),
         }
+    }
+}
+
+/// Derives the JSON Schema of a tool's parameters or result. MCP clients validate it, and Claude Code
+/// warns about every `format` it does not know, such as schemars' `uint32` on integers.
+fn tool_schema<T: JsonSchema>() -> Schema {
+    SchemaSettings::default()
+        .with_transform(RecursiveTransform(remove_integer_format))
+        .into_generator()
+        .into_root_schema_for::<T>()
+}
+
+/// Removes `format` from an integer schema. It only repeats the Rust type, and the schema's
+/// `minimum` already keeps unsigned integers non-negative.
+fn remove_integer_format(schema: &mut Schema) {
+    let is_integer = match schema.get("type") {
+        Some(Value::String(name)) => name == "integer",
+        Some(Value::Array(names)) => names.iter().any(|name| name == "integer"),
+        _ => false,
+    };
+    if is_integer {
+        schema.remove("format");
     }
 }
 
@@ -305,4 +329,50 @@ const fn same_bytes(a: &[u8], b: &[u8]) -> bool {
         index += 1;
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use schemars::JsonSchema;
+    use serde_json::{Value, json};
+
+    use super::tool_schema;
+
+    #[derive(JsonSchema)]
+    #[allow(dead_code)]
+    struct Params {
+        count: u32,
+        limit: Option<usize>,
+        position: Position,
+    }
+
+    #[derive(JsonSchema)]
+    #[allow(dead_code)]
+    struct Position {
+        column: u32,
+    }
+
+    /// The formats go in nested definitions and in optional integers too, which the recursive
+    /// transform has to reach.
+    #[test]
+    fn tool_schemas_carry_no_integer_formats_but_keep_their_minimum() {
+        let schema = tool_schema::<Params>().to_value();
+
+        assert_eq!(find_key(&schema, "format"), None);
+        assert_eq!(schema["properties"]["count"]["minimum"], json!(0));
+        assert_eq!(
+            schema["$defs"]["Position"]["properties"]["column"]["minimum"],
+            json!(0)
+        );
+    }
+
+    fn find_key<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+        match value {
+            Value::Object(map) => map
+                .get(key)
+                .or_else(|| map.values().find_map(|value| find_key(value, key))),
+            Value::Array(values) => values.iter().find_map(|value| find_key(value, key)),
+            _ => None,
+        }
+    }
 }
