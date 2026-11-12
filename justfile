@@ -41,7 +41,24 @@ run:
 	cd .. && cargo run 
 
 # The lint and format checks of .github/workflows/qa.yaml, to run before pushing.
-qa:
+qa: lints-opt-in
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
 	cargo test --release
+
+# Every workspace member of this repository opts into the workspace lints, because clippy applies
+# them only to crates that do, and a crate without the opt-in passes `qa` silently. Members inside
+# a submodule, such as the vendored inlyne, are foreign code and skipped.
+lints-opt-in:
+	#!/bin/sh
+	root=$(git rev-parse --show-toplevel)
+	missing=$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].manifest_path' |
+		while read -r manifest; do
+			[ "$(git -C "$(dirname "$manifest")" rev-parse --show-toplevel)" = "$root" ] || continue
+			grep -q '^\[lints\]' "$manifest" || echo "$manifest"
+		done)
+	if [ -n "$missing" ]; then
+		echo "These crates lack '[lints] workspace = true':"
+		echo "$missing"
+		exit 1
+	fi
