@@ -15,9 +15,9 @@ stores the color, but `build` never passes it on, and `ViewCreationInfo` has no 
 asks for black (`src/main.rs`), and the request goes nowhere.
 
 ADR 0040 hands the view location over to the instance. A desktop visual that refers to that
-location by id could therefore outlive the location, unless the visual exists before the instance
-starts. To avoid that, the instance background moved into `InstanceRoot::new`, which is not
-where a background belongs either.
+location by id could take the id of a location that an already ended instance had released. So the
+instance background now hangs below a second location, which `InstanceRoot::new` creates for the
+desktop and which shares the view transform. The background itself is still the instance's.
 
 ## Decision
 
@@ -42,9 +42,8 @@ where a background belongs either.
 
 ## Considered Options
 
-- **Keep the instance background, and create it with the instance root.** This is how ADR 0040
-  first solved the lifetime of the background visual. It keeps a background that the view cannot
-  influence, and it ties the background to the creation of the root.
+- **Keep the instance background below the desktop-owned location.** This is how ADR 0040 solves
+  the lifetime of the background visual. It keeps a background that the view cannot influence.
 - **Let the application draw its own background into the view.** That needs no new API, but every
   application would repeat it, although `ViewBuilder::with_background_color` already lets a view
   state the request.
