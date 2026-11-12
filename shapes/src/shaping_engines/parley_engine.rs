@@ -1,5 +1,6 @@
 //! The Parley (fontique + harfrust) shaping engine.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -274,7 +275,7 @@ impl ParleyEngine {
         }
 
         // Append best-coverage families first so the first that covers a symbol wins.
-        scored.sort_by_key(|(covered, _)| std::cmp::Reverse(*covered));
+        scored.sort_by_key(|(covered, _)| Reverse(*covered));
         let families = scored.into_iter().map(|(_, id)| id);
         font_context
             .collection
@@ -377,12 +378,12 @@ impl ShapingEngine for ParleyEngine {
 /// A clone of the canonical engine's font collection plus a fresh `LayoutContext`; the
 /// collection is in fontique shared mode, so registrations after the clone stay visible.
 pub struct ParleySessionContexts {
-    pub(crate) font_context: FontContext,
-    pub(crate) layout_context: LayoutContext<GlyphBrush>,
+    pub font_context: FontContext,
+    pub layout_context: LayoutContext<GlyphBrush>,
 }
 
 /// Shape one attributed line through the given session contexts.
-pub(crate) fn shape_line(
+pub fn shape_line(
     font_context: &mut FontContext,
     layout_context: &mut LayoutContext<GlyphBrush>,
     request: &ShapingRequest<'_>,
@@ -542,6 +543,7 @@ fn face_id_from_parley_data(font: &parley::FontData) -> FaceId {
 mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::{env, fs, process};
 
     use super::*;
 
@@ -594,7 +596,7 @@ mod tests {
             .collection
             .load_fonts_from_paths([&path]);
         let registered = engine.font_context.collection.family_names().count();
-        std::fs::remove_file(&path).unwrap();
+        fs::remove_file(&path).unwrap();
 
         // `rebuild_fonts` is the first read of the path, so it caches a failure and drops the
         // face from the registry; validation must then surface the unreadable source.
@@ -627,7 +629,7 @@ mod tests {
             }),
             source_cache: SourceCache::new_shared(),
         });
-        let blob: Blob<u8> = Blob::new(std::sync::Arc::new(bytes));
+        let blob: Blob<u8> = Blob::new(Arc::new(bytes));
         engine.font_context.collection.register_fonts(blob, None);
         engine.rebuild_fonts();
         engine
@@ -660,12 +662,12 @@ mod tests {
     /// [`fontique::SourceKind::Path`] source.
     fn write_catalog_font(bytes: &[u8]) -> PathBuf {
         static UNIQUE: AtomicU32 = AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
+        let path = env::temp_dir().join(format!(
             "massive-parley-catalog-{}-{}.ttf",
-            std::process::id(),
+            process::id(),
             UNIQUE.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::write(&path, bytes).unwrap();
+        fs::write(&path, bytes).unwrap();
         path
     }
 }

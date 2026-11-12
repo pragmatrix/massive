@@ -33,3 +33,6 @@ smallbox.workspace = true
 [dev-dependencies]
 # Send/!Sync pins on `ShapingContext`.
 static_assertions = { workspace = true }
+
+[lints]
+workspace = true

@@ -141,6 +141,8 @@ fn resolve_face(state: &FontManagerState, data: FontData) -> Option<FaceId> {
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+
     use super::*;
     use crate::engine::{FontBytes, TextAttributes};
     use crate::{FontManager, ShapingRequest};
@@ -166,7 +168,7 @@ mod tests {
             let mut first_context = fonts.new_shaping_context();
             let mut second_context = fonts.new_shaping_context();
 
-            std::thread::scope(|scope| {
+            thread::scope(|scope| {
                 let first = scope.spawn(move || {
                     first_context
                         .shape(

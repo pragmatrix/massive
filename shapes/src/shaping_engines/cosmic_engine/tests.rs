@@ -23,7 +23,7 @@ const JETBRAINS_MONO: &[u8] = include_bytes!(
 #[test]
 fn a_rejected_resolution_registers_without_issuing_a_face_id() {
     let mut engine = CosmicTextEngine::new(false).expect("bare engine is valid");
-    let bytes: FontBytes = std::sync::Arc::new(JETBRAINS_MONO.to_vec());
+    let bytes: FontBytes = Arc::new(JETBRAINS_MONO.to_vec());
     assert_eq!(
         engine.font_registry().face_count(),
         0,
@@ -68,8 +68,8 @@ fn cosmic_engine_shapes_through_shared_file_faces() {
     // shaping it must go through `resolve_face_index`'s lazy path.
     let mut engine = CosmicTextEngine::new(false).expect("bare engine is valid");
     let shared = Source::SharedFile(
-        std::path::PathBuf::from("JetBrainsMono[wght].ttf"),
-        std::sync::Arc::new(Vec::from(jetbrains)) as std::sync::Arc<dyn AsRef<[u8]> + Send + Sync>,
+        PathBuf::from("JetBrainsMono[wght].ttf"),
+        Arc::new(Vec::from(jetbrains)) as Arc<dyn AsRef<[u8]> + Send + Sync>,
     );
     let ids = engine.font_system.db_mut().load_font_source(shared);
     assert_eq!(ids.len(), 1, "fixture must load exactly one face");

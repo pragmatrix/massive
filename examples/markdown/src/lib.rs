@@ -15,6 +15,7 @@
 //! using another engine panics at construction rather than rasterizing the wrong face.
 
 use std::collections::HashMap;
+use std::fs;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -61,7 +62,7 @@ impl FontBridge {
             if file_indices.contains_key(path) {
                 continue;
             }
-            let Ok(bytes) = std::fs::read(path) else {
+            let Ok(bytes) = fs::read(path) else {
                 continue;
             };
             file_indices.insert(path.clone(), font_files.len());
@@ -234,7 +235,7 @@ fn font_metrics(font: &FontData, font_size: f32) -> Option<(f32, f32)> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::process::Command;
+    use std::process::{self, Command};
 
     use cosmic_text::{Align, Attrs, Buffer, FontSystem, Metrics, Shaping};
 
@@ -322,7 +323,7 @@ mod tests {
                     continue;
                 };
                 if paths.insert(path) {
-                    file_bytes += std::fs::metadata(path)
+                    file_bytes += fs::metadata(path)
                         .map(|metadata| metadata.len())
                         .unwrap_or(0);
                 }
@@ -350,7 +351,7 @@ mod tests {
     fn process_rss_kib() -> Option<u64> {
         let output = Command::new("ps")
             .args(["-o", "rss=", "-p"])
-            .arg(std::process::id().to_string())
+            .arg(process::id().to_string())
             .output()
             .ok()?;
         let rss = String::from_utf8(output.stdout).ok()?;

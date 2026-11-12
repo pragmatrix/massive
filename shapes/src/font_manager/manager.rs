@@ -32,8 +32,8 @@
 //! under the manager lock, so a published snapshot never lags the known face world and
 //! in-session resolution ([`ShapingContext::font_data`]) is a plain lock-free map read.
 
-use std::fmt;
 use std::sync::Arc;
+use std::{fmt, iter};
 
 use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
@@ -43,7 +43,7 @@ use super::font_policy::FontPolicy;
 use super::shaping_context::ShapingContext;
 use super::state::{FontAuthority, FontManagerState, PublishedRegistry};
 use crate::FaceId;
-use crate::engine::{FontRegistry, ShapingEngine, ShapingEngineKind};
+use crate::engine::{FontBytes, FontRegistry, ShapingEngine, ShapingEngineKind};
 use crate::font_validation::validate_font_file;
 #[cfg(feature = "cosmic-text")]
 use crate::shaping_engines::CosmicTextEngine;
@@ -133,7 +133,7 @@ impl FontManager {
         &self,
         font_data: impl AsRef<[u8]> + Sync + Send + 'static,
     ) -> Result<Vec<FaceId>> {
-        self.load_fonts(std::iter::once(font_data))
+        self.load_fonts(iter::once(font_data))
             .map(|mut ids| ids.pop().expect("one font was loaded"))
     }
 
@@ -146,7 +146,7 @@ impl FontManager {
     {
         let font_data: Vec<_> = font_data
             .into_iter()
-            .map(|data| Arc::new(data) as crate::engine::FontBytes)
+            .map(|data| Arc::new(data) as FontBytes)
             .collect();
         for (index, data) in font_data.iter().enumerate() {
             if let Err(error) = validate_font_file(data.as_ref().as_ref()) {
@@ -232,7 +232,9 @@ impl FontRegistrySource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::{ShapedCluster, ShapedRun, ShapingRequest, TextAttributes, TextStyle};
+    use crate::engine::{
+        self, ShapedCluster, ShapedRun, ShapingRequest, TextAttributes, TextStyle,
+    };
 
     /// A bundled monospace font so the tests don't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
@@ -648,7 +650,7 @@ mod tests {
                 };
 
                 for cluster in &run.clusters {
-                    let expected = crate::engine::covering_metadata(
+                    let expected = engine::covering_metadata(
                         &request.ranges,
                         request.default_attributes.metadata,
                         cluster.byte_range.start,

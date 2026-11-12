@@ -42,7 +42,7 @@ impl FullscreenAction {
     }
 }
 
-pub(crate) fn initialize_platform_menu(proxy: EventLoopProxy<ShellCommand>) {
+pub fn initialize_platform_menu(proxy: EventLoopProxy<ShellCommand>) {
     let Some(mtm) = MainThreadMarker::new() else {
         log::warn!("Cannot configure macOS menu outside the main thread");
         return;
@@ -87,7 +87,7 @@ pub(crate) fn initialize_platform_menu(proxy: EventLoopProxy<ShellCommand>) {
     }
 }
 
-pub(crate) fn toggle_fullscreen() {
+pub fn toggle_fullscreen() {
     let Some(mtm) = MainThreadMarker::new() else {
         log::warn!("Cannot toggle macOS fullscreen outside the main thread");
         return;
@@ -99,7 +99,7 @@ pub(crate) fn toggle_fullscreen() {
     }
 }
 
-fn ensure_view_submenu(main_menu: &NSMenu, mtm: MainThreadMarker) -> objc2::rc::Retained<NSMenu> {
+fn ensure_view_submenu(main_menu: &NSMenu, mtm: MainThreadMarker) -> Retained<NSMenu> {
     let view_title = ns_string!("View");
 
     if let Some(existing_view_item) = main_menu.itemWithTitle(view_title) {

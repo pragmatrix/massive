@@ -494,6 +494,7 @@ mod manual_charts {
     use super::{Ease, Interpolation};
     use plotters::prelude::*;
     use plotters::series::LineSeries;
+    use std::error::Error;
     use std::fs;
 
     const OUT_DIR: &str = "target/ease_charts";
@@ -537,7 +538,7 @@ mod manual_charts {
         }
     }
 
-    fn draw_variant(v: Interpolation) -> Result<(), Box<dyn std::error::Error>> {
+    fn draw_variant(v: Interpolation) -> Result<(), Box<dyn Error>> {
         fs::create_dir_all(OUT_DIR)?;
         let filename = format!("{}/{}.png", OUT_DIR, variant_name(v));
 
@@ -575,7 +576,7 @@ mod manual_charts {
 
     #[test]
     #[ignore]
-    fn generate_ease_charts() -> Result<(), Box<dyn std::error::Error>> {
+    fn generate_ease_charts() -> Result<(), Box<dyn Error>> {
         let variants = [
             Interpolation::Linear,
             Interpolation::QuadraticIn,

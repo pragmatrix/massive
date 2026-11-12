@@ -4,6 +4,7 @@
 //! cosmic-text behavior; each returned [`GlyphRun`] carries the color of the attribute covering
 //! its text span.
 
+use std::collections::HashSet;
 use std::ops::Range;
 
 use serde::{Deserialize, Serialize};
@@ -132,7 +133,7 @@ fn attribute_runs<'a>(
         ranges
             .iter()
             .map(|(_, attributes)| attributes.metadata)
-            .collect::<std::collections::HashSet<_>>()
+            .collect::<HashSet<_>>()
             .len(),
         "request ranges carry duplicate metadata identities"
     );
@@ -172,12 +173,14 @@ fn attribute_runs<'a>(
 }
 
 mod syntax {
+    use std::iter;
+
     /// Split `text` into lines as `(byte_offset, line)` keeping the trailing `\n` on its line so
     /// per-attribute byte ranges re-base without remapping.
     pub fn split_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
         let mut rest = Some(text);
         let mut offset = 0;
-        std::iter::from_fn(move || {
+        iter::from_fn(move || {
             let current = rest?;
             if current.is_empty() {
                 rest = None;

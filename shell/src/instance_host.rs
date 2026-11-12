@@ -1,6 +1,7 @@
 //! The shell's one instance: its start, its task, and for an instance that draws into views the
 //! host task that draws its one view into a window of the view's size (ADR 0039).
 
+use std::fmt::Debug;
 use std::mem;
 use std::sync::Arc;
 
@@ -43,7 +44,7 @@ fn rendering_task_context(font_manager: FontManager) -> TaskContext {
 }
 
 /// What the shell hands to its instance's start once the event loop runs.
-pub(crate) struct Startup {
+pub struct Startup {
     pub proxy: EventLoopProxy<ShellCommand>,
     pub event_sender: WeakUnboundedSender<InstanceMessage>,
     pub event_receiver: UnboundedReceiver<InstanceMessage>,
@@ -52,7 +53,7 @@ pub(crate) struct Startup {
 }
 
 /// Starts the shell's single instance, following where its application draws.
-pub(crate) fn start(application: Application, startup: Startup) {
+pub fn start(application: Application, startup: Startup) {
     match application.draw_target() {
         DrawTarget::Windows => start_drawing_windows(application, startup),
         DrawTarget::Views => start_drawing_views(application, startup),
@@ -95,7 +96,7 @@ fn spawn_instance<C>(
     task_context: TaskContext,
     report_end: impl FnOnce(Result<()>) + Send + 'static,
 ) where
-    C: From<SceneChange> + std::fmt::Debug + Send + 'static,
+    C: From<SceneChange> + Debug + Send + 'static,
 {
     tokio::spawn(async move {
         let (result, final_changes) =

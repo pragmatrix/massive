@@ -38,7 +38,7 @@ impl Mul<f32> for Rgb {
 impl FromStr for Rgb {
     type Err = ();
 
-    fn from_str(s: &str) -> ::std::result::Result<Rgb, ()> {
+    fn from_str(s: &str) -> Result<Rgb, ()> {
         let mut chars = s.chars();
         let mut rgb = Rgb::default();
 

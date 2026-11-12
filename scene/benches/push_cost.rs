@@ -20,8 +20,8 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use massive_scene::{AnyCollector, SceneChange};
-use tokio::task_local;
+use massive_scene::{AnyCollector, SceneChange, id_generator};
+use tokio::{runtime, task_local};
 
 const CAPACITY: usize = 100_000;
 /// Per-variant measurement time; criterion adds its own warmup and sampling.
@@ -41,7 +41,7 @@ fn transform(id: u32) -> massive_geometry::Transform {
 /// distribution handles produce in practice; building it per push keeps the benchmark on the
 /// by-value path (`SceneChange` is moved, not cloned).
 fn change() -> SceneChange {
-    let id = massive_scene::id_generator::acquire::<massive_geometry::Transform>();
+    let id = id_generator::acquire::<massive_geometry::Transform>();
     SceneChange::Transform(massive_scene::Change::Update(
         id,
         transform(id.to_usize() as u32),
@@ -80,7 +80,7 @@ fn any_group(c: &mut Criterion) {
 }
 
 fn bench(c: &mut Criterion) {
-    tokio::runtime::Builder::new_current_thread()
+    runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("tokio current-thread runtime")

@@ -8,8 +8,8 @@ pub struct Colors {
     pub primary: PrimaryColors,
     pub cursor: CursorColors,
     pub selection: SelectionColors,
-    pub(crate) normal: NormalColors,
-    pub(crate) bright: BrightColors,
+    pub normal: NormalColors,
+    pub bright: BrightColors,
     pub dim: Option<AnsiColors>,
     pub indexed_colors: Vec<IndexedColor>,
 }
@@ -105,7 +105,7 @@ impl Index<usize> for AnsiColors {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct NormalColors(pub(crate) AnsiColors);
+pub struct NormalColors(pub AnsiColors);
 
 impl Default for NormalColors {
     fn default() -> Self {
@@ -155,7 +155,7 @@ impl Default for NormalColors {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BrightColors(pub(crate) AnsiColors);
+pub struct BrightColors(pub AnsiColors);
 
 impl Default for BrightColors {
     fn default() -> Self {
