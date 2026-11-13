@@ -247,12 +247,6 @@ impl<E: Effect> EffectGraph<E> {
     }
 }
 
-impl<E: Effect> Default for EffectGraph<E> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
