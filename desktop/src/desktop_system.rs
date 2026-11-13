@@ -58,7 +58,6 @@ use massive_util::CollectingVec;
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
-use focus_input::LayoutFocus;
 use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_state::DesktopLayoutState;
@@ -248,8 +247,10 @@ pub struct DesktopSystem {
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
     navigation_control: NavigationControl,
-    /// The focused instance that layout reflects (ADR 0002).
-    layout_focus: LayoutFocus,
+    /// The focused instance that layout reads instead of the live keyboard focus (ADR 0002). It
+    /// catches up only in transactions that may move the camera, so a press never moves a visor
+    /// under the pointer.
+    layout_focus: Option<InstanceId>,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -335,7 +336,7 @@ impl DesktopSystem {
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
-            layout_focus: LayoutFocus::default(),
+            layout_focus: None,
             layout_state,
             reparenting: Reparenting::default(),
 

@@ -179,7 +179,7 @@ impl DesktopSystem {
                 &self.aggregates.layout_context(
                     self.default_panel_size,
                     self.window_state.inner_size,
-                    self.layout_focus.instance(),
+                    self.layout_focus,
                 ),
             )
         {

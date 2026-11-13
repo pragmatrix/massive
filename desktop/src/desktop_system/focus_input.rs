@@ -1,8 +1,6 @@
-use std::mem;
-
 use anyhow::Result;
 
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
@@ -17,27 +15,6 @@ use crate::event_router::RouterStep;
 use crate::hit_tester::HitTester;
 use crate::instance_manager::InstanceManager;
 use crate::targeted_event::EventTransition;
-
-/// The focused instance that layout reflects (ADR 0002).
-///
-/// Layout reads this value, never the live keyboard focus. It catches up with the live keyboard
-/// focus only in transactions that may move the camera. So a focus change while a mouse button is
-/// pressed neither expands nor re-centers a visor under the pointer. It catches up when the button
-/// is released.
-#[derive(Debug, Default)]
-pub(super) struct LayoutFocus(Option<InstanceId>);
-
-impl LayoutFocus {
-    pub fn instance(&self) -> Option<InstanceId> {
-        self.0
-    }
-
-    /// Moves the layout focus to `live`. Returns the previous layout focus, or `None` when it
-    /// already was `live`.
-    fn sync(&mut self, live: Option<InstanceId>) -> Option<Option<InstanceId>> {
-        (self.0 != live).then(|| mem::replace(&mut self.0, live))
-    }
-}
 
 impl DesktopSystem {
     // This processes input events and converts it to a set of commands.
@@ -148,13 +125,20 @@ impl DesktopSystem {
     /// that the caller re-measures them.
     pub(super) fn sync_layout_focus(&mut self) -> TargetSet {
         let live = self.focused_path().instance();
-        let Some(previous) = self.layout_focus.sync(live) else {
+        let previous = self.layout_focus;
+        if previous == live {
             return TargetSet::default();
-        };
+        }
+        self.layout_focus = live;
 
         let hierarchy = &self.aggregates.hierarchy;
-        if let Some(instance) = live {
-            let launcher = hierarchy.launcher_of_instance(instance);
+        // The previous instance may have stopped while the layout focus lagged behind.
+        let previous_launcher = previous
+            .filter(|instance| hierarchy.exists(&DesktopTarget::from(*instance)))
+            .map(|instance| hierarchy.launcher_of_instance(instance));
+        let live_launcher = live.map(|instance| hierarchy.launcher_of_instance(instance));
+
+        if let Some((instance, launcher)) = live.zip(live_launcher) {
             self.aggregates
                 .launchers
                 .get_mut(&launcher)
@@ -168,16 +152,8 @@ impl DesktopSystem {
             live,
         );
         let mut relayouts = TargetSet::default();
-        for instance in [previous, live].into_iter().flatten() {
-            // The previous instance may have stopped while the layout focus lagged behind.
-            if !hierarchy.exists(&DesktopTarget::from(instance)) {
-                continue;
-            }
-            let launcher = hierarchy.launcher_of_instance(instance);
-            let Some(presenter) = self.aggregates.launchers.get(&launcher) else {
-                continue;
-            };
-            if presenter.relayouts_on_focus((), &context) {
+        for launcher in [previous_launcher, live_launcher].into_iter().flatten() {
+            if self.aggregates.launchers[&launcher].relayouts_on_focus((), &context) {
                 relayouts.insert(DesktopTarget::Launcher(launcher));
             }
         }
