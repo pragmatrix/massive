@@ -6,12 +6,14 @@ use massive_geometry::{BoxPx, PixelCamera, Point, Rect, SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
 use massive_renderer::RenderGeometry;
 
-use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
+use super::change::DesktopSystemEffect;
+use super::effects::DesktopEffect;
 use super::layout_state::PlacementUpdate;
 use super::navigation::ZoomGeometry;
 use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget,
-    FocusableTarget, InstancePart, LayoutContext, TargetLayout,
+    FocusableTarget, InstancePart, LayoutContext, TargetLayout, TransactionContext,
+    TransactionEffectsMode,
 };
 use crate::coordinate_mapper::CoordinateMapper;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -20,41 +22,79 @@ use crate::projects::{ProjectId, slot_extent};
 use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
-    pub(super) fn run_effects_to_completion(
+    /// Handles one effect of the running transaction (ADR 0043). The handling marks the effects
+    /// that read what it changed, and appends what the host has to do to `system_effects`.
+    pub(super) fn handle_effect(
         &mut self,
-        animate: bool,
-        initial_effects: Effects,
+        effect: DesktopEffect,
+        context: &TransactionContext,
         instance_manager: &InstanceManager,
+        system_effects: &mut Vec<DesktopSystemEffect>,
     ) -> Result<()> {
-        let mut effects = DesktopEffectScheduler::new(initial_effects);
-
-        while let Some(effect) = effects.pop_next() {
-            let follow_up = self.handle_effect(effect, animate, instance_manager)?;
-            effects.enqueue_all(follow_up);
+        match effect {
+            DesktopEffect::RefreshColumnCount(project) => self.refresh_column_count_effect(project),
+            DesktopEffect::RefreshMcpIndicators(project) => {
+                self.refresh_mcp_indicators_effect(project)
+            }
+            DesktopEffect::ZoomLevelChanged => self.zoom_level_changed_effect(context.effects_mode),
+            DesktopEffect::CollapseSelection => self.collapse_selection_unless_set(),
+            DesktopEffect::Measure(target) => self.measure_layout_effect(target),
+            DesktopEffect::Place(root) => self.place_layout_effect(root),
+            DesktopEffect::Reparent(target) => self.reparent_effect(target),
+            DesktopEffect::ApplyLayout(target) => {
+                self.apply_layout_effect(target, context.animate_layout, instance_manager)?
+            }
+            DesktopEffect::UpdateDesiredCamera => {
+                let desired = self.resolve_desired_camera();
+                self.camera.set_desired(desired);
+            }
+            DesktopEffect::SynchronizeCamera => self.camera.synchronize(context.camera_mode),
+            DesktopEffect::LayoutZoomLevelIndicator => self
+                .zoom_level_indicator
+                .sync_layout(self.window_state.inner_size),
+            DesktopEffect::UpdateHover => self
+                .desktop_presenter
+                .set_hover_placement(self.hover_placement()),
+            DesktopEffect::SetWindowFullScreen => {
+                let full_screen = self
+                    .transaction
+                    .window_full_screen
+                    .expect("the change that marks SetWindowFullScreen records the state");
+                system_effects.push(DesktopSystemEffect::SetWindowFullScreen(full_screen));
+            }
+            // The roots of one transaction reach the host as one set, so that it closes their
+            // connections together.
+            DesktopEffect::AnnounceMcpRoot(project) => match system_effects.last_mut() {
+                Some(DesktopSystemEffect::McpRootsChanged(roots)) => *roots += project,
+                _ => system_effects.push(DesktopSystemEffect::McpRootsChanged(project.into())),
+            },
+            // A setup transaction replays configuration already on disk and never persists it
+            // (ADR 0013).
+            DesktopEffect::PersistConfiguration => {
+                if context.effects_mode != TransactionEffectsMode::Setup {
+                    system_effects.push(DesktopSystemEffect::PersistConfiguration);
+                }
+            }
         }
-
         Ok(())
     }
 
-    fn handle_effect(
-        &mut self,
-        effect: DesktopEffect,
-        animate: bool,
-        instance_manager: &InstanceManager,
-    ) -> Result<Effects> {
-        match effect {
-            DesktopEffect::RefreshColumnCount(project) => {
-                Ok(self.refresh_column_count_effect(project))
-            }
-            DesktopEffect::RefreshMcpIndicators(project) => {
-                Ok(self.refresh_mcp_indicators_effect(project))
-            }
-            DesktopEffect::Measure(target) => self.measure_layout_effect(target),
-            DesktopEffect::Place(root) => self.place_layout_effect(root),
-            DesktopEffect::Reparent(target) => Ok(self.reparent_effect(target)),
-            DesktopEffect::ApplyLayout(target) => {
-                self.apply_layout_effect(target, animate, instance_manager)
-            }
+    /// The keyboard focus or the zoom level changed in this transaction.
+    fn zoom_level_changed_effect(&mut self, effects_mode: TransactionEffectsMode) {
+        self.collapse_selection_unless_set();
+        if effects_mode != TransactionEffectsMode::Setup
+            && let Some((zoom_level, project_depth)) = self.zoom_navigation().focused_zoom_level()
+        {
+            self.zoom_level_indicator.show(zoom_level, project_depth);
+        }
+    }
+
+    /// A focus or zoom change, and a configuration change the selection does not survive, collapse
+    /// the selection, unless the transaction set it, because then the operation that set it
+    /// planned these changes (ADR 0025, ADR 0033).
+    fn collapse_selection_unless_set(&mut self) {
+        if !self.transaction.selection_set {
+            self.selection.collapse();
         }
     }
 
@@ -62,11 +102,11 @@ impl DesktopSystem {
     /// matrices whose count changed. The topology already holds the transaction's changes, so it
     /// names the project's current parent. A project the transaction removed loses its counts,
     /// and the refresh of the project that hosted it updates its former siblings (ADR 0035).
-    fn refresh_column_count_effect(&mut self, project: ProjectId) -> Effects {
+    fn refresh_column_count_effect(&mut self, project: ProjectId) {
         let aggregates = &mut self.aggregates;
         if aggregates.configuration.project(project).is_none() {
             aggregates.shared_column_counts.forget(project);
-            return Effects::None;
+            return;
         }
         let parent = aggregates.hierarchy.parent_project_of(project);
         assert!(
@@ -77,8 +117,7 @@ impl DesktopSystem {
             .shared_column_counts
             .refresh(project, parent, &aggregates.configuration)
             .into_iter()
-            .map(|project| DesktopEffect::Measure(DesktopTarget::matrix(project)))
-            .collect()
+            .for_each(|project| DesktopEffect::Measure(DesktopTarget::matrix(project)).mark());
     }
 
     pub fn window_presentation_state(
@@ -184,24 +223,22 @@ impl DesktopSystem {
         title
     }
 
-    /// Measures one layout target in a bottom-up pass and schedules follow-up work.
+    /// Measures one layout target in a bottom-up pass and marks the follow-up work.
     ///
-    /// If any direct child is still unmeasured, this does not measure the target yet.
-    /// Instead, it enqueues `Measure` for each missing child and returns immediately.
+    /// If any direct child is still unmeasured, this does not measure the target yet. Instead, it
+    /// marks `Measure` for each missing child, whose measure marks this target's again.
     ///
-    /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
-    /// and re-enqueues `Measure(parent)` only when the measured size changed.
-    fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
-        // If measurements of children are not available, push them as effects and return early.
+    /// Once all children are measured, this measures `target`, always marks `Place(target)`, and
+    /// marks `Measure(parent)` only when the measured size changed.
+    fn measure_layout_effect(&mut self, target: DesktopTarget) {
         let missing_children = self
             .layout_state
             .missing_child_measures(&target, &self.aggregates.hierarchy);
         if !missing_children.is_empty() {
-            let mut effects = Effects::None;
             for child in missing_children {
-                effects += DesktopEffect::Measure(child);
+                DesktopEffect::Measure(child).mark();
             }
-            return Ok(effects);
+            return;
         }
 
         let focused_instance = self.layout_focus;
@@ -219,27 +256,26 @@ impl DesktopSystem {
             self.layout_state
                 .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
 
-        let mut effects = [DesktopEffect::Place(target)].into();
+        DesktopEffect::Place(target).mark();
         if outcome.size_changed
             && let Some(parent) = outcome.parent
         {
-            effects += DesktopEffect::Measure(parent);
+            DesktopEffect::Measure(parent).mark();
         }
-
-        Ok(effects)
     }
 
-    /// Places direct children under `root` and schedules render-facing updates.
+    /// Places direct children under `root` and marks render-facing updates.
     ///
     /// This consumes measured child sizes from layout state, computes child placements, and
-    /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
-    /// placement changed; camera and hover synchronization follow from `ApplyLayout` itself.
+    /// updates the local placement cache. It marks `ApplyLayout` only for targets whose local
+    /// placement changed. The camera and the hover outline read placements, so they follow
+    /// automatically (ADR 0043).
     ///
     /// `root`'s own placement is not this pass's to write: it belongs to `root`'s parent, and a
     /// parent re-places a child only when the child's measured size changed — so a placement
     /// dropped here (a matrix slot's rect, a presentation scale) would never be restored. Only
     /// the parentless root, which has no parent, is placed here.
-    fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
+    fn place_layout_effect(&mut self, root: DesktopTarget) {
         let focused_instance = self.layout_focus;
         let algorithm = DesktopLayoutAlgorithm {
             desktop: &self.desktop_presenter,
@@ -265,37 +301,33 @@ impl DesktopSystem {
         // pushes that placement to the renderer. `Place(child)` only re-places the child's own
         // descendants and never applies the child's own placement, so it cannot stand in for
         // `ApplyLayout(child)`.
-        let mut effects = Effects::None;
         for (child, &outcome) in children.iter().zip(placement_outcomes) {
             match outcome {
                 PlacementUpdate::Unchanged => {}
                 PlacementUpdate::ChangedSizeUnchanged => {
                     // Placement changed but size did not, so descendants stay valid; apply only.
-                    effects += DesktopEffect::ApplyLayout(child.clone());
+                    DesktopEffect::ApplyLayout(child.clone()).mark();
                 }
                 PlacementUpdate::ChangedSizeChanged => {
                     // Size changed, so re-place descendants against the new size, then apply the
                     // child's own newly computed placement.
-                    effects += DesktopEffect::Place(child.clone());
-                    effects += DesktopEffect::ApplyLayout(child.clone());
+                    DesktopEffect::Place(child.clone()).mark();
+                    DesktopEffect::ApplyLayout(child.clone()).mark();
                 }
             }
         }
-
-        Ok(effects)
     }
 
     /// Converts the on-screen position of a re-parented target into its new parent's coordinates,
-    /// then schedules the target's layout. The layout then animates from where the target is on
-    /// screen. Placement may also queue an `ApplyLayout` for the same target. The `Reparent`
-    /// effect is always queued before it, so the scheduler merges that `ApplyLayout` with the one
-    /// scheduled here.
-    fn reparent_effect(&mut self, target: DesktopTarget) -> Effects {
+    /// then marks the target's layout. The layout then animates from where the target is on
+    /// screen. Placement may also mark `ApplyLayout` for the same target, and the scheduler merges
+    /// the two.
+    fn reparent_effect(&mut self, target: DesktopTarget) {
         self.reparenting
             .take_rebase(&target)
             .expect("a reparent effect follows a re-parent")
             .apply(&self.aggregates, &self.layout_state);
-        [DesktopEffect::ApplyLayout(target)].into()
+        DesktopEffect::ApplyLayout(target).mark();
     }
 
     /// Applies one target's local placement to the renderer.
@@ -305,14 +337,12 @@ impl DesktopSystem {
         target: DesktopTarget,
         animate: bool,
         instance_manager: &InstanceManager,
-    ) -> Result<Effects> {
+    ) -> Result<()> {
         let placement = self.layout_state.local_placement(&target);
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         let layout = SizedTransform::new(size_px, placement.transform);
-        self.apply_layout(target, layout, placement.visible, animate, instance_manager)?;
-
-        Ok(Effects::None)
+        self.apply_layout(target, layout, placement.visible, animate, instance_manager)
     }
 
     fn apply_layout(

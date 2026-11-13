@@ -15,8 +15,9 @@ use crate::window_state::WindowState;
 /// An effect that the host application executes after the desktop system commits its changes.
 #[derive(Debug)]
 pub enum DesktopSystemEffect {
-    /// Ask the shell to toggle its native window fullscreen state.
-    ToggleWindowFullScreen,
+    /// Ask the shell to put its native window into this fullscreen state. A state rather than a
+    /// toggle, so asking twice has the same result as asking once (ADR 0043).
+    SetWindowFullScreen(bool),
     /// Persist the live configuration after a transaction.
     PersistConfiguration,
     /// MCP roots were configured, reconfigured, disabled, or removed (ADR 0036). The tool host

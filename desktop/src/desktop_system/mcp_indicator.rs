@@ -4,13 +4,14 @@
 //! in the MCP root's header.
 //!
 //! A presenter takes its indicators when it is created. A configuration change that can change
-//! which MCP root covers existing content names a project in its change surface, and the
-//! transaction's effects refresh the indicators of that project's whole subtree.
+//! which MCP root covers existing content marks `RefreshMcpIndicators` for a project, and that
+//! effect refreshes the indicators of the project's whole subtree.
 
 use massive_applications::McpConfiguration;
 use massive_geometry::Color;
 
-use crate::desktop_system::{DesktopEffect, DesktopSystem, DesktopTarget, Effects};
+use crate::desktop_system::effects::DesktopEffect;
+use crate::desktop_system::{DesktopSystem, DesktopTarget};
 use crate::instance_presenter::InstanceKind;
 use crate::policy::colors;
 use crate::projects::{ProjectId, SlotContent};
@@ -18,14 +19,14 @@ use crate::projects::{ProjectId, SlotContent};
 impl DesktopSystem {
     /// Refreshes the indicators of `project` and everything below it. A project the transaction
     /// removed has nothing left to refresh.
-    pub(super) fn refresh_mcp_indicators_effect(&mut self, project: ProjectId) -> Effects {
+    pub(super) fn refresh_mcp_indicators_effect(&mut self, project: ProjectId) {
         if self.aggregates.configuration.project(project).is_none() {
-            return Effects::None;
+            return;
         }
         let mcp_activation = self.mcp_activation(project);
         self.refresh_content_indicators(SlotContent::Project(project), mcp_activation);
         // Configuring MCP changes the project's header text, so the header needs a new measure.
-        [DesktopEffect::Measure(DesktopTarget::header(project))].into()
+        DesktopEffect::Measure(DesktopTarget::header(project)).mark();
     }
 
     /// Whether an MCP root covers `project`, and with it everything in its matrix.

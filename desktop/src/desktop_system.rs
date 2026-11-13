@@ -10,7 +10,6 @@
 
 mod camera_presentation;
 pub mod change;
-mod change_surface;
 mod command_dispatch;
 mod commands;
 mod configuration_planning;
@@ -71,7 +70,6 @@ pub use commands::{
     StartInstance,
 };
 pub use configuration_planning::{Planned, Refusal};
-pub use effects::Effects;
 pub use fullscreen::{fullscreen_scale, view_size};
 pub use key_delivery::{KeyContext, KeyFocus, KeyHandler, KeyOutcome};
 pub use key_input::KeyInput;
@@ -87,7 +85,6 @@ pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
-use crate::desktop_system::change_surface::{ChangeSurface, ConfigurationImpact};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
@@ -151,10 +148,27 @@ impl ZoomLevel {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ZoomLevelState {
-    zoom_level: ZoomLevel,
-    keyboard_focus: Option<FocusableTarget>,
+/// Facts that the changes of the current transaction record for its effects (ADR 0043).
+/// `transact` resets them when the transaction ends.
+#[derive(Debug, Default)]
+struct TransactionRecord {
+    /// A change set the selection, so the focus and configuration changes planned together with it
+    /// keep it (ADR 0025, ADR 0033).
+    selection_set: bool,
+    /// The window was resized, which snaps layout and camera.
+    window_resized: bool,
+    /// The window fullscreen state the transaction asks the host for; `None` when it asks for
+    /// none.
+    window_full_screen: Option<bool>,
+}
+
+/// What the effects of a transaction read about the transaction itself.
+#[derive(Debug, Clone, Copy)]
+struct TransactionContext {
+    effects_mode: TransactionEffectsMode,
+    camera_mode: CameraPresentationMode,
+    /// Whether layout changes animate.
+    animate_layout: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,6 +269,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
     reparenting: Reparenting,
+    transaction: TransactionRecord,
 
     zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -339,6 +354,7 @@ impl DesktopSystem {
             layout_focus: None,
             layout_state,
             reparenting: Reparenting::default(),
+            transaction: TransactionRecord::default(),
 
             zoom_level_indicator,
             desktop_presenter,
@@ -369,112 +385,83 @@ impl DesktopSystem {
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<TransactionOutput> {
         let changes = changes.into();
-        let previous_zoom_level_state = self.zoom_level_state();
-        let window_size = self.window_state.inner_size;
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
         let effects_mode = effects_mode
             .into()
             .unwrap_or_else(|| self.live_effects_mode());
 
-        // Run changes to completion and combine everything into a `ChangeSurface`.
+        effects::scope(|| {
+            let output =
+                self.apply_changes_and_handle_effects(changes, instance_manager, effects_mode);
+            self.transaction = TransactionRecord::default();
+            output
+        })
+    }
 
-        let mut change_surface = ChangeSurface::default();
-        {
-            let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
-            while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, instance_manager)?; // TODO: I think Changes should support a DoubleEndedIterator.
-                for new_change in output
-                    .changes
-                    .into_iter()
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                {
-                    changes.push_front(new_change);
-                }
-                change_surface.combine(output.surface);
+    /// Runs the changes to completion, then the effects they marked (ADR 0043).
+    fn apply_changes_and_handle_effects(
+        &mut self,
+        changes: Changes,
+        instance_manager: &mut InstanceManager,
+        effects_mode: TransactionEffectsMode,
+    ) -> Result<TransactionOutput> {
+        let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
+        while let Some(change) = changes.pop_front() {
+            let output = self.apply_change(change, instance_manager)?; // TODO: I think Changes should support a DoubleEndedIterator.
+            for new_change in output
+                .changes
+                .into_iter()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+            {
+                changes.push_front(new_change);
             }
         }
 
+        let window_resized = self.transaction.window_resized;
         // Fullscreen transitions expose intermediate sizes; animating here makes the camera visibly leave the focused content.
-        let camera_mode = if change_surface.window_size_changed
-            && effects_mode == TransactionEffectsMode::Normal
-        {
+        let camera_mode = if window_resized && effects_mode == TransactionEffectsMode::Normal {
             CameraPresentationMode::Snap
         } else {
             effects_mode.camera_presentation_mode()
         };
-        // A resize snaps the layout, because each resize step would otherwise restart an
-        // animation toward a size the next step already replaces.
-        let animate_layout =
-            effects_mode.permit_animations() && !change_surface.window_size_changed;
+        let context = TransactionContext {
+            effects_mode,
+            camera_mode,
+            // A resize snaps the layout, because each resize step would otherwise restart an
+            // animation toward a size the next step already replaces.
+            animate_layout: effects_mode.permit_animations() && !window_resized,
+        };
         // When the camera may not move, large visual changes such as a visor that expands or
         // re-centers are held back as well. So layout catches up with the focus only here
         // (ADR 0002).
         if camera_mode.permit_camera_moves() {
-            change_surface.size_invalid += self.sync_layout_focus();
+            self.sync_layout_focus();
+        }
+        // The desired view may stay the same while the camera lags behind it, after a gesture froze
+        // it or while it animates into a snap. A changed desired view marks the camera on its own.
+        if !self.camera.is_synchronized(camera_mode) {
+            DesktopEffect::SynchronizeCamera.mark();
         }
 
-        // Only keep the `ChangeSurface` targets that match against the final topology.
-        //
-        // A later change in the same transaction may remove a target scheduled by an earlier
-        // change.
-        change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
+        // A later change in the same transaction may remove a target that an earlier change
+        // marked.
+        effects::retain(|effect| {
+            effect
+                .target()
+                .is_none_or(|target| self.aggregates.hierarchy.exists(target))
+        });
 
-        let zoom_level_changed = self.zoom_level_state() != previous_zoom_level_state;
-        // A focus or zoom change, and a configuration change the selection does not survive,
-        // collapse the selection, unless the transaction set it, because then the operation that
-        // set it planned these changes (ADR 0025, ADR 0033). The zoom level state includes the
-        // keyboard focus.
-        if (zoom_level_changed
-            || change_surface.configuration_impact == ConfigurationImpact::ChangedUnderSelection)
-            && !change_surface.selection_set
-        {
-            self.selection.collapse();
-        }
-        let update_zoom_level_indicator = zoom_level_changed || change_surface.window_size_changed;
-        let update_camera = change_surface.camera_needs_update();
-
-        let (effects, system_effects) =
-            split_change_surface_into_effects(change_surface, effects_mode);
-
-        // Layout and camera focus for presenters that must fit into the window
-        // read the size from the system's window state.
-        self.run_effects_to_completion(animate_layout, effects, instance_manager)?;
-
-        // Resolve camera intent after all effects were run, when all placements are final.
-        if update_camera {
-            let desired = self.resolve_desired_camera();
-            self.camera.set_desired(desired);
-        }
-
-        self.camera.synchronize(camera_mode);
-
-        if update_zoom_level_indicator {
-            self.zoom_level_indicator.sync_layout(window_size);
-        }
-        if effects_mode != TransactionEffectsMode::Setup
-            && zoom_level_changed
-            && let Some((zoom_level, project_depth)) = self.zoom_navigation().focused_zoom_level()
-        {
-            self.zoom_level_indicator.show(zoom_level, project_depth);
-        }
-
-        // Update the hover target.
-        self.desktop_presenter
-            .set_hover_placement(self.hover_placement());
+        let mut system_effects = Vec::new();
+        effects::run(|effect| {
+            self.handle_effect(effect, &context, instance_manager, &mut system_effects)
+        })?;
 
         Ok(TransactionOutput {
             effects: system_effects,
         })
-    }
-
-    fn zoom_level_state(&self) -> ZoomLevelState {
-        ZoomLevelState {
-            zoom_level: self.zoom_level,
-            keyboard_focus: self.keyboard_focus.focused(),
-        }
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
@@ -685,54 +672,6 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
     fn parent_of(&self, id: &DesktopTarget) -> Option<&DesktopTarget> {
         self.parent(id)
     }
-}
-
-/// Splits the change surface, once all of the transaction's changes have run, into the desktop
-/// effects the transaction runs itself and the system effects the desktop shell carries out after
-/// it. Every field is moved into exactly one effect.
-fn split_change_surface_into_effects(
-    surface: ChangeSurface,
-    effects_mode: TransactionEffectsMode,
-) -> (Effects, Vec<DesktopSystemEffect>) {
-    let ChangeSurface {
-        size_invalid,
-        column_counts_invalid,
-        mcp_indicators_invalid,
-        mcp_roots_changed,
-        reparented,
-        window_size_changed: _,
-        configuration_impact,
-        selection_set: _,
-        window_fullscreen_changed,
-    } = surface;
-
-    let effects = column_counts_invalid
-        .into_iter()
-        .map(DesktopEffect::RefreshColumnCount)
-        .chain(
-            mcp_indicators_invalid
-                .into_iter()
-                .map(DesktopEffect::RefreshMcpIndicators),
-        )
-        .chain(size_invalid.into_iter().map(DesktopEffect::Measure))
-        .chain(reparented.into_iter().map(DesktopEffect::Reparent))
-        .collect();
-
-    let mut system_effects = Vec::new();
-    if window_fullscreen_changed {
-        system_effects.push(DesktopSystemEffect::ToggleWindowFullScreen);
-    }
-    if !mcp_roots_changed.is_empty() {
-        system_effects.push(DesktopSystemEffect::McpRootsChanged(mcp_roots_changed));
-    }
-    // A setup transaction replays configuration already on disk and never persists it (ADR 0013).
-    if configuration_impact != ConfigurationImpact::Unchanged
-        && effects_mode != TransactionEffectsMode::Setup
-    {
-        system_effects.push(DesktopSystemEffect::PersistConfiguration);
-    }
-
-    (effects, system_effects)
 }
 
 #[cfg(test)]

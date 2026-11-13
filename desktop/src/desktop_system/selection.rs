@@ -62,8 +62,8 @@ impl Selection {
         *self != Self::default()
     }
 
-    /// Replaces the selection. The transaction reports this as `ChangeSurface::selection_set`, so
-    /// the selection survives the focus and configuration changes planned together with it.
+    /// Replaces the selection. The transaction records that it set the selection, so the selection
+    /// survives the focus and configuration changes planned together with it.
     pub fn set(&mut self, selection: Selection) {
         *self = selection;
     }

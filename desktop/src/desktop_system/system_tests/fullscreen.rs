@@ -189,7 +189,7 @@ async fn fullscreen_request_enters_native_fullscreen_before_toggling_instance_mo
         )?;
         assert!(matches!(
             output.effects.as_slice(),
-            [DesktopSystemEffect::ToggleWindowFullScreen]
+            [DesktopSystemEffect::SetWindowFullScreen(true)]
         ));
 
         system.transact(
