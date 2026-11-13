@@ -52,7 +52,8 @@ pub struct LayoutContext<'a> {
     pub shared_column_counts: &'a SharedColumnCounts,
     pub default_panel_size: SizePx,
     pub window_size: SizePx,
-    /// A visor expands while one of its instances holds the keyboard focus.
+    /// The instance that holds the layout focus (ADR 0002), not the live keyboard focus. A visor
+    /// expands while one of its instances holds it.
     pub focused_instance: Option<InstanceId>,
     pub title_bar_metrics: InstanceTitleBarMetrics,
 }

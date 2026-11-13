@@ -1,13 +1,14 @@
-use std::collections::HashSet;
+use std::mem;
 
 use anyhow::Result;
 
-use massive_applications::ViewEvent;
+use massive_applications::{InstanceId, ViewEvent};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::keyboard_focus::{KeyboardFocusChange, WindowFocusRequest};
+use super::change_surface::TargetSet;
+use super::keyboard_focus::WindowFocusRequest;
 use super::{
     DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, ZoomLevel,
 };
@@ -15,8 +16,28 @@ use crate::desktop_system::TargetLayout;
 use crate::event_router::RouterStep;
 use crate::hit_tester::HitTester;
 use crate::instance_manager::InstanceManager;
-use crate::projects::LaunchProfileId;
 use crate::targeted_event::EventTransition;
+
+/// The focused instance that layout reflects (ADR 0002).
+///
+/// Layout reads this value, never the live keyboard focus. It catches up with the live keyboard
+/// focus only in transactions that may move the camera. So a focus change while a mouse button is
+/// pressed neither expands nor re-centers a visor under the pointer. It catches up when the button
+/// is released.
+#[derive(Debug, Default)]
+pub(super) struct LayoutFocus(Option<InstanceId>);
+
+impl LayoutFocus {
+    pub fn instance(&self) -> Option<InstanceId> {
+        self.0
+    }
+
+    /// Moves the layout focus to `live`. Returns the previous layout focus, or `None` when it
+    /// already was `live`.
+    fn sync(&mut self, live: Option<InstanceId>) -> Option<Option<InstanceId>> {
+        (self.0 != live).then(|| mem::replace(&mut self.0, live))
+    }
+}
 
 impl DesktopSystem {
     // This processes input events and converts it to a set of commands.
@@ -102,15 +123,11 @@ impl DesktopSystem {
     ) -> Result<()> {
         let focus_change = self.keyboard_focus.focus(target);
 
-        // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
-        // measures now and let `transact` drain them once buttons are released. The camera move
-        // itself is driven by `transact` observing the focus change, not queued here.
-        // Navigation affinity resets are emitted as `SetNavigationAffinity(None)` sibling changes
-        // by `set_focus_change`, not applied here.
+        // Layout follows this change later, when `transact` syncs the layout focus (ADR 0002). The
+        // camera move follows from `transact` observing the focus change. Navigation affinity
+        // resets are emitted as `SetNavigationAffinity(None)` sibling changes by
+        // `set_focus_change`, not applied here.
         if let Some(change) = focus_change {
-            let measures = self.launcher_measures_for_focus_change(&change);
-            self.deferred_focus_launcher_measures.extend(measures);
-
             // Invariant: Forwarding focus/unfocus transitions never produces commands.
             assert!(
                 self.forward_event_transitions(
@@ -124,53 +141,47 @@ impl DesktopSystem {
         Ok(())
     }
 
-    /// Returns the launchers that must be re-laid-out when keyboard focus moves to/from the
-    /// affected targets. The camera move itself follows from `transact` observing the focus change.
-    fn launcher_measures_for_focus_change(
-        &self,
-        change: &KeyboardFocusChange,
-    ) -> HashSet<LaunchProfileId> {
-        [change.from, change.to]
-            .into_iter()
-            .flatten()
-            .filter_map(|target| self.focus_target_launcher_for_layout(&target.into()))
-            .collect()
-    }
+    /// Moves the layout focus to the live keyboard focus (ADR 0002).
+    ///
+    /// The focused instance's launcher takes it as its focus anchor. Returns the launchers whose
+    /// layout depends on the focus and that held the previous or hold the new layout focus, so
+    /// that the caller re-measures them.
+    pub(super) fn sync_layout_focus(&mut self) -> TargetSet {
+        let live = self.focused_path().instance();
+        let Some(previous) = self.layout_focus.sync(live) else {
+            return TargetSet::default();
+        };
 
-    /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
-    /// `None` if the target's launcher does not require focus-driven relayout.
-    fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
-        let focused_path = self.path_of(target);
-        let focused_instance = focused_path.instance()?;
-        let launcher_id = self
-            .aggregates
-            .hierarchy
-            .launcher_of_instance(focused_instance);
+        let hierarchy = &self.aggregates.hierarchy;
+        if let Some(instance) = live {
+            let launcher = hierarchy.launcher_of_instance(instance);
+            self.aggregates
+                .launchers
+                .get_mut(&launcher)
+                .expect("Launcher missing")
+                .focus_anchor_instance = Some(instance);
+        }
+
         let context = self.aggregates.layout_context(
             self.default_panel_size,
             self.window_state.inner_size,
-            self.focused_path().instance(),
+            live,
         );
-        self.aggregates.launchers[&launcher_id]
-            .relayouts_on_focus((), &context)
-            .then_some(launcher_id)
-    }
-
-    // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped
-    // while the camera is locked; callers defer it until the camera unlocks.
-    pub(super) fn sync_focused_launcher_anchor(&mut self) {
-        let Some(instance_id) = self.focused_path().instance() else {
-            return;
-        };
-        let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
-        let launcher = self
-            .aggregates
-            .launchers
-            .get_mut(&launcher_id)
-            .expect("Launcher missing");
-        if launcher.focus_anchor_instance != Some(instance_id) {
-            launcher.focus_anchor_instance = Some(instance_id);
+        let mut relayouts = TargetSet::default();
+        for instance in [previous, live].into_iter().flatten() {
+            // The previous instance may have stopped while the layout focus lagged behind.
+            if !hierarchy.exists(&DesktopTarget::from(instance)) {
+                continue;
+            }
+            let launcher = hierarchy.launcher_of_instance(instance);
+            let Some(presenter) = self.aggregates.launchers.get(&launcher) else {
+                continue;
+            };
+            if presenter.relayouts_on_focus((), &context) {
+                relayouts.insert(DesktopTarget::Launcher(launcher));
+            }
         }
+        relayouts
     }
 
     pub(super) fn unfocus_pointer_if_path_contains(

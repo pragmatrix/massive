@@ -40,8 +40,7 @@ mod target_layout;
 mod topology;
 mod zoom_level_indicator;
 
-use std::collections::{HashSet, VecDeque};
-use std::mem;
+use std::collections::VecDeque;
 
 use anyhow::Result;
 use derive_more::Debug;
@@ -59,6 +58,7 @@ use massive_util::CollectingVec;
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
+use focus_input::LayoutFocus;
 use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_state::DesktopLayoutState;
@@ -88,7 +88,7 @@ pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
 pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
-use crate::desktop_system::change_surface::{ChangeSurface, ConfigurationImpact, TargetSet};
+use crate::desktop_system::change_surface::{ChangeSurface, ConfigurationImpact};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
@@ -248,8 +248,8 @@ pub struct DesktopSystem {
     camera: CameraPresentation,
     zoom_level: ZoomLevel,
     navigation_control: NavigationControl,
-    /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
-    deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
+    /// The focused instance that layout reflects (ADR 0002).
+    layout_focus: LayoutFocus,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -335,7 +335,7 @@ impl DesktopSystem {
             camera: CameraPresentation::new(PixelCamera::default()),
             zoom_level: ZoomLevel::Focus,
             navigation_control: NavigationControl::default(),
-            deferred_focus_launcher_measures: Default::default(),
+            layout_focus: LayoutFocus::default(),
             layout_state,
             reparenting: Reparenting::default(),
 
@@ -396,12 +396,6 @@ impl DesktopSystem {
             }
         }
 
-        // Collect deferred measures if the camera can be moved.
-
-        // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
-        // For example, focus layout effects.
-        //
-        // Design: may replace deferred_* with a ChangeSurface (a "deferred" ChangeSurface?).
         // Fullscreen transitions expose intermediate sizes; animating here makes the camera visibly leave the focused content.
         let camera_mode = if change_surface.window_size_changed
             && effects_mode == TransactionEffectsMode::Normal
@@ -414,12 +408,11 @@ impl DesktopSystem {
         // animation toward a size the next step already replaces.
         let animate_layout =
             effects_mode.permit_animations() && !change_surface.window_size_changed;
+        // When the camera may not move, large visual changes such as a visor that expands or
+        // re-centers are held back as well. So layout catches up with the focus only here
+        // (ADR 0002).
         if camera_mode.permit_camera_moves() {
-            self.sync_focused_launcher_anchor();
-            change_surface.size_invalid += mem::take(&mut self.deferred_focus_launcher_measures)
-                .into_iter()
-                .map(DesktopTarget::Launcher)
-                .collect::<TargetSet>();
+            change_surface.size_invalid += self.sync_layout_focus();
         }
 
         // Only keep the `ChangeSurface` targets that match against the final topology.
