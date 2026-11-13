@@ -13,6 +13,8 @@ pub mod change;
 mod command_dispatch;
 mod commands;
 mod configuration_planning;
+mod desired_camera;
+mod effect_handling;
 mod effects;
 mod event_forwarding;
 mod focus_input;
@@ -37,6 +39,7 @@ mod system_tests;
 mod target;
 mod target_layout;
 mod topology;
+mod window_presentation;
 mod zoom_level_indicator;
 
 use std::collections::VecDeque;
@@ -82,7 +85,7 @@ pub use layout_algorithm::{
 pub use massive_applications::{Direction, SlotShift};
 pub use mcp_indicator::McpActivation;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
-pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
+pub use target_layout::{AppliedLayout, LayoutContext, LayoutInputs, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::focus_path::{FocusPath, PathResolver};
@@ -441,7 +444,8 @@ impl DesktopSystem {
             self.sync_layout_focus();
         }
         // The desired view may stay the same while the camera lags behind it, after a gesture froze
-        // it or while it animates into a snap. A changed desired view marks the camera on its own.
+        // it or while it animates into a snap. Resolving a changed desired view marks
+        // `SynchronizeCamera` automatically (ADR 0043).
         if !self.camera.is_synchronized(camera_mode) {
             DesktopEffect::SynchronizeCamera.mark();
         }
@@ -525,6 +529,13 @@ impl DesktopSystem {
 
     pub fn camera(&mut self) -> &PixelCamera {
         self.camera.proceed()
+    }
+
+    /// Records the window's live fullscreen state. Otherwise only a resize carries it, and a resize
+    /// can arrive after the window changed its state, so a request in between would be decided from
+    /// the old state (ADR 0043).
+    pub fn record_window_fullscreen(&mut self, is_fullscreen: bool) {
+        self.window_state.is_fullscreen = is_fullscreen;
     }
 
     pub fn any_buttons_pressed(&self) -> bool {

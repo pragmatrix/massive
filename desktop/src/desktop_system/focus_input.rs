@@ -8,7 +8,8 @@ use super::change::{Changes, DesktopChange, set_focus};
 use super::effects::DesktopEffect;
 use super::keyboard_focus::WindowFocusRequest;
 use super::{
-    DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, ZoomLevel,
+    DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, LayoutInputs,
+    ZoomLevel,
 };
 use crate::desktop_system::TargetLayout;
 use crate::event_router::RouterStep;
@@ -109,7 +110,8 @@ impl DesktopSystem {
             for target in [change.from, change.to].into_iter().flatten() {
                 DesktopEffect::Measure(target.into()).mark();
             }
-            DesktopEffect::ZoomLevelChanged.mark();
+            DesktopEffect::CollapseSelection.mark();
+            DesktopEffect::ShowZoomLevel.mark();
         }
         if let Some(change) = focus_change {
             // Invariant: Forwarding focus/unfocus transitions never produces commands.
@@ -153,11 +155,11 @@ impl DesktopSystem {
                 .focus_anchor_instance = Some(instance);
         }
 
-        let context = self.aggregates.layout_context(
-            self.default_panel_size,
-            self.window_state.inner_size,
-            live,
-        );
+        // The launchers decide from the live focus, which the layout focus is catching up with.
+        let context = self.aggregates.layout_context(LayoutInputs {
+            focused_instance: live,
+            ..self.layout_inputs()
+        });
         for launcher in [previous_launcher, live_launcher].into_iter().flatten() {
             if self.aggregates.launchers[&launcher].relayouts_on_focus((), &context) {
                 DesktopEffect::Measure(DesktopTarget::Launcher(launcher)).mark();

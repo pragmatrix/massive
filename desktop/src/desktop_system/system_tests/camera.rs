@@ -24,7 +24,8 @@ async fn startup_setup_snaps_camera_to_the_focused_instance() -> Result<()> {
         deliver_view(&mut system, &mut instance_manager, instance)?;
 
         let expected = system
-            .resolve_desired_camera()
+            .camera_framing()
+            .desired_camera()
             .expect("a focused target must have a camera");
         assert_eq!(
             *system.camera(),
@@ -168,7 +169,8 @@ async fn the_camera_catches_up_with_the_focus_after_a_gesture() -> Result<()> {
             TransactionEffectsMode::Normal,
         )?;
         let desired = system
-            .resolve_desired_camera()
+            .camera_framing()
+            .desired_camera()
             .expect("a focused target has a camera");
         assert_ne!(desired, before);
         assert_eq!(*system.camera.target(), desired);

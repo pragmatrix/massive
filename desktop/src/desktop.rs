@@ -242,6 +242,10 @@ impl Desktop {
             };
 
             let mut frame = begin_frame();
+            // Planning and the transaction decide fullscreen requests from the window's live
+            // state.
+            self.system
+                .record_window_fullscreen(self.window.is_fullscreen());
 
             match event {
                 DesktopEvent::InstanceEvents(events) => {

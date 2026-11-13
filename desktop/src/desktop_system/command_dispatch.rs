@@ -440,7 +440,8 @@ impl DesktopSystem {
                     if let Some(focused) = self.focused_target() {
                         DesktopEffect::Measure(focused).mark();
                     }
-                    DesktopEffect::ZoomLevelChanged.mark();
+                    DesktopEffect::CollapseSelection.mark();
+                    DesktopEffect::ShowZoomLevel.mark();
                 }
             }
             DesktopChange::ToggleFullScreenMode(target) => {

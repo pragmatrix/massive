@@ -8,7 +8,8 @@ use massive_layout::Placement;
 
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
-use super::{DesktopTarget, FocusableTarget, LayoutContext};
+use super::selection::Selection;
+use super::{DesktopLayoutState, DesktopTarget, FocusableTarget, LayoutContext};
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, launcher_mode, matrix_area_placement};
@@ -174,13 +175,11 @@ impl DesktopSystem {
     pub fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
         if self.event_router.pointer_focus().is_none()
             && let Some(focused) = self.keyboard_focus.hover_outline_focus()
-            && let Some(placement) = self.selection_outline(
+            && let Some(placement) = selection_outline(
+                &self.selection,
+                &self.layout_state,
                 focused,
-                &self.aggregates.layout_context(
-                    self.default_panel_size,
-                    self.window_state.inner_size,
-                    self.layout_focus,
-                ),
+                &self.aggregates.layout_context(self.layout_inputs()),
             )
         {
             return Some(placement);
@@ -192,23 +191,6 @@ impl DesktopSystem {
             | DesktopTarget::Instance(..) => Some(self.placement(&target)),
             DesktopTarget::Desktop => None,
         }
-    }
-
-    /// Where the outline of the selection around the `focused` target goes, in the coordinates of
-    /// the layout root. `None` when only the focused slot is selected, so the outline marks the
-    /// focused target as usual.
-    pub fn selection_outline(
-        &self,
-        focused: FocusableTarget,
-        context: &LayoutContext,
-    ) -> Option<Placement<Transform, 2>> {
-        if !self.selection.is_extended() {
-            return None;
-        }
-        let (project, rect) = self
-            .selection
-            .selected_rect(focused, &self.selection_context())?;
-        matrix_area_placement(project, rect, &self.layout_state, context)
     }
 
     fn hover_target(&self) -> Option<DesktopTarget> {
@@ -224,4 +206,20 @@ impl DesktopSystem {
             target => target.into(),
         })
     }
+}
+
+/// Where the outline of the selection around the `focused` target goes, in the coordinates of the
+/// layout root. `None` when only the focused slot is selected, so the outline marks the focused
+/// target as usual. The hover outline and the camera's framing both read it (ADR 0025, ADR 0032).
+pub fn selection_outline(
+    selection: &Selection,
+    layout_state: &DesktopLayoutState,
+    focused: FocusableTarget,
+    context: &LayoutContext,
+) -> Option<Placement<Transform, 2>> {
+    if !selection.is_extended() {
+        return None;
+    }
+    let (project, rect) = selection.selected_rect(focused, &context.into())?;
+    matrix_area_placement(project, rect, layout_state, context)
 }

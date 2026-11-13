@@ -252,6 +252,12 @@ moves into `massive-util` when a second user appears.
   depending on which was marked first. The result is still correct (feature 9).
 - The zoom level indicator is laid out at the window size after the transaction's changes, because
   its effect reads the current state.
+- The hover outline and the camera's synchronization no longer run in every transaction, only when
+  something they read was handled or a change marked them. A transaction that only carries an
+  instance's scene changes or a view's title or cursor leaves both alone.
+- The host records the window's live fullscreen state before it handles each event. The fullscreen
+  policy and the requested fullscreen state then decide from that state, not from the state of the
+  last resize, which can arrive after the window changed.
 - The desired camera is resolved again after every rank batch of `Measure` or `Place`, including
   measures that only other effects marked, such as a refreshed column count.
 - The facts a change records for the effects of its transaction (the selection was set, the window
