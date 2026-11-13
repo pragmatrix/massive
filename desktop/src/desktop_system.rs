@@ -13,6 +13,8 @@ pub mod change;
 mod command_dispatch;
 mod commands;
 mod configuration_planning;
+mod desired_camera;
+mod effect_handling;
 mod effects;
 mod event_forwarding;
 mod focus_input;
@@ -37,6 +39,7 @@ mod system_tests;
 mod target;
 mod target_layout;
 mod topology;
+mod window_presentation;
 mod zoom_level_indicator;
 
 use std::collections::VecDeque;
@@ -82,7 +85,7 @@ pub use layout_algorithm::{
 pub use massive_applications::{Direction, SlotShift};
 pub use mcp_indicator::McpActivation;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
-pub use target_layout::{AppliedLayout, LayoutContext, TargetLayout};
+pub use target_layout::{AppliedLayout, LayoutContext, LayoutInputs, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::focus_path::{FocusPath, PathResolver};

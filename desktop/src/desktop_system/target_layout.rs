@@ -43,6 +43,17 @@ pub trait TargetLayout {
     ) -> Result<AppliedLayout>;
 }
 
+/// The values layout reads beside the aggregates: the panel size, the window size, and the
+/// instance layout treats as focused.
+#[derive(Debug, Clone, Copy)]
+pub struct LayoutInputs {
+    pub default_panel_size: SizePx,
+    pub window_size: SizePx,
+    /// The instance layout treats as focused, `None` when no instance is focused. Layout reads the
+    /// layout focus here, not the live keyboard focus (ADR 0002).
+    pub focused_instance: Option<InstanceId>,
+}
+
 /// What measuring and placing read beyond the presenter itself.
 #[derive(Debug)]
 pub struct LayoutContext<'a> {

@@ -180,13 +180,13 @@ async fn the_camera_encloses_a_selection_beyond_the_view() -> Result<()> {
             DesktopCommand::Zoom(Zoom::Out),
         )?;
         assert_eq!(system.zoom_level, ZoomLevel::Row);
-        let row_camera = system.resolve_desired_camera();
+        let row_camera = system.camera_framing().desired_camera();
 
         extend(&mut system, &mut instance_manager, Direction::Right)?;
-        assert_eq!(system.resolve_desired_camera(), row_camera);
+        assert_eq!(system.camera_framing().desired_camera(), row_camera);
 
         extend(&mut system, &mut instance_manager, Direction::Right)?;
-        let camera = system.resolve_desired_camera().unwrap();
+        let camera = system.camera_framing().desired_camera().unwrap();
         let row_camera = row_camera.unwrap();
         assert!(camera.distance > row_camera.distance);
         assert!(camera.look_at.translate.x > row_camera.look_at.translate.x);

@@ -346,7 +346,8 @@ fn submit(
 
 fn camera_distance(system: &DesktopSystem) -> f64 {
     system
-        .resolve_desired_camera()
+        .camera_framing()
+        .desired_camera()
         .expect("a focused instance resolves a camera")
         .distance
 }

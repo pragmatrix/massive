@@ -7,7 +7,7 @@ use euclid::{Vector2D, vec2};
 
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
-use super::{DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason};
+use super::{DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LayoutContext};
 use crate::projects::{
     MatrixPoint, MatrixRect, MatrixUnit, ProjectId, RuntimeConfiguration, SharedColumnCounts,
     SlotContent, SlotPosition, matrix_bounding_box,
@@ -238,6 +238,16 @@ pub struct SelectionContext<'a> {
     pub hierarchy: &'a DesktopTopology,
     pub configuration: &'a RuntimeConfiguration,
     pub shared_column_counts: &'a SharedColumnCounts,
+}
+
+impl<'a> From<&LayoutContext<'a>> for SelectionContext<'a> {
+    fn from(context: &LayoutContext<'a>) -> Self {
+        Self {
+            hierarchy: context.hierarchy,
+            configuration: context.configuration,
+            shared_column_counts: context.shared_column_counts,
+        }
+    }
 }
 
 impl SelectionContext<'_> {

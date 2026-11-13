@@ -268,7 +268,8 @@ async fn native_fullscreen_resize_keeps_the_presented_camera_on_the_focused_inst
             assert_eq!(system.keyboard_focus.focused(), focused);
             assert_eq!(system.zoom_level, ZoomLevel::Focus);
             let desired = system
-                .resolve_desired_camera()
+                .camera_framing()
+                .desired_camera()
                 .expect("the instance is focused");
             assert_eq!(
                 *system.camera(),
