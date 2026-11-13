@@ -109,7 +109,8 @@ impl DesktopSystem {
             for target in [change.from, change.to].into_iter().flatten() {
                 DesktopEffect::Measure(target.into()).mark();
             }
-            DesktopEffect::ZoomLevelChanged.mark();
+            DesktopEffect::CollapseSelection.mark();
+            DesktopEffect::ShowZoomLevel.mark();
         }
         if let Some(change) = focus_change {
             // Invariant: Forwarding focus/unfocus transitions never produces commands.

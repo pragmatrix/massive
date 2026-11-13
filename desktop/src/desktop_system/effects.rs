@@ -11,8 +11,8 @@ use super::DesktopTarget;
 use crate::effect_scheduler::{self, Effect, EffectGraph, EffectKind, PendingEffects};
 use crate::projects::ProjectId;
 
-/// The kind of each effect, `DesktopEffectKind`, is generated from the variants, so the two never
-/// drift apart.
+/// Work that a transaction's changes make necessary (ADR 0043). Its kind, `DesktopEffectKind`, is
+/// generated from the variants, so the two never drift apart.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, EnumDiscriminants)]
 #[strum_discriminants(name(DesktopEffectKind), derive(VariantArray))]
 pub enum DesktopEffect {
@@ -22,12 +22,13 @@ pub enum DesktopEffect {
     /// Refreshes the MCP indicators of the project and everything below it, after configuration
     /// changes may have changed them (ADR 0036).
     RefreshMcpIndicators(ProjectId),
-    /// The keyboard focus or the zoom level changed. Collapses the selection unless the transaction
-    /// set it, and shows the zoom level indicator (ADR 0025, ADR 0033).
-    ZoomLevelChanged,
-    /// A configuration change moved slots under the selection, which collapses it unless the
-    /// transaction set it (ADR 0025).
+    /// Collapses the selection unless the transaction set it. Changing the focus or the zoom level
+    /// marks it, and so does a configuration change that moves slots under the selection
+    /// (ADR 0025, ADR 0033).
     CollapseSelection,
+    /// Shows the zoom level indicator for the focused target, except in setup transactions
+    /// (ADR 0018).
+    ShowZoomLevel,
     Measure(DesktopTarget),
     Place(DesktopTarget),
     /// Converts the on-screen position of a target that moved to a new parent into that parent's
@@ -38,12 +39,15 @@ pub enum DesktopEffect {
     UpdateDesiredCamera,
     /// Moves the presented camera toward the desired view in the transaction's camera mode.
     SynchronizeCamera,
+    /// Places the zoom level indicator in the window's top-right corner at the current window size.
     LayoutZoomLevelIndicator,
+    /// Moves the hover outline to the pointer focus, or to the keyboard focus or selection.
     UpdateHover,
     /// Asks the host to set the window's fullscreen state the transaction requested.
     SetWindowFullScreen,
     /// Asks the host to close the tool connections bound to the MCP root (ADR 0036).
     AnnounceMcpRoot(ProjectId),
+    /// Asks the host to persist the configuration, except in setup transactions (ADR 0013).
     PersistConfiguration,
 }
 
@@ -58,7 +62,7 @@ impl EffectKind for DesktopEffectKind {
     fn reads(self) -> &'static [Self] {
         use DesktopEffectKind::*;
         match self {
-            RefreshColumnCount | RefreshMcpIndicators | ZoomLevelChanged | CollapseSelection => &[],
+            RefreshColumnCount | RefreshMcpIndicators | CollapseSelection | ShowZoomLevel => &[],
             // A matrix lays out its column count, and a header measures its MCP indicator text.
             // A target is measured from the sizes of its children.
             Measure => &[RefreshColumnCount, RefreshMcpIndicators, Measure],
@@ -68,11 +72,11 @@ impl EffectKind for DesktopEffectKind {
             Reparent => &[Place],
             ApplyLayout => &[Place, Reparent],
             // The camera frames the placed focus and keeps the selection in view (ADR 0032).
-            UpdateDesiredCamera => &[Measure, Place, ZoomLevelChanged, CollapseSelection],
+            UpdateDesiredCamera => &[Measure, Place, CollapseSelection],
             SynchronizeCamera => &[UpdateDesiredCamera],
-            LayoutZoomLevelIndicator => &[ZoomLevelChanged],
+            LayoutZoomLevelIndicator => &[ShowZoomLevel],
             // The hover outline marks a placement, the selection, or the keyboard focus.
-            UpdateHover => &[Place, ZoomLevelChanged, CollapseSelection],
+            UpdateHover => &[Place, CollapseSelection],
             SetWindowFullScreen | AnnounceMcpRoot | PersistConfiguration => &[],
         }
     }
@@ -88,8 +92,8 @@ impl Effect for DesktopEffect {
     fn without_subject(kind: DesktopEffectKind) -> Option<Self> {
         use DesktopEffectKind::*;
         match kind {
-            ZoomLevelChanged => Some(Self::ZoomLevelChanged),
             CollapseSelection => Some(Self::CollapseSelection),
+            ShowZoomLevel => Some(Self::ShowZoomLevel),
             UpdateDesiredCamera => Some(Self::UpdateDesiredCamera),
             SynchronizeCamera => Some(Self::SynchronizeCamera),
             LayoutZoomLevelIndicator => Some(Self::LayoutZoomLevelIndicator),

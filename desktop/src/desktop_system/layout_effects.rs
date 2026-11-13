@@ -36,8 +36,8 @@ impl DesktopSystem {
             DesktopEffect::RefreshMcpIndicators(project) => {
                 self.refresh_mcp_indicators_effect(project)
             }
-            DesktopEffect::ZoomLevelChanged => self.zoom_level_changed_effect(context.effects_mode),
             DesktopEffect::CollapseSelection => self.collapse_selection_unless_set(),
+            DesktopEffect::ShowZoomLevel => self.show_zoom_level_effect(context.effects_mode),
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::Reparent(target) => self.reparent_effect(target),
@@ -79,9 +79,9 @@ impl DesktopSystem {
         Ok(())
     }
 
-    /// The keyboard focus or the zoom level changed in this transaction.
-    fn zoom_level_changed_effect(&mut self, effects_mode: TransactionEffectsMode) {
-        self.collapse_selection_unless_set();
+    /// Shows the zoom level indicator for the focused target, except in setup transactions, which
+    /// replay state the user did not just change.
+    fn show_zoom_level_effect(&mut self, effects_mode: TransactionEffectsMode) {
         if effects_mode != TransactionEffectsMode::Setup
             && let Some((zoom_level, project_depth)) = self.zoom_navigation().focused_zoom_level()
         {
@@ -223,7 +223,7 @@ impl DesktopSystem {
         title
     }
 
-    /// Measures one layout target in a bottom-up pass and marks the follow-up work.
+    /// Measures one layout target in a bottom-up pass and marks the effects that read its result.
     ///
     /// If any direct child is still unmeasured, this does not measure the target yet. Instead, it
     /// marks `Measure` for each missing child, whose measure marks this target's again.

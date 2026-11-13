@@ -441,7 +441,8 @@ impl DesktopSystem {
             self.sync_layout_focus();
         }
         // The desired view may stay the same while the camera lags behind it, after a gesture froze
-        // it or while it animates into a snap. A changed desired view marks the camera on its own.
+        // it or while it animates into a snap. Resolving a changed desired view marks
+        // `SynchronizeCamera` automatically (ADR 0043).
         if !self.camera.is_synchronized(camera_mode) {
             DesktopEffect::SynchronizeCamera.mark();
         }
