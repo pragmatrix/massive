@@ -463,7 +463,11 @@ impl Desktop {
             .transact(changes, &mut self.instance_manager, None)?;
         for effect in output.effects {
             match effect {
-                DesktopSystemEffect::ToggleWindowFullScreen => self.window.toggle_fullscreen()?,
+                DesktopSystemEffect::SetWindowFullScreen(full_screen) => {
+                    if self.window.is_fullscreen() != full_screen {
+                        self.window.toggle_fullscreen()?;
+                    }
+                }
                 DesktopSystemEffect::PersistConfiguration => self
                     .configuration_persistence
                     .persist(self.system.configuration()),

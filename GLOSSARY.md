@@ -308,6 +308,26 @@ _Avoid_: control socket, MCP socket
 The selectable implementation that shapes attributed text into glyph runs for rendering. Either `CosmicText` or `Parley`, both behind one shaping contract producing the same neutral glyph data.
 _Avoid_: font system, shaper backend, text layout engine
 
+**Effect**:
+Work that a desktop transaction's changes make necessary, such as measuring a target or refreshing a project's column counts. It names its kind and, for most kinds, a subject, and carries no other data, so two equal effects are one piece of work (ADR 0043).
+_Avoid_: reaction, derivation, follow-up
+
+**System effect**:
+What the desktop asks its host to do after a transaction, such as persisting the configuration or setting the window's fullscreen state (ADR 0043).
+_Avoid_: host effect
+
+**Mark**:
+To record that an effect has to run in the current transaction. A marked effect is pending until the transaction handles it (ADR 0043).
+_Avoid_: dirty, invalidate, schedule
+
+**Rank**:
+The position of an effect's kind in the order in which a transaction handles effects. It follows from the kinds whose results each kind reads (ADR 0043).
+_Avoid_: phase
+
+**Rank batch**:
+The pending effects of one rank, which a transaction handles together before it looks at the pending effects again (ADR 0043).
+_Avoid_: wave, round
+
 ## Font identity language
 
 **Loaded face**:
@@ -393,7 +413,7 @@ The scene changes a window renderer takes at once. It holds one or more submissi
 the window renders, in their order. The lifetime stage resolves a scene change batch as a whole
 into render changes, and the renderer applies them together, so it resolves references only
 between scene change batches (ADR 0040).
-_Avoid_: batch, render batch, frame batch, change batch
+_Avoid_: batch (alone), render batch, frame batch, change batch
 
 **Render change**:
 A change to a scene object as the renderer receives it: a create, an update, or a delete. Only the

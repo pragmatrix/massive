@@ -5,7 +5,7 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::change_surface::TargetSet;
+use super::effects::DesktopEffect;
 use super::keyboard_focus::WindowFocusRequest;
 use super::{
     DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, ZoomLevel,
@@ -101,9 +101,16 @@ impl DesktopSystem {
         let focus_change = self.keyboard_focus.focus(target);
 
         // Layout follows this change later, when `transact` syncs the layout focus (ADR 0002). The
-        // camera move follows from `transact` observing the focus change. Navigation affinity
-        // resets are emitted as `SetNavigationAffinity(None)` sibling changes by
-        // `set_focus_change`, not applied here.
+        // camera move follows from the effects marked here (ADR 0043). Navigation affinity resets
+        // are emitted as `SetNavigationAffinity(None)` sibling changes by `set_focus_change`, not
+        // applied here.
+        if let Some(change) = &focus_change {
+            // A target's size may depend on whether it holds the focus.
+            for target in [change.from, change.to].into_iter().flatten() {
+                DesktopEffect::Measure(target.into()).mark();
+            }
+            DesktopEffect::ZoomLevelChanged.mark();
+        }
         if let Some(change) = focus_change {
             // Invariant: Forwarding focus/unfocus transitions never produces commands.
             assert!(
@@ -120,14 +127,14 @@ impl DesktopSystem {
 
     /// Moves the layout focus to the live keyboard focus (ADR 0002).
     ///
-    /// The focused instance's launcher takes it as its focus anchor. Returns the launchers whose
-    /// layout depends on the focus and that held the previous or hold the new layout focus, so
-    /// that the caller re-measures them.
-    pub(super) fn sync_layout_focus(&mut self) -> TargetSet {
+    /// The focused instance's launcher takes it as its focus anchor. Marks `Measure` for the
+    /// launchers whose layout depends on the focus and that held the previous or hold the new
+    /// layout focus.
+    pub(super) fn sync_layout_focus(&mut self) {
         let live = self.focused_path().instance();
         let previous = self.layout_focus;
         if previous == live {
-            return TargetSet::default();
+            return;
         }
         self.layout_focus = live;
 
@@ -151,13 +158,11 @@ impl DesktopSystem {
             self.window_state.inner_size,
             live,
         );
-        let mut relayouts = TargetSet::default();
         for launcher in [previous_launcher, live_launcher].into_iter().flatten() {
             if self.aggregates.launchers[&launcher].relayouts_on_focus((), &context) {
-                relayouts.insert(DesktopTarget::Launcher(launcher));
+                DesktopEffect::Measure(DesktopTarget::Launcher(launcher)).mark();
             }
         }
-        relayouts
     }
 
     pub(super) fn unfocus_pointer_if_path_contains(

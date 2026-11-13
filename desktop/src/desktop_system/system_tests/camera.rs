@@ -133,3 +133,48 @@ async fn cmd_t_keeps_camera_stable(config: &str) -> Result<()> {
     })
     .await
 }
+
+/// A press freezes the camera while the focus moves, and the release lets it catch up, even when
+/// the release itself changes nothing (ADR 0043).
+#[tokio::test]
+async fn the_camera_catches_up_with_the_focus_after_a_gesture() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let frame = massive_applications::begin_frame();
+        let NestedSiblings {
+            mut system,
+            mut instance_manager,
+            instance_b,
+            ..
+        } = nested_siblings()?;
+        let before = *system.camera.target();
+
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Instance(instance_b)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::UserGestureActive,
+        )?;
+        assert_eq!(
+            *system.camera.target(),
+            before,
+            "the press must not move the camera"
+        );
+
+        system.transact(
+            Changes::Empty,
+            &mut instance_manager,
+            TransactionEffectsMode::Normal,
+        )?;
+        let desired = system
+            .resolve_desired_camera()
+            .expect("a focused target has a camera");
+        assert_ne!(desired, before);
+        assert_eq!(*system.camera.target(), desired);
+
+        drop(frame.submission::<SceneChange>());
+        Ok(())
+    })
+    .await
+}

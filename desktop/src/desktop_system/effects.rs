@@ -1,12 +1,20 @@
-use std::collections::VecDeque;
-use std::{ops, vec};
+//! The desktop's effects: the work that a transaction's changes make necessary, the kinds whose
+//! results each of them reads, and the task-local through which the desktop marks them (ADR 0043).
 
-use strum::{EnumCount, EnumIter, IntoEnumIterator};
+use std::cell::RefCell;
+use std::sync::LazyLock;
+
+use strum::{EnumDiscriminants, VariantArray};
+use tokio::task_local;
 
 use super::DesktopTarget;
+use crate::effect_scheduler::{self, Effect, EffectGraph, EffectKind, PendingEffects};
 use crate::projects::ProjectId;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// The kind of each effect, `DesktopEffectKind`, is generated from the variants, so the two never
+/// drift apart.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, EnumDiscriminants)]
+#[strum_discriminants(name(DesktopEffectKind), derive(VariantArray))]
 pub enum DesktopEffect {
     /// Refreshes the shared column counts after configuration changes edited the project's slots,
     /// or drops the counts of a project they removed (ADR 0035).
@@ -14,143 +22,129 @@ pub enum DesktopEffect {
     /// Refreshes the MCP indicators of the project and everything below it, after configuration
     /// changes may have changed them (ADR 0036).
     RefreshMcpIndicators(ProjectId),
+    /// The keyboard focus or the zoom level changed. Collapses the selection unless the transaction
+    /// set it, and shows the zoom level indicator (ADR 0025, ADR 0033).
+    ZoomLevelChanged,
+    /// A configuration change moved slots under the selection, which collapses it unless the
+    /// transaction set it (ADR 0025).
+    CollapseSelection,
     Measure(DesktopTarget),
     Place(DesktopTarget),
     /// Converts the on-screen position of a target that moved to a new parent into that parent's
-    /// coordinates, then schedules the target's layout.
+    /// coordinates, so that it slides from where it was instead of jumping.
     Reparent(DesktopTarget),
     ApplyLayout(DesktopTarget),
+    /// Resolves the camera's desired view, once all placements are final.
+    UpdateDesiredCamera,
+    /// Moves the presented camera toward the desired view in the transaction's camera mode.
+    SynchronizeCamera,
+    LayoutZoomLevelIndicator,
+    UpdateHover,
+    /// Asks the host to set the window's fullscreen state the transaction requested.
+    SetWindowFullScreen,
+    /// Asks the host to close the tool connections bound to the MCP root (ADR 0036).
+    AnnounceMcpRoot(ProjectId),
+    PersistConfiguration,
 }
 
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter,
-)]
-enum DesktopEffectPhase {
-    /// Every count is final before a matrix measures, because layout reads it.
-    #[default]
-    ColumnCounts,
-    McpIndicators,
-    Layout,
-    PropagatePlacements,
+impl EffectKind for DesktopEffectKind {
+    const ALL: &'static [Self] = Self::VARIANTS;
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The order of the desktop's effects follows from these reads alone (ADR 0043).
+    fn reads(self) -> &'static [Self] {
+        use DesktopEffectKind::*;
+        match self {
+            RefreshColumnCount | RefreshMcpIndicators | ZoomLevelChanged | CollapseSelection => &[],
+            // A matrix lays out its column count, and a header measures its MCP indicator text.
+            // A target is measured from the sizes of its children.
+            Measure => &[RefreshColumnCount, RefreshMcpIndicators, Measure],
+            // A child is placed within the placement of its parent.
+            Place => &[Measure, Place],
+            // The new parent's placement must be final.
+            Reparent => &[Place],
+            ApplyLayout => &[Place, Reparent],
+            // The camera frames the placed focus and keeps the selection in view (ADR 0032).
+            UpdateDesiredCamera => &[Measure, Place, ZoomLevelChanged, CollapseSelection],
+            SynchronizeCamera => &[UpdateDesiredCamera],
+            LayoutZoomLevelIndicator => &[ZoomLevelChanged],
+            // The hover outline marks a placement, the selection, or the keyboard focus.
+            UpdateHover => &[Place, ZoomLevelChanged, CollapseSelection],
+            SetWindowFullScreen | AnnounceMcpRoot | PersistConfiguration => &[],
+        }
+    }
+}
+
+impl Effect for DesktopEffect {
+    type Kind = DesktopEffectKind;
+
+    fn kind(&self) -> DesktopEffectKind {
+        self.into()
+    }
+
+    fn without_subject(kind: DesktopEffectKind) -> Option<Self> {
+        use DesktopEffectKind::*;
+        match kind {
+            ZoomLevelChanged => Some(Self::ZoomLevelChanged),
+            CollapseSelection => Some(Self::CollapseSelection),
+            UpdateDesiredCamera => Some(Self::UpdateDesiredCamera),
+            SynchronizeCamera => Some(Self::SynchronizeCamera),
+            LayoutZoomLevelIndicator => Some(Self::LayoutZoomLevelIndicator),
+            UpdateHover => Some(Self::UpdateHover),
+            SetWindowFullScreen => Some(Self::SetWindowFullScreen),
+            PersistConfiguration => Some(Self::PersistConfiguration),
+            RefreshColumnCount | RefreshMcpIndicators | Measure | Place | Reparent
+            | ApplyLayout | AnnounceMcpRoot => None,
+        }
+    }
 }
 
 impl DesktopEffect {
-    const fn phase(&self) -> DesktopEffectPhase {
+    /// Marks this effect in the current transaction (ADR 0043).
+    pub fn mark(self) {
+        effect_scheduler::mark(&PENDING, self);
+    }
+
+    /// The target the effect works on, if its subject is one. A later change of the same
+    /// transaction may have removed it.
+    pub fn target(&self) -> Option<&DesktopTarget> {
         match self {
-            Self::RefreshColumnCount(_) => DesktopEffectPhase::ColumnCounts,
-            // Indicators change colors and header text, and a changed header text is measured.
-            Self::RefreshMcpIndicators(_) => DesktopEffectPhase::McpIndicators,
-            Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
-            // Both run after all placement is done. A `Reparent` needs the new parent's placement,
-            // and that parent may have been created in the same transaction.
-            Self::Reparent(_) | Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
+            Self::Measure(target)
+            | Self::Place(target)
+            | Self::Reparent(target)
+            | Self::ApplyLayout(target) => Some(target),
+            _ => None,
         }
     }
 }
 
-#[must_use]
-#[derive(Debug, Default, PartialEq)]
-pub struct Effects(Vec<DesktopEffect>);
-
-impl Effects {
-    #[allow(non_upper_case_globals)]
-    pub const None: Self = Self(Vec::new());
+task_local! {
+    static PENDING: RefCell<PendingEffects<DesktopEffect>>;
 }
 
-impl<const LEN: usize> From<[DesktopEffect; LEN]> for Effects {
-    fn from(value: [DesktopEffect; LEN]) -> Self {
-        let effects: Vec<DesktopEffect> = value.into();
-        Self(effects)
-    }
+/// Built by the first transaction, the desktop's setup at startup, so a cycle in the reads panics
+/// there.
+static GRAPH: LazyLock<EffectGraph<DesktopEffect>> = LazyLock::new(EffectGraph::new);
+
+/// Runs `f` as one transaction, in which the desktop's effects can be marked.
+pub fn scope<R>(f: impl FnOnce() -> R) -> R {
+    effect_scheduler::scope(&PENDING, &GRAPH, f)
 }
 
-impl FromIterator<DesktopEffect> for Effects {
-    fn from_iter<I: IntoIterator<Item = DesktopEffect>>(iter: I) -> Self {
-        Self(iter.into_iter().collect())
-    }
+/// Drops the pending effects that `keep` rejects, between a transaction's changes and its effects.
+///
+/// All changes of a transaction run before its effects (ADR 0043). So an earlier change can mark an
+/// effect for a target that a later change of the same transaction removes, such as `Measure` of a
+/// launcher whose slot the next change clears. Handling it would work on a target the hierarchy no
+/// longer has, so `transact` drops such effects here.
+pub fn retain(keep: impl FnMut(&DesktopEffect) -> bool) {
+    effect_scheduler::retain(&PENDING, keep);
 }
 
-impl ops::Add for Effects {
-    type Output = Effects;
-
-    fn add(mut self, rhs: Self) -> Self::Output {
-        self += rhs;
-        self
-    }
-}
-
-impl ops::AddAssign<DesktopEffect> for Effects {
-    fn add_assign(&mut self, rhs: DesktopEffect) {
-        self.0.push(rhs);
-    }
-}
-
-impl ops::AddAssign<Effects> for Effects {
-    fn add_assign(&mut self, rhs: Self) {
-        self.0.extend(rhs.0);
-    }
-}
-
-impl IntoIterator for Effects {
-    type Item = DesktopEffect;
-    type IntoIter = vec::IntoIter<DesktopEffect>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-#[derive(Debug)]
-pub struct DesktopEffectScheduler {
-    pending_by_phase: [VecDeque<DesktopEffect>; DesktopEffectPhase::COUNT],
-    current_phase: DesktopEffectPhase,
-}
-
-impl DesktopEffectScheduler {
-    pub fn new(initial_effects: Effects) -> Self {
-        let mut scheduler = Self {
-            pending_by_phase: Default::default(),
-            current_phase: DesktopEffectPhase::default(),
-        };
-        scheduler.enqueue_all(initial_effects);
-        scheduler
-    }
-
-    pub fn enqueue_all(&mut self, effects: Effects) {
-        for effect in effects {
-            self.enqueue(effect);
-        }
-    }
-
-    pub fn pop_next(&mut self) -> Option<DesktopEffect> {
-        for phase in DesktopEffectPhase::iter().filter(|phase| *phase >= self.current_phase) {
-            let queue = &mut self.pending_by_phase[phase as usize];
-            if let Some(effect) = queue.pop_front() {
-                self.current_phase = phase;
-                return Some(effect);
-            }
-        }
-
-        None
-    }
-
-    /// Schedules an effect after existing work in its phase, moving an equivalent pending effect
-    /// to the end; phases already processed cannot receive new effects.
-    fn enqueue(&mut self, effect: DesktopEffect) {
-        let phase = effect.phase();
-        if phase < self.current_phase {
-            panic!(
-                "Internal error: effect {effect:?} enqueued for completed phase {phase:?} while running {:?}",
-                self.current_phase
-            );
-        }
-
-        let queue = &mut self.pending_by_phase[phase as usize];
-
-        if let Some(index) = queue.iter().position(|pending| pending == &effect) {
-            queue.remove(index);
-        }
-
-        queue.push_back(effect);
-    }
+/// Handles the pending effects of the current transaction until none are pending.
+pub fn run(handle: impl FnMut(DesktopEffect) -> anyhow::Result<()>) -> anyhow::Result<()> {
+    effect_scheduler::run(&PENDING, handle)
 }

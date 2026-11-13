@@ -19,7 +19,7 @@ use anyhow::Result;
 use massive_geometry::Transform;
 
 use super::change::{Changes, DesktopChange, TopologyChange};
-use super::change_surface::ChangeSurface;
+use super::effects::DesktopEffect;
 use super::layout_state::DesktopLayoutState;
 use super::{Aggregates, DesktopTarget, ProjectPart};
 use crate::projects::{ProjectId, RuntimeConfiguration, SlotContent, SlotPosition};
@@ -64,15 +64,14 @@ impl Reparenting {
     /// the presenter has to hang under the matrix it now belongs to. Instances and nested slots
     /// hang under the presenter and follow it.
     ///
-    /// The returned surface lists `what` as re-parented. The transaction turns that into the
-    /// `Reparent` effect of step 3.
+    /// Marks `Reparent` for `what`, the effect of step 3.
     pub fn apply(
         &mut self,
         what: DesktopTarget,
         under: DesktopTarget,
         aggregates: &mut Aggregates,
         layout_state: &DesktopLayoutState,
-    ) -> Result<ChangeSurface> {
+    ) -> Result<()> {
         let DesktopTarget::Project(host, ProjectPart::Matrix) = under else {
             panic!("slot content is re-parented under a matrix: {under:?}");
         };
@@ -102,9 +101,9 @@ impl Reparenting {
         self.previous_parent_origins
             .insert(what.clone(), previous_origin);
 
-        let mut surface = ChangeSurface::measure(under);
-        surface.reparented += what;
-        Ok(surface)
+        DesktopEffect::Measure(under).mark();
+        DesktopEffect::Reparent(what).mark();
+        Ok(())
     }
 
     /// Returns the pending step 3 for `target`, if it was re-parented. Each pending step is handed

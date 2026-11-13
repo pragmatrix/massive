@@ -9,13 +9,13 @@ use super::change::{
     Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
     TopologyChange,
 };
+use super::effects::DesktopEffect;
 use super::selection::Selection;
 use super::{
-    ChangeSurface, ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
+    ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
     FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation,
     StartInstance, ZoomLevel, view_size,
 };
-use crate::desktop_system::change_surface::{ConfigurationImpact, TargetSet};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::policy::when::{self, TogglingFullScreen, Ungrouping};
@@ -32,56 +32,21 @@ use massive_applications::{
     InstanceSubmission, SlotShift, ViewChange, ViewEvent, ViewRole,
 };
 
-/// The outcome of applying a change: its effects and any follow-up changes.
+/// The outcome of applying a change: its follow-up changes. The effects a change makes necessary
+/// are marked while it is applied (ADR 0043).
 #[derive(Debug, Default)]
 pub struct ChangeOutput {
     /// Additional changes to schedule.
     pub changes: Changes,
-    pub surface: ChangeSurface,
 }
 
 impl ChangeOutput {
-    pub fn measure(&mut self, target: DesktopTarget) {
-        self.surface.size_invalid += target;
-    }
-
-    pub fn focus_changed(
-        &mut self,
-        previous: Option<DesktopTarget>,
-        current: Option<DesktopTarget>,
-    ) {
-        if previous == current {
-            return;
-        }
-
-        if let Some(previous) = previous {
-            self.surface.size_invalid += previous;
-        }
-        if let Some(current) = current {
-            self.surface.size_invalid += current;
-        }
-    }
-
-    fn measures(measures: impl Into<TargetSet>) -> Self {
-        Self {
-            surface: ChangeSurface {
-                size_invalid: measures.into(),
-                ..Default::default()
-            },
-            ..Self::default()
-        }
-    }
-
     pub fn changes(changes: Changes) -> Self {
-        Self {
-            changes,
-            ..Self::default()
-        }
+        Self { changes }
     }
 
     pub fn combine(&mut self, other: Self) {
         self.changes += other.changes;
-        self.surface.combine(other.surface);
     }
 }
 
@@ -449,14 +414,7 @@ impl DesktopSystem {
                 self.hide_instance(launcher, instance)?;
             }
             DesktopChange::SetFocus { target } => {
-                let previous_focus = self.focused_target();
                 self.focus(target, instance_manager)?;
-                let current_focus = self.focused_target();
-
-                let mut output = ChangeOutput::default();
-                output.focus_changed(previous_focus, current_focus);
-
-                return Ok(output);
             }
             DesktopChange::SetNavigationAffinity(column_affinity) => {
                 self.navigation_control
@@ -464,20 +422,25 @@ impl DesktopSystem {
             }
             DesktopChange::SetSelection(selection) => {
                 self.selection.set(selection);
-                let mut output = ChangeOutput::default();
-                output.surface.selection_set = true;
-                return Ok(output);
+                self.transaction.selection_set = true;
+                // The camera keeps an extended selection in view (ADR 0032), and the hover outline
+                // surrounds it.
+                DesktopEffect::UpdateDesiredCamera.mark();
+                DesktopEffect::UpdateHover.mark();
             }
             DesktopChange::SetInputFocus(input_focus) => {
                 self.keyboard_focus.set_input_focus(input_focus);
+                // The hover outline marks the keyboard focus only while the input focus is at a
+                // desktop level.
+                DesktopEffect::UpdateHover.mark();
             }
             DesktopChange::SetZoomLevel(level) => {
                 if self.zoom_level != level {
                     self.zoom_level = level;
-
-                    return Ok(ChangeOutput::measures(TargetSet::from_iter(
-                        self.focused_target(),
-                    )));
+                    if let Some(focused) = self.focused_target() {
+                        DesktopEffect::Measure(focused).mark();
+                    }
+                    DesktopEffect::ZoomLevelChanged.mark();
                 }
             }
             DesktopChange::ToggleFullScreenMode(target) => {
@@ -513,9 +476,10 @@ impl DesktopSystem {
                 // the next focus or rotation re-measures.
                 // The live mode toggle is a configuration change the caller
                 // persists (ADR 0013; 0014).
-                let mut output = ChangeOutput::measures(TargetSet::from_iter(changed_targets));
-                output.surface.configuration_impact = ConfigurationImpact::Changed;
-                return Ok(output);
+                for target in changed_targets {
+                    DesktopEffect::Measure(target).mark();
+                }
+                DesktopEffect::PersistConfiguration.mark();
             }
             DesktopChange::WindowResized(window_state) => {
                 self.window_state = window_state;
@@ -523,20 +487,23 @@ impl DesktopSystem {
                 // (ADR 0014, ADR 0019). The measure pass keeps the cached sizes of measured
                 // children, so the view and the title bar are measured explicitly. Instances in the
                 // regular mode measure at the panel size, so their measurements stay unchanged.
-                let views: TargetSet = self
+                for view in self
                     .aggregates
                     .instances
                     .keys()
                     .flat_map(|&instance| self.instance_view_targets(instance))
-                    .collect();
-                let mut output = ChangeOutput::measures(views);
-                output.surface.window_size_changed = true;
-                return Ok(output);
+                {
+                    DesktopEffect::Measure(view).mark();
+                }
+                self.transaction.window_resized = true;
+                DesktopEffect::UpdateDesiredCamera.mark();
+                DesktopEffect::LayoutZoomLevelIndicator.mark();
             }
             DesktopChange::ToggleWindowFullScreen => {
-                let mut output = ChangeOutput::default();
-                output.surface.window_fullscreen_changed = true;
-                return Ok(output);
+                // The window reports its new state only after the host set it, so a second toggle
+                // in the same transaction asks for the same state.
+                self.transaction.window_full_screen = Some(!self.window_state.is_fullscreen);
+                DesktopEffect::SetWindowFullScreen.mark();
             }
             DesktopChange::ResizeAll(size_px) => {
                 self.default_panel_size = size_px;
@@ -553,25 +520,18 @@ impl DesktopSystem {
                 // Root measurement otherwise reuses descendant measurements made for the previous
                 // panel extent, leaving project and matrix slots at their old sizes.
                 self.layout_state.clear();
-                return Ok(ChangeOutput::measures(DesktopTarget::Desktop));
+                DesktopEffect::Measure(DesktopTarget::Desktop).mark();
             }
             DesktopChange::Topology(change) => {
-                let previous_focus = self.focused_target();
                 // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
-                let surface = self.apply_topology_change(change, instance_manager)?;
-                let current_focus = self.focused_target();
-
-                let mut output = ChangeOutput {
-                    surface,
-                    ..Default::default()
-                };
-                output.focus_changed(previous_focus, current_focus);
-
-                return Ok(output);
+                self.apply_topology_change(change, instance_manager)?;
             }
             DesktopChange::ForwardEvents(transitions) => {
+                // The forwarded transitions may move the pointer focus, which the hover outline
+                // marks.
+                DesktopEffect::UpdateHover.mark();
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
                 let mut changes = Changes::default();
                 for command in commands {
@@ -597,14 +557,11 @@ impl DesktopSystem {
                         project_change.touched_projects().contains(&holding)
                             || ungrouped == Some(SlotContent::Project(holding))
                     });
-                let configuration_impact = if under_selection {
-                    ConfigurationImpact::ChangedUnderSelection
-                } else {
-                    ConfigurationImpact::Changed
-                };
-                let mut output = self.apply_project_change(project_change)?;
-                output.surface.configuration_impact = configuration_impact;
-                return Ok(output);
+                if under_selection {
+                    DesktopEffect::CollapseSelection.mark();
+                }
+                DesktopEffect::PersistConfiguration.mark();
+                return self.apply_project_change(project_change);
             }
         }
 
@@ -615,7 +572,7 @@ impl DesktopSystem {
         &mut self,
         change: TopologyChange,
         instance_manager: &InstanceManager,
-    ) -> Result<ChangeSurface> {
+    ) -> Result<()> {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
@@ -624,11 +581,11 @@ impl DesktopSystem {
                 } else {
                     self.aggregates.hierarchy.add(under.clone(), what)?;
                 }
-                Ok(ChangeSurface::measure(under))
+                DesktopEffect::Measure(under).mark();
             }
             TopologyChange::AddNested { what, under } => {
                 self.aggregates.hierarchy.add_nested(under.clone(), what)?;
-                Ok(ChangeSurface::measure(under))
+                DesktopEffect::Measure(under).mark();
             }
             TopologyChange::Insert {
                 what,
@@ -638,11 +595,11 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .insert_at(under.clone(), at_index, what)?;
-                Ok(ChangeSurface::measure(under))
+                DesktopEffect::Measure(under).mark();
             }
             TopologyChange::Reparent { what, under } => {
                 self.reparenting
-                    .apply(what, under, &mut self.aggregates, &self.layout_state)
+                    .apply(what, under, &mut self.aggregates, &self.layout_state)?;
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -650,20 +607,23 @@ impl DesktopSystem {
                 // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
                 self.refocus_to_parent_if_path_contains(&target, instance_manager)?;
-                self.remove_target(&target).map(ChangeSurface::measure)
+                let parent = self.remove_target(&target)?;
+                DesktopEffect::Measure(parent).mark();
             }
         }
+        Ok(())
     }
 
     /// Applies `change` to the configuration and marks the projects it touched, so that their shared
     /// column counts are refreshed once the transaction's changes have all run (ADR 0035).
     fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
-        let touched = change.touched_projects();
-        let mcp_indicators = change.mcp_indicator_projects();
-        let mut output = self.apply_configuration_change(change)?;
-        output.surface.column_counts_invalid += touched;
-        output.surface.mcp_indicators_invalid += mcp_indicators;
-        Ok(output)
+        for project in change.touched_projects() {
+            DesktopEffect::RefreshColumnCount(project).mark();
+        }
+        for project in change.mcp_indicator_projects() {
+            DesktopEffect::RefreshMcpIndicators(project).mark();
+        }
+        self.apply_configuration_change(change)
     }
 
     fn apply_configuration_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
@@ -687,7 +647,6 @@ impl DesktopSystem {
             ConfigurationChange::ClearSlot { parent, slot } => {
                 // A cleared project takes its whole subtree along, so every presenter below it
                 // goes too. Its counts are dropped by the refresh, which finds it gone.
-                let mut output = ChangeOutput::default();
                 let removed = self.aggregates.configuration.clear_slot(parent, slot);
                 for content in removed.content {
                     match content {
@@ -696,25 +655,21 @@ impl DesktopSystem {
                         }
                         SlotContent::Project(project) => {
                             self.aggregates.projects.remove(&project)?;
-                            output.surface.column_counts_invalid += project;
+                            DesktopEffect::RefreshColumnCount(project).mark();
                         }
                     }
                 }
                 for root in removed.mcp_roots {
-                    output.surface.mcp_roots_changed += root;
+                    DesktopEffect::AnnounceMcpRoot(root).mark();
                 }
-                return Ok(output);
             }
             ConfigurationChange::MoveSlot { source, dest } => {
                 let (source_parent, _) = source;
                 let (dest_parent, _) = dest;
-                if !self.aggregates.configuration.move_slot(source, dest) {
-                    return Ok(ChangeOutput::default());
+                if self.aggregates.configuration.move_slot(source, dest) {
+                    DesktopEffect::Measure(DesktopTarget::matrix(source_parent)).mark();
+                    DesktopEffect::Measure(DesktopTarget::matrix(dest_parent)).mark();
                 }
-                return Ok(ChangeOutput::measures(TargetSet::from_iter([
-                    DesktopTarget::matrix(source_parent),
-                    DesktopTarget::matrix(dest_parent),
-                ])));
             }
             ConfigurationChange::Group {
                 parent,
@@ -730,19 +685,18 @@ impl DesktopSystem {
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
                 self.aggregates.projects.remove(&project)?;
-                let mut output = ChangeOutput::measures(DesktopTarget::matrix(parent));
-                output.surface.column_counts_invalid += project;
-                return Ok(output);
+                DesktopEffect::Measure(DesktopTarget::matrix(parent)).mark();
+                DesktopEffect::RefreshColumnCount(project).mark();
             }
             ConfigurationChange::SwapSlots { parent, a, b } => {
                 self.aggregates.configuration.swap_slots(parent, a, b);
-                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
+                DesktopEffect::Measure(DesktopTarget::matrix(parent)).mark();
             }
             ConfigurationChange::RelocateSlots { parent, landings } => {
                 self.aggregates
                     .configuration
                     .relocate_slots(parent, &landings);
-                return Ok(ChangeOutput::measures(DesktopTarget::matrix(parent)));
+                DesktopEffect::Measure(DesktopTarget::matrix(parent)).mark();
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain the resolved launcher. The path is what persists, so
@@ -752,9 +706,7 @@ impl DesktopSystem {
             }
             ConfigurationChange::ConfigureMcp { project, mcp } => {
                 self.aggregates.configuration.configure_mcp(project, mcp);
-                let mut output = ChangeOutput::default();
-                output.surface.mcp_roots_changed += project;
-                return Ok(output);
+                DesktopEffect::AnnounceMcpRoot(project).mark();
             }
         }
 
@@ -854,7 +806,7 @@ impl DesktopSystem {
             }
             InstanceChange::CreateView(creation_info) => {
                 let mut output = self.present_view(instance, &creation_info)?;
-                output.measure(instance.into());
+                DesktopEffect::Measure(instance.into()).mark();
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the

@@ -63,6 +63,20 @@ impl CameraPresentation {
         }
     }
 
+    /// Whether synchronizing in `mode` would leave the presented camera as it is. A gesture freezes
+    /// the camera behind its desired view, so the transaction after it has to synchronize even when
+    /// the desired view stays the same.
+    pub fn is_synchronized(&self, mode: CameraPresentationMode) -> bool {
+        let at_desired = self
+            .desired
+            .is_none_or(|desired| desired == *self.presented.target());
+        match mode {
+            CameraPresentationMode::Animate => at_desired,
+            CameraPresentationMode::Snap => at_desired && !self.presented.is_animating(),
+            CameraPresentationMode::Freeze => !self.presented.is_animating(),
+        }
+    }
+
     pub fn proceed(&mut self) -> &PixelCamera {
         self.presented.proceed()
     }
