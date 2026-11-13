@@ -5,6 +5,7 @@ pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_presenter;
 mod desktop_system;
+mod effect_scheduler;
 mod event_router;
 mod focus_path;
 mod hit_tester;
