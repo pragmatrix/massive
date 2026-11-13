@@ -527,6 +527,13 @@ impl DesktopSystem {
         self.camera.proceed()
     }
 
+    /// Records the window's live fullscreen state. Otherwise only a resize carries it, and a resize
+    /// can arrive after the window changed its state, so a request in between would be decided from
+    /// the old state (ADR 0043).
+    pub fn record_window_fullscreen(&mut self, is_fullscreen: bool) {
+        self.window_state.is_fullscreen = is_fullscreen;
+    }
+
     pub fn any_buttons_pressed(&self) -> bool {
         self.event_router.any_buttons_pressed()
     }

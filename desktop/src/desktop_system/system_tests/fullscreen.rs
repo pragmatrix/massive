@@ -220,6 +220,32 @@ async fn fullscreen_request_enters_native_fullscreen_before_toggling_instance_mo
     .await
 }
 
+/// A fullscreen request between the window entering fullscreen and its resize must leave
+/// fullscreen, because the host records the live state before every event (ADR 0043).
+#[tokio::test]
+async fn a_fullscreen_request_decides_from_the_recorded_live_state() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        let frame = massive_applications::begin_frame();
+        let (mut system, mut instance_manager, _launcher) = fullscreen_system(CONFIG)?;
+        assert!(!system.window_state.is_fullscreen);
+
+        system.record_window_fullscreen(true);
+        let output = system.transact(
+            DesktopChange::ToggleWindowFullScreen,
+            &mut instance_manager,
+            TransactionEffectsMode::Normal,
+        )?;
+        assert!(matches!(
+            output.effects.as_slice(),
+            [DesktopSystemEffect::SetWindowFullScreen(false)]
+        ));
+
+        drop(frame.submission::<SceneChange>());
+        Ok(())
+    })
+    .await
+}
+
 #[tokio::test]
 async fn native_fullscreen_resize_keeps_the_presented_camera_on_the_focused_instance() -> Result<()>
 {
