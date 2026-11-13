@@ -289,6 +289,77 @@ async fn ungrouping_with_a_kept_focus_moves_it_only_off_the_removed_project() ->
     .await
 }
 
+/// A visor follows a focus change made while a mouse button is pressed only when the button is
+/// released, even if something else re-lays it out during the press (ADR 0002).
+#[tokio::test]
+async fn a_visor_follows_a_focus_change_during_a_press_only_on_release() -> Result<()> {
+    task_context::with_context(task_context(), async {
+        // Live transactions animate, which needs a frame.
+        let frame = massive_applications::begin_frame();
+        let (mut system, receiver) = system_from(CONFIG);
+        let mut instance_manager = instance_manager(&receiver);
+        for command in projects::to_commands(&system.aggregates.configuration) {
+            run(&mut system, &mut instance_manager, command.into())?;
+        }
+        let launcher = system
+            .aggregates
+            .configuration
+            .boot_launcher()
+            .expect("the test configuration has a startup launcher");
+        let first = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+        let second = start_instance(&mut system, &mut instance_manager, launcher, 1)?;
+        // Focusing the launcher itself collapses the visor around the second instance.
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Launcher(launcher)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        let first_visible = |system: &DesktopSystem| {
+            system
+                .layout_state
+                .local_placement(&DesktopTarget::from(first))
+                .visible
+        };
+        let anchor =
+            |system: &DesktopSystem| system.aggregates.launchers[&launcher].focus_anchor_instance;
+        assert!(!first_visible(&system));
+
+        // The press focuses the first instance, and a resize re-lays out the visor meanwhile.
+        system.transact(
+            set_focus(
+                Some(FocusableTarget::Instance(first)),
+                KeyboardFocusReason::InputTransition,
+            ),
+            &mut instance_manager,
+            TransactionEffectsMode::UserGestureActive,
+        )?;
+        system.transact(
+            DesktopChange::ResizeAll(SizePx::new(640, 480)),
+            &mut instance_manager,
+            TransactionEffectsMode::UserGestureActive,
+        )?;
+        assert!(!first_visible(&system));
+        assert_eq!(anchor(&system), Some(second));
+
+        // The release syncs the layout focus, so the visor expands and centers on the first
+        // instance.
+        system.transact(
+            Changes::Empty,
+            &mut instance_manager,
+            TransactionEffectsMode::Normal,
+        )?;
+        assert!(first_visible(&system));
+        assert_eq!(anchor(&system), Some(first));
+
+        drop(frame);
+        Ok(())
+    })
+    .await
+}
+
 /// The nested project in the root's slot at `column`, in the first row.
 fn root_project_at(system: &DesktopSystem, column: u32) -> ProjectId {
     match system

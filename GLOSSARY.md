@@ -204,6 +204,10 @@ _Avoid_: minimized stack, folded carousel
 The visor focus anchor the visor centers on and that stays visible during collapse: the most recently focused instance while no mouse button was pressed. The visor centers on this anchor independent of the live keyboard focus.
 _Avoid_: active card, selected panel, currently focused instance
 
+**Layout focus**:
+The focused instance that layout reflects. Layout reads it instead of the live keyboard focus. It catches up with the live keyboard focus only while no mouse button is pressed, so a click never moves a visor under the pointer. A visor expands while one of its instances holds the layout focus, and the instance that last held the layout focus in it becomes its center visor instance (ADR 0002).
+_Avoid_: settled focus, deferred focus
+
 **Non-center visor instance**:
 Any visor instance that is not the center instance and is transitioned to invisible in collapsed state.
 _Avoid_: background card, side panel

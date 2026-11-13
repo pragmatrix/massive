@@ -204,7 +204,7 @@ impl DesktopSystem {
             return Ok(effects);
         }
 
-        let focused_instance = self.focused_path().instance();
+        let focused_instance = self.layout_focus;
         let algorithm = DesktopLayoutAlgorithm {
             desktop: &self.desktop_presenter,
             aggregates: &self.aggregates,
@@ -240,7 +240,7 @@ impl DesktopSystem {
     /// dropped here (a matrix slot's rect, a presentation scale) would never be restored. Only
     /// the parentless root, which has no parent, is placed here.
     fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
-        let focused_instance = self.focused_path().instance();
+        let focused_instance = self.layout_focus;
         let algorithm = DesktopLayoutAlgorithm {
             desktop: &self.desktop_presenter,
             aggregates: &self.aggregates,
@@ -390,7 +390,7 @@ impl DesktopSystem {
         let context = self.aggregates.layout_context(
             self.default_panel_size,
             self.window_state.inner_size,
-            self.focused_path().instance(),
+            self.layout_focus,
         );
         let outline = self.selection_outline(focused, &context)?;
         Some(zoom_geometry.selection_camera(&outline, slot_extent(&context)))
