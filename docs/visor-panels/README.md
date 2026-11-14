@@ -7,6 +7,11 @@ second one unified view columns with the visor and is recorded in
 directory covers one part of the work and lists its own decisions and open questions. The documents
 are meant to be fleshed out further before any of them is implemented.
 
+[ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md) (proposed) changes this plan.
+The layout stage moves from the instance into the desktop as the visor stage, which routes the
+connectors, also between instances. The documents here are revised to match before they are
+implemented.
+
 ## Goal
 
 An instance should be able to present many views at once, arranged in panels on its launcher's
