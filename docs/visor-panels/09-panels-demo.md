@@ -10,11 +10,11 @@ check that the parts fit together. It is not a product.
 
 ## Decisions
 
-- **It lives in mt as `panels-demo`.** It is a multi-panel application, and multi-panel applications
-  run only in the desktop ([03](03-multi-panel-instances.md)). massive's examples run in the shell,
-  which shows one view per instance.
+- **It lives in mt as `panels-demo`.** It presents several views, and the shell shows only one view
+  per instance, so it runs only in the desktop ([03](03-panels-on-the-visor.md)). massive's examples
+  run in the shell.
 - **A launcher starts it by name.** The launcher's `application` field names `panels-demo`
-  ([03](03-multi-panel-instances.md)).
+  ([03](03-panels-on-the-visor.md)).
 - **A script fills it.** The script creates views over time, gives them panel and stack indices,
   connects them, and closes some of them. No outside input drives it.
 - **It is verified with `run-mt`.**
@@ -23,7 +23,8 @@ check that the parts fit together. It is not a product.
 
 - Views of different widths and heights in several panels, so that panels differ in width and
   height.
-- A primary view larger than the slot, so that the collapsed visor fits it into the slot.
+- A primary view larger than the slot, so that the instance scale shrinks all of the instance's
+  panels.
 - Panels taller than the slot, which extend beyond it while the visor is expanded.
 - Connectors to the next panel, connectors that skip a panel, connectors to a panel on the left,
   and a connector within one panel.
@@ -32,15 +33,19 @@ check that the parts fit together. It is not a product.
   camera follows.
 - Leaving and re-entering the launcher, so that the visor collapses and expands.
 - Closing a remembered view.
+- A second instance started with Cmd+T in the same launcher, so that the visor joins the panels of
+  two instances.
 
 ## Done when
 
 - No connector crosses a view, apart from the runs between its ports and their views' edges
   ([07](07-connector-routing.md)).
-- Views and connectors move together without detaching ([08](08-presentation-layer.md)).
+- Views and connectors move together without detaching ([08](08-animation-and-drawing.md)).
 - The focused view sits on the launcher's vertical center after every focus move
-  ([06](06-panel-layouter.md)).
+  ([06](06-visor-layouter.md)).
 
 ## Open questions
 
 - Whether the demo is useful enough to keep after the feature is done, or is removed.
+- Whether the demo also covers connectors between instances. That needs nested instances
+  ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)), which come last.

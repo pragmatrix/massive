@@ -1,7 +1,7 @@
 # 04 Focus companions
 
 Status: **decisions taken, design to be fleshed out** (2026-11-07, revised 2026-11-14). Part of
-[visor panels](README.md). Depends on [03](03-multi-panel-instances.md).
+[visor panels](README.md). Depends on [03](03-panels-on-the-visor.md).
 
 ## Goal
 
@@ -20,15 +20,15 @@ shows the view that leads into it, when both fit. Text in the focused view is ne
 ## Decisions
 
 - **A view's focus companion is the view that Cmd+← would move to.** The desktop finds it by
-  position, as navigation does ([03](03-multi-panel-instances.md)). The stage does not name
-  companions, so nothing crosses the boundary for them.
+  position, as navigation does ([03](03-panels-on-the-visor.md)). The companion may belong to
+  another instance. The instance does not name companions.
 - **A view has at most one companion.** Several companions are a follow-up.
 - **1:1 always wins.** The camera frames both views at 1:1 when both fit on screen. Otherwise it
-  frames the focused view alone, at 1:1. An expanded multi-panel launcher shows its panels at 1:1,
-  so the camera has no scale to cancel.
-- **The camera aims at final positions.** The stage sends each view's final position once
-  ([08](08-presentation-layer.md)). So the camera moves straight to where the views will end up,
-  while the views are still animating there.
+  frames the focused view alone, at 1:1. At Focus, the camera cancels the focused instance's
+  instance scale, as it does today ([03](03-panels-on-the-visor.md)).
+- **The camera aims at final positions.** The visor stage's placements are targets that apply at
+  once ([08](08-animation-and-drawing.md)). So the camera moves straight to where the views will end
+  up, while the views are still animating there.
 - **Zoom levels further out are unchanged.** At Slot, Row, and Project, the camera behaves as today.
 
 ## Open questions
@@ -37,4 +37,6 @@ shows the view that leads into it, when both fit. Text in the focused view is ne
   and the companion only has to be visible.
 - How the fit is measured when the companion's panel stands at an angle on the arc.
 - What the camera does when the focused view alone is larger than the screen at 1:1.
+- What the camera does when the companion belongs to an instance with a different instance scale,
+  so that the two views can't both be shown at 1:1.
 - How the zoom level indicator names Focus on a view.
