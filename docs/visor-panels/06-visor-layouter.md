@@ -20,26 +20,28 @@ view's panel index and stack index itself, so these steps are gone.
 The second session placed this layouter in the instance, as the panel layouter, and let it route the
 connectors. [ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md) moved it into the
 desktop as the visor layouter, and the connector stage now routes the connectors
-([07](07-connector-routing.md)). Connectors influence the visor layouter only through the lane
-counts it receives.
+([07](07-connector-routing.md)). Connectors influence the visor layouter only through the connector
+lane counts it receives.
 
 ## Decisions
 
 ### Parameters
 
-- **The desktop sets the visor layouter's parameters.** The minimum gap between stacked views, the
-  lane width, the margins and the sliding strategy are tuning values. They live in the desktop's
-  policy constants, like every other value picked by taste
-  ([constants.rs](../../desktop/src/policy/constants.rs)).
+- **The desktop sets the visor layouter's sizes.** The minimum stack gap, the connector lane width
+  and the minimum panel margins are tuning values. They live in the desktop's policy constants, like
+  every other size picked by taste ([constants.rs](../../desktop/src/policy/constants.rs)).
+- **The sliding strategy is an enum parameter of the visor layouter.** It is not a tuning value,
+  because it chooses a behavior, not a size.
 - **A view keeps its size.** The layouter never resizes a view. Views have different widths and
   heights.
 
 ### Inputs
 
-- **The instances of the launcher, in order**, with the layout metadata of their views
+- **The panels of the launcher's instances**, which `SyncChildren` gives the visor stage as its
+  children, in the order of the instances, with the layout metadata of their views
   ([05](05-layout-stage.md)) and the views' sizes.
 - **The layout focus** and the animation ticks, from the parent side.
-- **The lane counts** of every gap and margin, from the connector stage above
+- **The connector lane counts** of every stack gap and panel margin, from the connector stage above
   ([07](07-connector-routing.md)).
 
 ### Panels and stacks
@@ -50,10 +52,11 @@ counts it receives.
   order of their indices.
 - **The stack index orders the views of a panel.** Views are stacked from top to bottom in the order
   of their indices. Ties go to the view created first, so the order is always unambiguous.
-- **A panel is as wide as its widest view, plus its margins.** Each margin is as wide as the lanes
-  the connector stage asks for in it. A narrower view sits centered in its panel.
-- **Gaps between stacked views keep their minimum size**, plus the lanes the connector stage asks
-  for in them.
+- **A panel is as wide as its widest view, plus its panel margins.** Each panel margin is as wide as
+  the connector lanes that the connector stage asks for in it. A narrower view sits centered in its
+  panel.
+- **Stack gaps keep their minimum size**, plus the connector lanes that the connector stage asks for
+  in them.
 - **Order changes animate.** When an index changes and views move, they move to their new places
   like after any other layout change.
 
@@ -65,7 +68,8 @@ counts it receives.
   remembered, or the view above it if it was the last one.
 - **A panel's first view is remembered** when the panel appears.
 - **The view that last held the layout focus in the launcher is its center visor view.** The
-  layouter keeps it in its state and reports it to the parent side ([03](03-panels-on-the-visor.md)).
+  layouter keeps it in its state and reports it to the parent side
+  ([03](03-panels-on-the-visor.md)).
 
 ### Sliding
 
@@ -75,16 +79,21 @@ counts it receives.
 - **This is the only sliding strategy for now.** The strategy is a parameter, so that others can be
   added later.
 - **A panel's vertical offset is set last.** The layouter first stacks a panel's views with their
-  gaps, relative to the panel. Only then does it set the panel's offset from the center line.
+  stack gaps, relative to the panel. Only then does it set the panel's offset from the center line.
 
 ### Outputs
 
 - **Panels**, in order, each with its width, its height, its vertical offset from the center line,
-  its place on the arc, and its remembered view, whose title its title bar shows.
+  and its place on the arc, scaled by its instance's instance scale
+  ([03](03-panels-on-the-visor.md)).
+- **A title bar per panel**, placed as a node of the stage tree under its panel. It shows the title
+  of the panel's remembered view.
 - **Positions** for all views, relative to their panels.
-- **The instance scale** of every instance ([03](03-panels-on-the-visor.md)).
 - **The panel structure**, reported to the parent side for the connector stage. It is the order of
-  the panels, the stack of views in each, and each panel's remembered view, without sizes.
+  the panels, the stack of views in each, the connectors, and the port rects, without sizes. A
+  change to a port rect marks the visor stage again.
+- **The remembered views**, reported to the parent side apart from the panel structure. A focus move
+  then changes only which connectors are emphasized, not the route topology.
 - **The center visor view**, reported to the parent side.
 
 ## Testing
@@ -93,7 +102,7 @@ Each rule above gets a test, because each can silently go wrong:
 
 - the order of the groups, the panel order and the stack order, including the tie-break,
 - the panel width with its margins, and the centering of narrower views,
-- the gaps and margins growing by the lane counts they receive,
+- the stack gaps and margins growing by the connector lane counts they receive,
 - the vertical offset that puts each remembered view on the center line,
 - that a focus move within a panel slides only that panel,
 - the handover of the remembered view when it closes,
@@ -103,7 +112,8 @@ Each rule above gets a test, because each can silently go wrong:
 ## Open questions
 
 - The default values of the visor layouter's parameters.
-- Whether an application may override some of them, for example the lane width.
-- What a gap in the panel indices means, for example views with the indices 0 and 2 but none with 1.
+- Whether an application may override some of them, for example the connector lane width.
+- What a hole in the panel indices means, for example views with the indices 0 and 2 but none with
+  1.
 - Other sliding strategies, such as aligning a panel so that the views connected to the focused view
   sit beside it, and whether users can choose the strategy.

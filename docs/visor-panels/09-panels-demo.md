@@ -47,5 +47,5 @@ check that the parts fit together. It is not a product.
 ## Open questions
 
 - Whether the demo is useful enough to keep after the feature is done, or is removed.
-- Whether the demo also covers connectors between instances. That needs nested instances
-  ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)), which come last.
+- Whether the demo later covers connectors into other instances. They are a follow-up that comes
+  with nested instances ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)).

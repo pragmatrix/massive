@@ -12,10 +12,9 @@ to be fleshed out further before any of them is implemented.
 ## Goal
 
 An instance should be able to present many views at once, arranged in panels on its launcher's
-visor arc and joined by connectors. A connector may also join views of different instances of one
-launcher. The arrangement is a view to look at, not a graph editor. The user never drags views or
-draws connectors. The application declares which panel each view belongs to and how the views
-connect, and the desktop decides where they go.
+visor arc and joined by connectors. The arrangement is a view to look at, not a graph editor. The
+user never drags views or draws connectors. The application declares which panel each view belongs
+to and how the views connect, and the desktop decides where they go.
 
 The arrangement is not tied to one kind of application. Nothing in this plan depends on what the
 views show.
@@ -23,12 +22,15 @@ views show.
 ## Terms
 
 These terms are used across all documents here. They go into [GLOSSARY.md](../../GLOSSARY.md) in
-the step that introduces them.
+the step that introduces them. [ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)
+defines the terms of the desktop's structure, such as the desktop core, the target tree, the stage
+tree, a stage, a stage's parent side and child side, and the placed node.
 
 - **Panel**: one unit of a visor. A panel holds a vertical stack of one or more views of one
   instance. A launcher's visor places the panels of all its instances side by side on one arc, with
-  no gap between them. This replaces the term "view column" of the first session. It also replaces
-  the earlier meaning of "panel", which was the rect that holds all of an instance's content.
+  no space between them. A panel is a target that its instance and its panel index identify. This
+  replaces the term "view column" of the first session. It also replaces the earlier meaning of
+  "panel", which was the rect that holds all of an instance's content.
 - **Layout metadata**: what a view declares about its place. It consists of a panel index, a stack
   index, the view's ports, and its outgoing connectors.
 - **Panel index** and **stack index**: the two numbers in a view's layout metadata. The panel index
@@ -36,66 +38,73 @@ the step that introduces them.
   stack the view sits. Both count within the view's instance.
 - **Primary view**: the view with the role `ViewRole::Primary`. Every instance has exactly one. It
   sits in panel 0, stack 0, unless the instance declares otherwise.
-- **Instance scale**: the largest scale, at most 1, at which an instance's primary view fits the
-  slot. All panels of the instance are shown at it.
+- **Instance scale**: the largest scale, at most 1, at which the panel of an instance's primary
+  view, with its title bar, fits the slot. All panels of the instance are shown at it.
+- **Layout focus**: the view that the layout follows. It catches up with the keyboard focus only
+  while no mouse button is pressed (ADR 0002). Today it names an instance.
 - **Remembered view**: the one view per panel that the visor stage remembers. It is the view of the
   panel that most recently held the layout focus.
 - **Center visor view**: the one view per launcher that the visor stage remembers. Re-entering the
   launcher focuses it, and the arc centers on its panel. It generalizes the center visor instance.
 - **Center line**: the horizontal line at y = 0 that all panels of a visor are laid out against. It
   lies at the launcher's vertical center.
-- **Connector**: a one-way line from one view to another view. Both views must be below the same
-  connector stage. A connector can cross panel edges. It has no kind and no other properties for
-  now.
-- **Port**: a named rect inside a view, in the view's own coordinates. A rect of zero size is a
-  point. A connector end names an instance, one of its views, and optionally one of the view's
-  ports. A connector starts at a port and leaves it to the right, and ends at a port, arriving from
-  the left. Without a port, the end sits in the view's margin.
-- **Layout stage**: the part of the desktop that lays out the children of one level, between that
-  level's parent side and its child side. One generic `LayoutStage<L: Layouter>` implements every
-  layout stage ([05](05-layout-stage.md)).
+- **Connector**: a one-way line from one view to another view of the same instance. A connector can
+  cross panel edges. It has no kind and no other properties for now. Connectors into other
+  instances are a follow-up.
+- **Port**: a named rect inside a view, in the view's own coordinates. Its name is unique within its
+  view. A rect of zero size is a point. A connector starts at a port and leaves it to the right, and
+  ends at a port, arriving from the left. Without a port, the end sits in the view's margin.
+- **Layout stage**: a stage that lays out its children with a layouter. One generic
+  `LayoutStage<L: Layouter>` implements every layout stage ([05](05-layout-stage.md)).
 - **Layouter**: the pure function that a layout stage calls. It takes the stage's state, inputs and
   events, and it returns the stage's new state and its output.
 - **Visor stage**: the layout stage of a launcher, with the visor layouter
-  ([06](06-visor-layouter.md)).
+  ([06](06-visor-layouter.md)). Its children are panels.
+- **Panel structure**: what the visor stage reports for the connector stage. It is the order of the
+  panels, the stack of views in each, the connectors, and the port rects, without sizes.
 - **Connector stage**: the stage above a visor stage that routes and draws the connectors of the
   views below it ([07](07-connector-routing.md)).
-- **Connector route**: the path drawn for one connector. Its **route topology** says which gap or
-  which way around a stack it takes in every panel it passes, and which lane it uses. Its **route
-  geometry** is its exact lines and arcs.
-- **Lane**: the room one connector takes up where it passes through a gap or a margin.
+- **Stack gap**: the space between two views stacked in a panel. **Panel margin**: the space beside
+  a panel's views, on its left or its right.
+- **Connector lane**: the room one connector takes up where it passes through a stack gap or a panel
+  margin.
+- **Connector route**: the path drawn for one connector. Its **route topology** says which stack gap
+  or which way around a stack it takes in every panel it passes, and which connector lane it uses.
+  Its **route geometry** is its exact lines and arcs.
 - **Focus companion**: a view that the camera frames together with another view while that other
   view has the keyboard focus.
 
 ## How the work divides
 
 The work spans the application and two stages in the desktop. The application only declares. The
-visor stage places the views. The connector stage above it routes and draws the connectors.
+visor stage places the panels and views. The connector stage above it routes and draws the
+connectors.
 
 ```
-                       desktop core (camera, focus, hit testing, aggregate)
-                          │ topology, layout focus, current placements
-                          ▼
-                    connector stage ──draws connector routes
-                     │ lanes ▲ panel structure
-                     ▼       │
-                     visor stage ──places panels and views on the arc
-                          ▲
+       desktop core (camera, focus, hit testing, target tree)
+            │ SyncChildren, layout focus, current positions
+            ▼
+     connector stage ──draws connector routes
+            │ connector lanes        ▲ panel structure, remembered views
+            ▼                        │
+       visor stage ──places panels and views on the arc
+            ▲
 application ──views with layout metadata (indices, ports, connectors)
 ```
 
 - **The application** creates views and gives each view its layout metadata
   ([05](05-layout-stage.md)). It never positions a view. An application whose instances have one
   view each declares nothing and behaves as today.
-- **The visor stage** joins the panels of all instances of its launcher on the arc, stacks each
-  panel's views, slides each panel along the center line, and scales each instance by its instance
-  scale ([03](03-panels-on-the-visor.md), [06](06-visor-layouter.md)).
-- **The connector stage** computes the route topology from the connectors and the panel structure,
-  and it tells the visor stage how many lanes each gap and margin needs. While anything moves, it
-  recomputes the route geometry every tick from the current placements
+- **The visor stage** receives the panels of all instances of its launcher as its children. Its
+  layouter places them on the arc, stacks each panel's views, slides each panel along the center
+  line, and scales each instance's panels by its instance scale ([03](03-panels-on-the-visor.md),
+  [06](06-visor-layouter.md)).
+- **The connector stage** computes the route topology from the panel structure, and it tells the
+  visor stage how many connector lanes each stack gap and panel margin needs. While anything moves,
+  it recomputes the route geometry every tick from the current positions
   ([07](07-connector-routing.md)).
-- **The generic layout stage** animates the placements, and the connector stage draws from the
-  current ones, so views and connectors move together ([08](08-animation-and-drawing.md)).
+- **Every placed node** animates its own placement and reports its current value while it moves, so
+  views, title bars and connectors move together ([08](08-animation-and-drawing.md)).
 - **The desktop core** moves the keyboard focus between views by position. Its camera frames the
   focused view with its focus companion ([04](04-focus-companions.md)).
 
@@ -113,7 +122,7 @@ into the instance.
 | [04 Focus companions](04-focus-companions.md) | Desktop: what the camera frames at Focus | 03 |
 | [05 Layout stage](05-layout-stage.md) | Layout metadata, the generic layout stage, the `Stage` and `Layouter` traits | 03 |
 | [06 Visor layouter](06-visor-layouter.md) | Panel sizes, stacks, sliding, remembered views | 05 |
-| [07 Connector routing](07-connector-routing.md) | The connector stage: routes around views, gaps, margins, lanes | 02, 06 |
+| [07 Connector routing](07-connector-routing.md) | The connector stage: routes around views, stack gaps, panel margins, connector lanes | 02, 06 |
 | [08 Animation and drawing](08-animation-and-drawing.md) | How views and connectors move and are drawn | 02, 05, 07 |
 | [09 Panels demo](09-panels-demo.md) | A scripted demo application with several views in mt | all |
 
@@ -149,3 +158,5 @@ These questions concern the plan as a whole. Each document lists its own as well
 - More than one focus companion per view.
 - Nested instances ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)), which
   bring their own panels into their parent instance's visor.
+- Connectors into other instances, which come with nested instances
+  ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)).

@@ -16,26 +16,32 @@ traceable. A connector stage computes and draws them
 ### The connector stage
 
 - **A connector stage sits above every visor stage for now.** It places its one child, the visor
-  stage, unchanged. It routes and draws the connectors of all views below it, so a connector joins
-  views of instances of one launcher.
+  stage, unchanged. It routes and draws the connectors of all views below it. It sees every panel of
+  the visor, so that a route also avoids the views of other instances on the same arc.
 - **It is its own implementation of the `Stage` trait** ([05](05-layout-stage.md)) and not a layout
   stage. It draws from current positions instead of animating towards targets.
-- **It receives three things.** From the views below it, it receives their connectors and ports
-  ([05](05-layout-stage.md)). From the visor stage, it receives the panel structure and the
-  remembered views ([06](06-visor-layouter.md)). From the desktop core, it receives the current
-  placements of the panels and views below it, every tick while any of them moves.
-- **It sends the visor stage the lane counts.** For every gap and margin, it says how many lanes the
-  routes need there. The visor layouter sizes the gaps and margins for them
-  ([06](06-visor-layouter.md)).
+- **It receives everything through its two sides.** From the visor stage, its child, it receives the
+  panel structure, which holds the connectors and the port rects, and the remembered views
+  ([06](06-visor-layouter.md)). From the desktop core, it receives the current positions of the
+  panels and views below it, every tick while any of them moves. The views sit two levels below,
+  under their panels, so the desktop core composes these positions from the placed nodes' current
+  values.
+- **It sends the visor stage the connector lane counts.** For every stack gap and panel margin, it
+  says how many connector lanes the routes need there. The visor layouter sizes the stack gaps and
+  panel margins for them ([06](06-visor-layouter.md)).
 - **It draws the routes into its own scene location**, above the views. A route fades with the views
   it connects.
 
 ### Where routes run
 
-- **Connectors may join any two views below the same connector stage.** That includes views of
-  different instances, views in neighboring panels, views in panels further apart, views in a panel
-  to the left of the source, and views in the same panel.
-- **Routes never cross a view.** A route runs only through free space: the gaps between views
+- **A connector joins two views of the same instance.** They may be in neighboring panels, in panels
+  further apart, in a panel to the left of the source, or in the same panel. Connectors into other
+  instances are a follow-up
+  ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)).
+- **A connector stays hidden until both ends resolve.** An end does not resolve while its view does
+  not exist or has no placement, or while the named port is not declared yet
+  ([05](05-layout-stage.md)).
+- **Routes never cross a view.** A route runs only through free space: the stack gaps between views
   stacked in a panel, the panels' margins beside their views, and the space above and below the
   stacks. The one exception is a connector's ends, which run horizontally inside their views, as
   described next.
@@ -51,7 +57,7 @@ traceable. A connector stage computes and draws them
 - **The application decides what a connector covers.** The horizontal run between a port and the
   view's edge is drawn over the view's content. An application that wants its content clear of
   connectors places its ports in the margin.
-- **There is no gap between panels.** Panels sit edge to edge on the arc
+- **There is no space between panels.** Panels sit edge to edge on the arc
   ([03](03-panels-on-the-visor.md)). All room for bends and vertical runs lies inside the panels,
   in their margins.
 - **A connector to the next panel bends once, as one biarc.** The bend spans the source panel's
@@ -60,57 +66,60 @@ traceable. A connector stage computes and draws them
 - **Longer routes are lines and quarter arcs.** A connector that passes a panel, runs to a panel on
   the left, or stays in its panel is a chain of horizontal and vertical lines. Its corners and
   U-turns are quarter arcs.
-- **A connector passes a panel through a gap or around its stack.** In every panel between its
-  source and its target, it either passes through the gap between two stacked views, or it passes
-  above or below the panel's stack.
+- **A connector passes a panel through a stack gap or around its stack.** In every panel between its
+  source and its target, it either passes through the stack gap between two stacked views, or it
+  passes above or below the panel's stack.
 - **A connector to a panel on the left turns around in the margins next to its ends.** It leaves its
   source on the right and turns in the source panel's right margin. It runs left past the panels in
   between and turns again in the target panel's left margin, to enter its target from the left. The
   standard layered framework calls these ends inverted ports.
-- **A connector within one panel crosses it from right to left through a gap.** It leaves its source
-  on the right, runs through a gap between stacked views from right to left, and enters its target
-  on the left. Source and target are different views of the panel, so a gap between them always
-  exists. The route therefore never goes around the panel's stack. The standard layered framework
-  calls this an in-layer edge.
+- **A connector within one panel crosses it from right to left through a stack gap.** It leaves its
+  source on the right, runs through a stack gap between stacked views from right to left, and enters
+  its target on the left. Source and target are different views of the panel, so a stack gap between
+  them always exists. The route therefore never goes around the panel's stack. The standard layered
+  framework calls this an in-layer edge.
 
-### Gaps, margins, and lanes
+### Stack gaps, panel margins, and connector lanes
 
-- **Gaps stay tight by default.** Where no connector passes, the gap between stacked views keeps its
-  minimum size ([06](06-visor-layouter.md)).
-- **Each connector gets a lane of its own.** A gap between stacked views grows by one lane for every
-  connector passing through it.
-- **Vertical runs take lanes in the panel margins.** A vertical run beside a view's right edge takes
-  a lane in its panel's right margin, and one beside a left edge takes a lane in the left margin.
-  The margin widens by one lane per run, which widens the panel ([06](06-visor-layouter.md)).
-- **The lane width is a parameter of the visor layouter** ([06](06-visor-layouter.md)). The
-  connector stage only counts lanes. The visor layouter turns the counts into widths.
-- **Lanes are ordered to cross as little as possible.** For several connectors leaving one view,
-  this means that they nest. A connector that turns up from a higher point takes a lane closer to
-  the view than one that turns up from a lower point, and the reverse holds for connectors that turn
-  down. Ties go to the connector created first.
+- **Stack gaps stay tight by default.** Where no connector passes, the stack gap between stacked
+  views keeps its minimum size ([06](06-visor-layouter.md)).
+- **Each connector gets a connector lane of its own.** A stack gap between stacked views grows by
+  one connector lane for every connector passing through it.
+- **Vertical runs take connector lanes in the panel margins.** A vertical run beside a view's right
+  edge takes a connector lane in its panel's right margin, and one beside a left edge takes a
+  connector lane in the left margin. The margin widens by one connector lane per run, which widens
+  the panel ([06](06-visor-layouter.md)).
+- **The connector lane width is a parameter of the visor layouter** ([06](06-visor-layouter.md)).
+  The connector stage only counts connector lanes. The visor layouter turns the counts into widths.
+- **Connector lanes are ordered to cross as little as possible.** For several connectors leaving one
+  view, this means that they nest. A connector that turns up from a higher point takes a connector
+  lane closer to the view than one that turns up from a lower point, and the reverse holds for
+  connectors that turn down. Ties go to the connector created first.
 
 ### Two phases
 
-A panel is laid out relative to itself first. Widening a gap or a margin only changes the distances
-within a panel. The panel's vertical offset is set last, by the sliding in
-[06](06-visor-layouter.md), so a widened gap does not move anything in a fixed direction. If routes
-were computed from absolute positions, every widened gap would change the positions they were
-computed from. So routing runs in two phases, and the visor layouter works between them.
+A panel is laid out relative to itself first. Widening a stack gap or a panel margin only changes
+the distances within a panel. The panel's vertical offset is set last, by the sliding in
+[06](06-visor-layouter.md), so a widened stack gap does not move anything in a fixed direction. If
+routes were computed from absolute positions, every widened stack gap would change the positions
+they were computed from. So routing runs in two phases, and the visor layouter works between them.
 
-1. **Route topology, in the connector stage.** From the panel structure and the connectors, the
-   connector stage decides which gap or which way around the stack each connector takes in every
-   panel it passes. Then it assigns the vertical runs in every margin to lanes. None of this uses
-   positions. It sends the resulting lane counts to the visor stage.
-2. **Layout, in the visor stage.** The visor layouter sizes every gap and margin for the lanes in
-   it. It stacks each panel's views with these gaps, which fixes their positions relative to their
-   panel. Then it sets each panel's offset by the sliding.
-3. **Route geometry, in the connector stage.** From the current placements of the panels and views,
+1. **Route topology, in the connector stage.** From the panel structure, the connector stage decides
+   which stack gap or which way around the stack each connector takes in every panel it passes. Then
+   it assigns the vertical runs in every panel margin to connector lanes. None of this uses
+   positions. It sends the resulting connector lane counts to the visor stage.
+2. **Layout, in the visor stage.** The visor layouter sizes every stack gap and panel margin for the
+   connector lanes in it. It stacks each panel's views with these stack gaps, which fixes their
+   positions relative to their panel. Then it sets each panel's offset by the sliding.
+3. **Route geometry, in the connector stage.** From the current positions of the panels and views,
    the routes get their exact lines and arcs.
 
-The route topology runs again only when connectors, views or panels are added or removed. The
-sliding changes the panels' offsets whenever the layout focus moves, and while the panels animate,
-the connector stage recomputes only the route geometry, every tick. So the routes keep their
-topology while the panels slide, and the lane counts do not change.
+The route topology runs again when connectors, views or panels are added or removed, when a panel
+index changes, and when a nested instance's group moves. It does not run again when the layout focus
+moves, because the remembered views are not part of the panel structure. The sliding changes the
+panels' offsets whenever the layout focus moves, and while the panels animate, the connector stage
+recomputes only the route geometry, every tick. So the routes keep their topology while the panels
+slide, and the connector lane counts do not change.
 
 ### Drawing order and emphasis
 
@@ -126,29 +135,30 @@ topology while the panels slide, and the lane counts do not change.
 
 - A test against many generated layouts checks that no route crosses any view's box, apart from
   the horizontal runs between its own ports and their views' edges.
-- Tests pin that a connector passing a panel through a gap routes through that gap, and one passing
-  around the stack routes above or below it.
+- Tests pin that a connector passing a panel through a stack gap routes through that stack gap, and
+  one passing around the stack routes above or below it.
 - Tests pin the turns of connectors to a panel on the left in the margins next to their ends.
-- Tests pin lane ordering and its tie-break, including the nesting of several connectors that
-  leave one view to the left without crossing each other.
-- Tests pin that the lane count of a gap or a margin is exactly one per connector passing it.
+- Tests pin connector lane ordering and its tie-break, including the nesting of several connectors
+  that leave one view to the left without crossing each other.
+- Tests pin that the connector lane count of a stack gap or a margin is exactly one per connector
+  passing it.
 - A test pins that a focus move changes only the geometry of the routes, not their topology or the
-  lane counts.
+  connector lane counts.
 - A test pins that the route topology is computed from the panel structure alone, without sizes or
   positions.
 
 ## Prior art
 
 - G. Sander, "A fast heuristic for hierarchical Manhattan layout", Graph Drawing, 1995 (published
-  1996). Routing between layers with right angles, where segments in a gap are assigned to slots
-  ordered to cross as little as possible.
+  1996). Routing between layers with right angles, where segments between two layers are assigned to
+  slots ordered to cross as little as possible.
 - C. Schulze, M. Spönemann, R. von Hanxleden, "Drawing layered graphs with port constraints",
   Journal of Visual Languages and Computing, 2014. Ports on fixed sides, inverted ports for
   backward edges, and in-layer edges, as implemented in ELK.
 - M. Wybrow, K. Marriott, P. J. Stuckey, "Orthogonal connector routing", Graph Drawing, 2009, as
   implemented in libavoid. It routes around fixed rectangles and then spreads overlapping segments
-  apart. It does not fit here, because routing widens gaps and margins and so moves the views. Here
-  the router fixes its topology before any position exists.
+  apart. It does not fit here, because routing widens stack gaps and margins and so moves the views.
+  Here the router fixes its topology before any position exists.
 
 ## Open questions
 
@@ -157,17 +167,17 @@ topology while the panels slide, and the lane counts do not change.
   Binding routes to scene locations, so that the renderer moves them, is a possible later
   optimization ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)).
 - Whether connector stages may sit higher in the tree, so that connectors join views of different
-  launchers. Lanes between the slots of a matrix would need a design of their own.
-- How the router chooses the gap a connector passes through in a panel, or whether it goes around
-  the stack. The first session let crossing minimization decide this, and that step is gone. The
-  choice should not depend on positions, so that it survives the sliding.
+  launchers. Connector lanes between the slots of a matrix would need a design of their own.
+- How the router chooses the stack gap a connector passes through in a panel, or whether it goes
+  around the stack. The first session let crossing minimization decide this, and that step is gone.
+  The choice should not depend on positions, so that it survives the sliding.
 - How far a connector runs above or below a stack when it passes around it.
-- Which gap between source and target a connector within one panel crosses. The vertical distance
-  it travels is the same for each of them, so lanes and crossings decide.
-- How the radius of quarter arcs relates to the lane width.
-- How lanes are assigned in the space above and below the stacks.
-- **How a connector shows its direction.** A connector always leaves a view's right edge and enters a
-  view's left edge, so its direction can be read from the sides. With a circle at both ends, this
+- Which stack gap between source and target a connector within one panel crosses. The vertical
+  distance it travels is the same for each of them, so connector lanes and crossings decide.
+- How the radius of quarter arcs relates to the connector lane width.
+- How connector lanes are assigned in the space above and below the stacks.
+- **How a connector shows its direction.** A connector always leaves a view's right edge and enters
+  a view's left edge, so its direction can be read from the sides. With a circle at both ends, this
   may be too subtle, above all for connectors to a panel on the left. The candidates are these.
   - No arrowheads. The sides alone show the direction.
   - An arrowhead at the target end, in place of the circle or next to it. The shape renderer has no

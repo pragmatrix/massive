@@ -16,8 +16,8 @@ The second session put a presentation layer into the instance's layout stage. It
 to the desktop once and animated only the drawing of the views, by offsetting each view's local
 transform and easing the offset to zero. It also drew and animated the connectors on the same
 clock. [ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md) moved the layout into the
-desktop, so the generic layout stage animates the placements, and the connector stage draws the
-connectors from them.
+desktop, so every placed node animates its own placement, and the connector stage draws the
+connectors from the current values.
 
 ## Current situation
 
@@ -36,17 +36,20 @@ connectors from them.
 - **Targets apply at once.** On each layout change, the visor stage's placements are targets. The
   desktop core places, hit-tests, navigates and frames the camera as if the panels and views were
   already there ([04](04-focus-companions.md)). The layout never runs per frame.
-- **The generic layout stage animates.** It moves each placement from its current value to its
-  target with the structural animation, whose duration and easing are desktop policy constants
-  ([05](05-layout-stage.md)).
-- **Panels, views and title bars move together.** They are all placements of the same visor stage
-  and share one clock. A title bar never jumps ahead of its panel's views.
-- **The instance's own transforms are left alone.** The stage animates the scene locations it
-  places. The local transform of a view stays the instance's.
-- **Connectors follow the current placements.** While any placement below a connector stage moves,
-  the layout stages report the current values every tick, the desktop core composes them once, and
-  the connector stage recomputes the route geometry from them ([07](07-connector-routing.md)). So
-  connectors and views can't drift apart.
+- **Every node animates its own placement.** A generic placed node with a scene location, a
+  movement and a fade serves stages, panels, title bars and views
+  ([05](05-layout-stage.md)). When its parent sets its placement, the node moves from its current
+  value to the new one with the structural animation, whose duration and easing are desktop policy
+  constants. This is how `apply_layout(layout, animate)` works today.
+- **Panels, views and title bars move together.** The visor stage sets all their placements in the
+  same layout pass, and they share the structural animation's clock. A title bar never jumps ahead
+  of its panel's views.
+- **The instance's own transforms are left alone.** A placed node animates its own scene location.
+  The local transform of a view stays the instance's.
+- **Connectors follow the current placements.** While any placed node below a connector stage
+  moves, it reports its current value every tick. The desktop core composes these values once into
+  positions relative to the connector stage, and the connector stage recomputes the route geometry
+  from them ([07](07-connector-routing.md)). So connectors and views can't drift apart.
 - **A click during a move lands on the target.** While a view animates, it is hit-tested at its
   final position. A move takes as long as the desktop's structural animation.
 - **Connectors are scene shapes.** They are rects, arcs, and endpoint circles from

@@ -2,6 +2,10 @@
 
 ## Status: accepted
 
+Amended by [ADR 0046](0046-projects-and-launchers-are-layout-stages.md) (proposed). Full Screen Mode
+enlarges an instance's primary view and so shrinks all panels of the instance, which changes the
+visor layout. Title bars keep their regular size.
+
 The `InstanceFullScreen` Focus Depth is removed from the overview's Focus
 Depths (`Project, Row, Slot, Instance`). Fullscreen-ness was a *camera* state
 that coupled to keyboard focus: it lived in the global `focus_depth`, was reset

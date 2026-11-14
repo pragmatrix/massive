@@ -35,7 +35,7 @@ views.
   ([command_dispatch.rs:392](../../desktop/src/desktop_system/command_dispatch.rs#L392)).
 - The desktop decides Full Screen Mode. It gives the view the window's size, and the instance only
   receives `ViewEvent::Resized`. The view is then fitted back into its panel with
-  `fullscreen_scale` ([fullscreen.rs:41](../../desktop/src/desktop_system/fullscreen.rs#L41),
+  `fullscreen_scale` ([fullscreen.rs:30](../../desktop/src/desktop_system/fullscreen.rs#L30),
   [instance_presenter.rs:581](../../desktop/src/instance_presenter.rs#L581),
   [ADR 0014](../adr/0014-fullscreen-mode-is-per-launcher-content-scaling.md)).
 
@@ -62,6 +62,10 @@ views.
 
 - **Each instance contributes a group of panels.** The panels come from its views' layout metadata
   ([05](05-layout-stage.md)). An instance with one view contributes one panel.
+- **Panels are the visor stage's direct children.** Instances exist only in the target tree. One
+  visor layouter lays out the whole arc ([06](06-visor-layouter.md)).
+- **A panel is a target.** Its instance and its panel index identify it. If the application changes
+  a panel index, the panel moves.
 - **The visor stage joins the groups in the order of the instances.** A nested instance's group goes
   after the panel of its parent instance that the parent names
   ([ADR 0046](../adr/0046-projects-and-launchers-are-layout-stages.md)).
@@ -76,41 +80,54 @@ views.
   the offsets stay valid.
 - **Each panel has a title bar.** It shows the title of the panel's remembered view
   ([ADR 0019](../adr/0019-instance-title-bar-is-part-of-the-instance-extent.md) applies per panel).
-  The visor stage draws it as decoration.
+  The title bar is a node of the stage tree under its panel. A click on it still selects its
+  target.
 
 ### Scale
 
 - **All panels of an instance share its instance scale.** The instance scale is the largest scale,
-  at most 1, at which the instance's primary view fits the slot. Expanding and collapsing never
-  change it.
+  at most 1, at which the panel of the instance's primary view, with its title bar, fits the slot.
+  This is the rule that fits an instance into its panel today. Expanding and collapsing never change
+  it.
 - **The camera cancels the instance scale at the Focus zoom level**, so the focused instance's
   panels are shown 1:1 on screen.
-- **Full Screen Mode enlarges the primary view**, so it shrinks all panels of that instance.
-- **Nothing visible changes today.** Every current application has one view at the default panel
-  size, which gets the scale 1, and Full Screen Mode already fits that view back into its panel with
-  the same rule.
+- **Full Screen Mode enlarges the primary view**, so it shrinks all panels of that instance. It
+  therefore changes the visor layout, which
+  [ADR 0014](../adr/0014-fullscreen-mode-is-per-launcher-content-scaling.md) excluded until
+  ADR 0046. Title bars keep their regular size.
+- **Nothing visible changes today.** Every current application has one view, so its one panel is
+  scaled by the same rule as today.
 - **A collapsed visor shows the primary view of the instance that holds the center visor view.**
-- **The slot measures the fitted primary view.** So a launcher stays one slot extent
-  ([ADR 0044](../adr/0044-launchers-present-only-as-visors.md)), and every row of the matrix keeps
-  the slot extent ([ADR 0023](../adr/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)).
-  Panels may extend beyond the slot while the visor is expanded, also vertically.
+- **The slot measures the fitted primary view.** So a launcher stays one slot extent ([ADR
+  0044](../adr/0044-launchers-present-only-as-visors.md)), and every row of the matrix keeps the
+  slot extent ([ADR
+  0023](../adr/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)). Panels may
+  extend beyond the slot while the visor is expanded, also vertically.
 
 ### Focus and navigation
 
-- **Hit testing uses the target placements of the visor stage.** A click hits a view at the place
-  it moves to, also while it still animates there ([08](08-animation-and-drawing.md)).
+- **Hit testing walks the stage tree.** It uses the target placements, so a click hits a view at
+  the place it moves to, also while it still animates there ([08](08-animation-and-drawing.md)). A
+  view without a placement cannot be hit, and focus navigation skips it.
+- **The camera frames a launcher by its panels.** The framing in
+  [zoom_geometry.rs](../../desktop/src/desktop_system/navigation/zoom_geometry.rs) already reads
+  only placements and their yaw. It frames the visor stage's children instead of asking for the
+  launcher's instances.
 - **Cmd+arrows move to the neighboring view.** In an expanded visor, Cmd+←/→ cross panel edges, and
   Cmd+↑/↓ move within a panel. The neighbor is found by position, whatever instance owns it.
 - **Past the outermost view, navigation escapes to the matrix**, as it does today.
 - **The visor stage keeps the center visor view.** It reports it on its parent side, so that the
   desktop core focuses it when the user re-enters the launcher. The arc then centers on its panel.
+- **The layout focus names a view.** Today it names an instance
+  (`LayoutInputs::focused_instance`), which cannot carry the remembered views or the center visor
+  view.
 - **The layout focus stays in the desktop.** The visor stage receives it from its parent side and
   updates the remembered views from it ([06](06-visor-layouter.md)). The instance never sees it.
 
 ## Glossary changes
 
-- Redefine **panel**. Define **layout metadata**, **center line**, **visor stage** and **connector
-  stage**.
+- Redefine **panel** and **layout focus**, which now names a view. Define **layout metadata**,
+  **center line**, **visor stage** and **connector stage**.
 - Replace **center visor instance** by **center visor view**, and update **collapsed visor** and
   **non-center visor instance**.
 - Update **instance title bar**, which today names the primary view.
@@ -122,7 +139,8 @@ views.
   shape, for example to flat panels hinged at their edges ([02](02-connector-shapes.md)).
 - Whether `ViewRole` means more than "primary" for an instance with several views.
 - Whether `desktop_describe` lists an instance's panels and views.
-- How placement visibility ([ADR 0001](../adr/0001-placement-visibility-drives-interaction-and-fade.md))
-  applies to several views and panels of one instance.
+- How placement visibility ([ADR
+  0001](../adr/0001-placement-visibility-drives-interaction-and-fade.md)) applies to several views
+  and panels of one instance.
 - How a visor gets rows, so that a parent instance can place nested instances below its own panels.
   Panels can have arbitrary heights, which this has to take into account.
