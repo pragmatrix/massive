@@ -1,7 +1,6 @@
 # 02 Connector shapes
 
-Status: **decisions taken, experiment not started** (2026-11-07). Part of
-[view columns](README.md).
+Status: **decisions taken** (2026-11-07, revised 2026-11-14). Part of [visor panels](README.md).
 
 ## Goal
 
@@ -63,9 +62,10 @@ across a 120-pixel span.
   roots of a fifth-degree polynomial per pixel. A numeric search with samples and Newton steps works
   for gentle curves, but is the least robust option for thick strokes on tight bends. Rejected.
 - **Arc, straight diagonal line, arc.** This follows the cubic curve closely at every drop, with
-  exact distances. It looked worse than biarcs for the small gaps between view columns. Rejected.
+  exact distances. It looked worse than biarcs for the short spans between views in neighboring
+  panels. Rejected.
 - **Biarcs.** They match the cubic curve for drops up to about half the span. Beyond that they turn
-  into rounded right angles, which suits small gaps. Chosen.
+  into rounded right angles, which suits short spans. Chosen.
 
 For the endpoints, these options were considered.
 
@@ -81,20 +81,13 @@ For the endpoints, these options were considered.
 - **Layering the circle above the line's end.** It uses existing shapes, allows two colors, and
   needs no new end shape. Chosen.
 
-## Experiment
-
-1. Add an angle-clipped arc selector to the shape shader and the shape types.
-2. Draw biarc connectors from rects and arcs, with a translucent color, and endpoint circles of a
-   second color above them.
-3. Look at them at scales from 0.25 to 2, and at several camera distances.
-
-## Done when
-
-The joins show no seam and no overlap at any scale tried, and the edges are as smooth as the edges
-of the existing rects.
-
 ## Open questions
 
+- **How a connector crosses from one panel to the next.** Neighboring panels stand at an angle to
+  each other on the visor's arc, so a connector that crosses a panel edge leaves the plane it
+  started in. It may need pieces that bend smoothly along the arc, which the three shapes above do
+  not provide. The answer can also change the arc's own shape
+  ([03](03-multi-panel-instances.md)).
 - How the arc's orientation and opening are encoded. There are four start directions and two turning
   directions. The selector, the sign of a value, or the two floats of shape data could carry them.
 - How large the quad around an arc must be. It needs the arc's bounding box, widened by w/2 and by
