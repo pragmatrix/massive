@@ -298,8 +298,7 @@ fn concrete_navigation_target(
     launcher_id: LaunchProfileId,
     direction: Direction,
 ) -> FocusableTarget {
-    // The anchor is presentation state and stays on the presenter. A launcher without a presenter
-    // falls back to itself.
+    // A launcher without a presenter falls back to itself.
     let Some(launcher) = launchers.get(&launcher_id) else {
         return FocusableTarget::Launcher(launcher_id);
     };

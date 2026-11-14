@@ -2,7 +2,8 @@
 
 ## Status: accepted
 
-Amends [ADR 0019](./0019-instance-title-bar-is-part-of-the-instance-extent.md),
+Amends [ADR 0011](./0011-desktop-is-a-fractal-of-projects-in-slots.md),
+[ADR 0019](./0019-instance-title-bar-is-part-of-the-instance-extent.md),
 [ADR 0022](./0022-presenters-own-the-layout-of-their-targets.md),
 [ADR 0023](./0023-matrix-slots-share-one-slot-extent-and-center-their-content.md),
 [ADR 0037](./0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md) and
@@ -27,7 +28,7 @@ visor is in use, so the band cost a second path through all of these parts witho
   measures an instance extent, the default panel with its title bar (ADR 0019), which is exactly one
   slot extent (ADR 0023). Its matrix scale is therefore always 1. An empty launcher no longer
   stretches to its row, because a row holding a launcher is already one slot extent tall and
-  nothing in a matrix is taller.
+  nothing in a matrix is taller, apart from a pixel that rounding can add.
 - **The configuration has no `mode`.** The desktop configuration does not write a launcher's mode
   and reads none. An existing file that still contains `mode` loads, because the configuration
   ignores fields it does not know, and the next write drops the field. A launcher saved as a band

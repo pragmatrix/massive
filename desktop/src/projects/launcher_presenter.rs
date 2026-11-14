@@ -25,11 +25,11 @@ use crate::desktop_system::{
     KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut, StartInstance,
     TargetLayout, place_container_children,
 };
-use crate::instance_presenter::{InstanceKind, instance_extent};
+use crate::instance_presenter::InstanceKind;
 use crate::policy::colors;
 use crate::policy::constants::{launcher, mcp_indicator};
 use crate::policy::when::{self, PressingCommandEnter};
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, slot_extent};
 
 use super::runtime_configuration::Params;
 
@@ -320,10 +320,8 @@ impl TargetLayout for LauncherPresenter {
         context: &LayoutContext,
         _children: &[MeasuredLayout<2>],
     ) -> MeasuredLayout<2> {
-        // A launcher spans an instance's extent, title bar included (ADR 0019), which is exactly one
-        // matrix slot (ADR 0044).
-        let extent: LayoutSize<2> =
-            instance_extent(context.default_panel_size, context.title_bar_metrics.height).into();
+        // A launcher is exactly one matrix slot (ADR 0044), so the matrix never scales it.
+        let extent: LayoutSize<2> = slot_extent(context).into();
         extent.into()
     }
 
