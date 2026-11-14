@@ -60,11 +60,19 @@ no place at all, because each layout stage sees only its own instance.
   where they appear.
 - A **layout stage** lays out the children of one level of the desktop. It sits between that
   level's parent side and its child side.
+- A **layouter** is the pure function that a layout stage calls. It takes the stage's state, inputs
+  and events, and it returns the stage's new state and its output.
+- A **connector route** is the path drawn for one connector, from its source end to its target end
+  ([visor panels 07](../visor-panels/07-connector-routing.md)). Its **route topology** says which
+  gap or which way around a stack it takes in every panel it passes, and which lane it uses in every
+  gap and margin. The route topology needs no positions. Its **route geometry** is the exact lines
+  and arcs, computed from the route topology and the current positions of ports, views and panels.
 
 ### Projects and launchers are layout stages, not instances
 
-- A project is a **matrix stage** and a launcher is a **visor stage**. Both run in the desktop's
-  task. Neither is an instance.
+- A project is a **matrix stage**, which is a layout stage with the matrix layouter. A launcher is a
+  **visor stage**, which is a layout stage with the visor layouter. Both run in the desktop's task.
+  Neither is an instance.
 - Stages in one task call each other directly, with no channels between them. One layout pass
   measures and places every stage, so the camera and hit testing read placements from the same pass.
 - The desktop core keeps the camera, the focus path, the selection, hit testing, the configuration
@@ -101,10 +109,17 @@ no place at all, because each layout stage sees only its own instance.
   slots, zoom and select, so they are commands of their targets, not layout. They stay with the
   targets in the core.
 
-### A pure layouter computes each stage's geometry
+### One generic layout stage, and a layouter per kind
 
-- Each stage computes its geometry with a **layouter**. A layouter is a pure function from the
-  stage's inputs and state to placements, as ADR 0045 already defines it.
+- One generic `LayoutStage<L: Layouter>` implements every layout stage. It handles the protocol with
+  both sides, skips runs whose inputs did not change, animates placements and visibility, and
+  applies placements to scene locations. These parts exist once, for every kind of stage.
+- What differs between the kinds is only the layouter and the type of its state. The matrix
+  layouter and the visor layouter are the first two. A new arrangement, such as rows in a visor or
+  an arrangement that an application brings, is a new layouter and not a new stage.
+- A layouter is pure, as ADR 0045 already defines it. Its output consists of the placements of the
+  children with their visibility, plain decoration such as a project header or a visor background,
+  and what the stage reports to its parent side, such as its extent.
 - A layouter is not incremental. It recomputes one stage in full, and a stage has only a few
   children. The stage remembers its last inputs and outputs. It runs the layouter only when an input
   changed, and it reports to its parent side only when its extent changed.
@@ -112,13 +127,14 @@ no place at all, because each layout stage sees only its own instance.
   for measuring only when its size changed
   ([layout_effects.rs](../../desktop/src/desktop_system/layout_effects.rs),
   [ADR 0043](0043-effects-are-ordered-by-what-they-read-and-marked-through-the-transaction.md)).
-- Each stage animates its own placements. Stages share the animation code through a library.
 
-### The `Stage` trait is open
+### The `Stage` and `Layouter` traits are open
 
-- A `Stage` trait in `massive-applications` describes a stage. The matrix stage and the visor stage
-  implement it. The trait comes first, so that every stage is designed against the same constraint
-  from the start.
+- A `Stage` trait in `massive-applications` is the interface through which the core holds the tree
+  of stages, whatever their kind. `LayoutStage<L>` and the connector stage implement it.
+- A `Layouter` trait in `massive-applications` is the extension point for new arrangements.
+- Both traits come first, so that every stage is designed against the same constraint from the
+  start.
 - A stage's inputs and outputs are plain data, so that they can cross the boundary to an instance
   that runs out of process.
 - An application may bring a stage of its own. That stage runs only in the application's own task,
@@ -139,11 +155,14 @@ no place at all, because each layout stage sees only its own instance.
   indices.
 - The visor stage joins the panels of all its instances on one arc, one group of panels per
   instance, in the order of the instances and without gaps.
-- The visor stage does everything that ADR 0045 gave to the layout stage in the instance. It stacks
-  each panel's views, keeps the remembered view of each panel, slides the panels along the center
-  line, routes the connectors, and draws and animates views and connectors together. All of this
-  happens in the desktop's task and in one frame. The layout focus therefore no longer crosses into
-  the instance, and the sliding starts together with the centering of the arc by construction.
+- The visor stage takes over what ADR 0045 gave to the layout stage in the instance, apart from the
+  connectors. Its layouter stacks each panel's views, keeps the remembered view of each panel, and
+  slides the panels along the center line. All of this happens in the desktop's task and in one
+  frame. The layout focus therefore no longer crosses into the instance, and the sliding starts
+  together with the centering of the arc by construction.
+- The visor stage reports its panel structure to its parent side. The panel structure is the order
+  of the panels, the stack of views in each, and each panel's remembered view. From its parent side, the visor stage receives how
+  many lanes each gap and each margin needs, and its layouter sizes the gaps and margins for them.
 - The visor stage keeps the center visor view. It reports that view on its parent side, so that the
   core can focus it when the user re-enters the launcher.
 - A collapsed visor shows the primary view of the instance that holds the center visor view. Only a
@@ -162,13 +181,29 @@ no place at all, because each layout stage sees only its own instance.
   which gets the scale 1, and Full Screen Mode already fits that view back into its panel with the
   same rule.
 
-### Connectors may join views of different instances
+### A connector stage draws the connectors
 
 - A connector end names a view by its instance and its view, and optionally one of the view's ports.
-- Both ends must be views in the same visor. A connector therefore joins views of instances of one
-  launcher.
-- The visor stage routes all connectors, the ones within one instance as well as the ones between
-  instances. It knows the arc, so it also routes a connector across a panel edge on the arc.
+  The two ends may be views of different instances.
+- A **connector stage** wraps one subtree of stages. It places its one child unchanged and draws the
+  connector routes of all views below it. Both ends of a connector must be views below the same
+  connector stage.
+- For now, one connector stage sits above every visor stage. A connector therefore joins views of
+  instances of one launcher.
+- The connector stage computes the route topology from the connector metadata of the views and the
+  panel structure that the visor stage reports. It then sends the visor stage the number of lanes
+  that each gap and each margin needs. The route topology changes only when connectors, views or
+  panels are added or removed, so the lanes do not change while panels slide.
+- While anything below it moves, the connector stage recomputes the route geometry every tick. Every
+  `LayoutStage` holds the current values of the placements it animates, and it reports them every
+  tick while they move. The core composes them once per tick into positions relative to the
+  connector stage and passes them to it.
+- The connector stage draws the routes into its own scene location, above the views. A route fades
+  with the views it connects.
+- The connector stage is its own implementation of the `Stage` trait and not a `LayoutStage`. It
+  draws from current positions instead of animating towards targets.
+- The connector stage sees the placements of all panels below it, so it has what it needs to route
+  a connector across a panel edge on the arc. The shape of that crossing is still open.
 
 ### An instance may start nested instances
 
@@ -224,6 +259,24 @@ no place at all, because each layout stage sees only its own instance.
 - **The layout stage in the instance routes the connectors**, as ADR 0045 planned. It cannot route a
   connector to a view of another instance, and it cannot route across a panel edge on the arc,
   because it does not know the arc.
+- **A specific stage per kind, with a pure layouter inside.** This was the first version of this
+  decision. Each kind would write the protocol, the skipping and the animation again, and an
+  arrangement that an application brings could not reuse them.
+- **One layout engine for the whole tree.** Stages would only describe their nodes, and one solver
+  would place everything. An arc, the sliding along the center line and connector routing do not fit
+  a generic box layout, and ADR 0022 moved away from one central algorithm.
+- **Connector routes in the layouters' output.** Every layouter's output would need routes that
+  can be animated, and a connector could never leave its stage.
+- **One connector space owned by the core.** The core would then know about connectors, which the
+  stages exist to keep from it.
+- **Connector routes bound to scene locations.** The renderer would evaluate every route each frame,
+  and no stage would work per frame. One corner of a route takes its x from one location and its y
+  from another, for example from a lane in one panel's margin and from a port in another panel's
+  view. Every point would need an anchor per axis, and the crossing of the arc must be settled first.
+  This stays a possible later optimization.
+- **One connector stage at the root, or above every matrix stage.** Connectors would reach across
+  launchers. Which views an instance may connect to is then a question of trust that is not
+  settled.
 - **Any instance may start nested instances.** Without a declaration, any running application could
   start other applications on the desktop, including an application that acts on input from a remote
   machine. That widens the trust model beyond what [security.md](../security.md) covers.
@@ -236,7 +289,8 @@ no place at all, because each layout stage sees only its own instance.
 - **Layout and presentation as two stages in series.** One presentation stage would animate every
   level. The placement it receives would have to carry transitions and visibility, and the layout
   focus would pass through two stages per level.
-- **A closed set of stages.** Applications bring their own stages, so the set cannot be closed.
+- **A closed set of stages.** Applications bring their own arrangements, so the set cannot be
+  closed.
 - **The scale depends on the panel count.** An instance with one panel would be scaled to fit, and an
   instance with several panels would be shown 1:1 while expanded. An instance would change its scale
   the moment it opens a second panel.
@@ -258,23 +312,32 @@ no place at all, because each layout stage sees only its own instance.
   reads through `LayoutContext` needs a source on one of the stage's two sides. Finding these sources
   is most of the work of the matrix stage.
 - ADR 0045 changes in three sections. Its two kinds of applications are gone. Its two ways of scaling
-  become the one instance scale. Its layout stage in the instance becomes the visor stage in the
-  desktop, and connector and port metadata now cross into the desktop.
-- ADR 0045's open questions get answers. A connector crosses the arc because the visor stage routes
-  it. Full Screen Mode shrinks every panel of its instance. A view without indices stays hidden,
-  except the primary view, which defaults to panel 0, stack 0.
-- The visor panels documents [03](../visor-panels/03-multi-panel-instances.md),
-  [05](../visor-panels/05-layout-stage.md), [07](../visor-panels/07-connector-routing.md) and
-  [08](../visor-panels/08-presentation-layer.md) are revised before they are implemented. Routing and
-  presentation move into the visor stage.
+  become the one instance scale. Its layout stage in the instance becomes the visor stage and the
+  connector stage in the desktop, and connector and port metadata now cross into the desktop.
+- ADR 0045's open questions get answers. Full Screen Mode shrinks every panel of its instance. A view
+  without indices stays hidden, except the primary view, which defaults to panel 0, stack 0. The
+  connector stage holds what a connector needs to cross the arc, but the shape of the crossing stays
+  open.
+- The visor panels documents [03](../visor-panels/03-panels-on-the-visor.md),
+  [05](../visor-panels/05-layout-stage.md), [06](../visor-panels/06-visor-layouter.md),
+  [07](../visor-panels/07-connector-routing.md) and [08](../visor-panels/08-animation-and-drawing.md)
+  are revised before they are implemented. Stacking and sliding move into the visor layouter, and
+  routing and drawing connectors move into the connector stage.
 - Connector routing runs in the desktop's task. A large connector graph could therefore slow the
-  desktop and not only one instance. Its cost is measured before it is optimized.
+  desktop and not only one instance. The route topology runs only when the structure changes, and the
+  route geometry runs every tick while something moves. Both costs are measured before they are
+  optimized.
+- Every `LayoutStage` reports the current values of its animated placements every tick while they
+  move, and the core composes them once per tick. Only connector stages read them for now.
+- The renderer needs nothing new for connectors beyond the shapes of visor panels document
+  [02](../visor-panels/02-connector-shapes.md).
 - Both security documents change in the change that introduces nested instances. They gain the
   declared property, the check that only a declaring application may start nested instances, and the
   rule that a nested instance inherits its parent's MCP root.
 - `desktop_describe` lists nested instances under their parent instance.
-- The glossary gains layout stage, matrix stage, visor stage, layout metadata, parent instance,
-  nested instance and instance scale in the changes that introduce them. Layout stage is never
+- The glossary gains layout stage, layouter, matrix stage, visor stage, connector stage, connector
+  route, route topology, route geometry, layout metadata, parent instance, nested instance and
+  instance scale in the changes that introduce them. Layout stage is never
   shortened to stage alone in the glossary, because the lifetime stage
   ([ADR 0040](0040-a-lifetime-stage-before-the-renderer-decides-when-scene-objects-end.md)) is a
   different thing. The terms multi-instance application and multi-panel application of ADR 0045 are
@@ -292,7 +355,11 @@ no place at all, because each layout stage sees only its own instance.
 - Whether a stage will need a say about key presses.
 - How a visor gets rows, so that a parent instance can place nested instances below its own panels.
   Panels can have arbitrary heights, which this has to take into account.
-- Whether connectors may join views of different launchers.
+- Whether connector stages may sit higher in the tree, so that connectors join views of different
+  launchers, and which views an instance may then connect to.
+- How a connector crosses from one panel to the next on the arc.
+- Whether connector routes are later bound to scene locations, so that the renderer moves them and
+  no stage works per frame.
 - Whether a nested instance may itself start nested instances.
 - How a connector to a view that has closed is handled. It is likely dropped silently.
 - Whether mt can register a stage that runs in the desktop's task.

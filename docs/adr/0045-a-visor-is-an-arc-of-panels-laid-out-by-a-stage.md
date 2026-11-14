@@ -4,7 +4,8 @@
 
 Amended by [ADR 0046](0046-projects-and-launchers-are-layout-stages.md) (proposed). Applications are
 no longer multi-instance or multi-panel, every instance shares one instance scale across its panels,
-and the visor stage in the desktop takes over the layout stage's work, connectors included.
+and the layout stage's work moves into the desktop. The visor stage stacks and slides the panels,
+and a connector stage routes and draws the connectors.
 
 ## Context
 
