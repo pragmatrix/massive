@@ -47,7 +47,7 @@ const TEST_SCALE_FACTOR: f64 = 1.0;
 const CONFIG: &str = r#"{
     "startup": "/shell",
     "slots": [
-        { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor", "params": { "command": "echo" } } }
+        { "at": [0, 0], "launcher": { "name": "shell", "params": { "command": "echo" } } }
     ]
 }"#;
 
@@ -55,10 +55,10 @@ const NESTED_SIBLINGS_CONFIG: &str = r#"{
     "startup": "/labs-a/shell-a",
     "slots": [
         { "at": [0, 0], "project": { "name": "labs-a", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-a", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "shell-a" } }
         ] } },
         { "at": [1, 0], "project": { "name": "labs-b", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-b", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "shell-b" } }
         ] } }
     ]
 }"#;

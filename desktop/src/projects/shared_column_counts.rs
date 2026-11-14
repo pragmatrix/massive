@@ -152,9 +152,8 @@ mod tests {
     use super::*;
     use crate::desktop_system::change::ConfigurationChange;
     use crate::projects::{
-        FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode, MatrixPoint, MatrixRect,
-        Params, ROOT_PROJECT_NAME, SlotAssignment, SlotContent, SlotPosition, matrix_bounds,
-        move_landings,
+        FullScreenMode, LaunchProfile, LaunchProfileId, MatrixPoint, MatrixRect, Params,
+        ROOT_PROJECT_NAME, SlotAssignment, SlotContent, SlotPosition, matrix_bounds, move_landings,
     };
 
     /// The counts are state derived from the configuration, so they must never drift from it.
@@ -232,7 +231,6 @@ mod tests {
                         id: LaunchProfileId::new(),
                         profile: LaunchProfile {
                             name: "launcher".into(),
-                            mode: LauncherMode::Visor,
                             params: Params::new(),
                             full_screen_mode: FullScreenMode::Regular,
                         },

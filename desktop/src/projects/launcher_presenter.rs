@@ -23,13 +23,13 @@ use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
     AppliedLayout, Commands, DesktopCommand, DesktopTarget, FocusIntent, KeyContext, KeyHandler,
     KeyInput, KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut,
-    StartInstance, TargetLayout, measure_container, place_container_children,
+    StartInstance, TargetLayout, place_container_children,
 };
 use crate::instance_presenter::{InstanceKind, instance_extent};
 use crate::policy::colors;
 use crate::policy::constants::{launcher, mcp_indicator};
 use crate::policy::when::{self, PressingCommandEnter};
-use crate::projects::{LaunchProfileId, LauncherMode};
+use crate::projects::LaunchProfileId;
 
 use super::runtime_configuration::Params;
 
@@ -312,8 +312,8 @@ impl KeyHandler for LauncherPresenter {
     }
 }
 
-/// Bands pack their instances horizontally; visors arc them around the focus anchor and collapse
-/// while none of them holds the keyboard focus.
+/// A launcher presents its instances as a visor: they stand on an arc around the focus anchor and
+/// collapse while none of them holds the keyboard focus.
 impl TargetLayout for LauncherPresenter {
     type Part = ();
 
@@ -321,9 +321,9 @@ impl TargetLayout for LauncherPresenter {
         &self,
         (): (),
         context: &LayoutContext,
-        children: &[MeasuredLayout<2>],
+        _children: &[MeasuredLayout<2>],
     ) -> MeasuredLayout<2> {
-        measure_launcher(self.id, context, children)
+        measure_launcher(self.id, context)
     }
 
     fn place_children(
@@ -332,40 +332,28 @@ impl TargetLayout for LauncherPresenter {
         context: &LayoutContext,
         children: ChildPlacement<'_, Transform, 2>,
     ) {
-        match context.configuration[self.id].mode {
-            LauncherMode::Band => place_container_children(
-                LayoutAxis::HORIZONTAL,
-                launcher::CHILD_SPACING,
-                Offset::default(),
-                children.measurements.iter().map(|child| child.size),
-                children.placements,
-            ),
-            LauncherMode::Visor => {
-                let index_of = |instance: Option<InstanceId>| {
-                    let instance = instance?;
-                    context
-                        .hierarchy
-                        .launcher_instances(self.id)
-                        .position(|child| child == instance)
-                };
-                let expanded = index_of(context.focused_instance).is_some();
-                let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
-                self.place_visor_children(
-                    children.measurements,
-                    center_index,
-                    expanded,
-                    context.default_panel_size,
-                    children.placements,
-                );
-            }
-        }
+        let index_of = |instance: Option<InstanceId>| {
+            let instance = instance?;
+            context
+                .hierarchy
+                .launcher_instances(self.id)
+                .position(|child| child == instance)
+        };
+        let expanded = index_of(context.focused_instance).is_some();
+        let center_index = index_of(self.focus_anchor_instance).unwrap_or_default();
+        self.place_visor_children(
+            children.measurements,
+            center_index,
+            expanded,
+            context.default_panel_size,
+            children.placements,
+        );
     }
 
     /// A visor collapses around the focus anchor, which matters only when more than the anchor
     /// instance exists.
     fn relayouts_on_focus(&self, (): (), context: &LayoutContext) -> bool {
-        context.configuration[self.id].mode == LauncherMode::Visor
-            && context.hierarchy.launcher_instances(self.id).count() > 1
+        context.hierarchy.launcher_instances(self.id).count() > 1
     }
 
     fn apply_layout(
@@ -382,12 +370,8 @@ impl TargetLayout for LauncherPresenter {
 
 /// A launcher spans an instance's extent, title bar included (ADR 0019). An empty one stretches to
 /// its matrix row, while instances give it an intrinsic size, which the matrix centers in its slot
-/// (ADR 0023); bands measure from their instances like any horizontal container.
-fn measure_launcher(
-    launcher: LaunchProfileId,
-    context: &LayoutContext,
-    children: &[MeasuredLayout<2>],
-) -> MeasuredLayout<2> {
+/// (ADR 0023).
+fn measure_launcher(launcher: LaunchProfileId, context: &LayoutContext) -> MeasuredLayout<2> {
     let instance_extent: LayoutSize<2> =
         instance_extent(context.default_panel_size, context.title_bar_metrics.height).into();
     if context
@@ -397,16 +381,7 @@ fn measure_launcher(
     {
         return MeasuredLayout::new(instance_extent, [false, true]);
     }
-    match context.configuration[launcher].mode {
-        LauncherMode::Visor => instance_extent.into(),
-        LauncherMode::Band => measure_container(
-            LayoutAxis::HORIZONTAL,
-            Default::default(),
-            launcher::CHILD_SPACING as u32,
-            children.iter().map(|child| child.size),
-        )
-        .into(),
-    }
+    instance_extent.into()
 }
 
 impl LauncherMovement {
@@ -557,8 +532,8 @@ mod tests {
             r#"{
                 "startup": "/busy",
                 "slots": [
-                    { "at": [0, 0], "launcher": { "name": "empty", "mode": "visor" } },
-                    { "at": [1, 0], "launcher": { "name": "busy", "mode": "visor" } }
+                    { "at": [0, 0], "launcher": { "name": "empty" } },
+                    { "at": [1, 0], "launcher": { "name": "busy" } }
                 ]
             }"#,
         )
@@ -595,11 +570,11 @@ mod tests {
             "the extent includes the title bar"
         );
 
-        let empty = measure_launcher(empty, &context, &[]);
+        let empty = measure_launcher(empty, &context);
         assert_eq!(empty.size, instance_extent);
         assert_eq!(empty.expandable_axes, [false, true]);
 
-        let busy = measure_launcher(busy, &context, &[instance_extent.into()]);
+        let busy = measure_launcher(busy, &context);
         assert_eq!(busy.size, instance_extent);
         assert_eq!(busy.expandable_axes, [false, false]);
     }

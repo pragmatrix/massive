@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn a_configuration_at_the_nesting_limits_saves_and_loads() -> Result<()> {
         use crate::policy::constants::configuration::{MAX_PARAMS_DEPTH, MAX_PROJECT_DEPTH};
-        use crate::projects::{LaunchProfile, LaunchProfileId, LauncherMode, params_depth};
+        use crate::projects::{LaunchProfile, LaunchProfileId, params_depth};
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("desktop.json");
@@ -147,7 +147,6 @@ mod tests {
                 id: LaunchProfileId::new(),
                 profile: LaunchProfile {
                     name: "shell".into(),
-                    mode: LauncherMode::Visor,
                     params,
                     full_screen_mode: Default::default(),
                 },
@@ -168,9 +167,7 @@ mod tests {
 
         let path = Path::new("desktop.json");
         let launcher = |params: &str| {
-            format!(
-                r#"{{ "at": [0, 0], "launcher": {{ "name": "shell", "mode": "visor", "params": {params} }} }}"#
-            )
+            format!(r#"{{ "at": [0, 0], "launcher": {{ "name": "shell", "params": {params} }} }}"#)
         };
         let nested = |depth: usize, innermost: String| {
             (0..depth).fold(innermost, |inner, _| {
@@ -199,7 +196,7 @@ mod tests {
         let path = dir.path().join("desktop.json");
         let mut configuration = parse_configuration(
             path.as_path(),
-            r#"{ "slots": [ { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } } ] }"#,
+            r#"{ "slots": [ { "at": [0, 0], "launcher": { "name": "shell" } } ] }"#,
         )?;
         let document = ConfigurationPersistence::new(path.as_path());
         let root = ProjectId::ROOT;

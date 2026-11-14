@@ -26,8 +26,8 @@ use crate::desktop_system::{
 };
 use crate::instance_presenter::InstanceKind;
 use crate::projects::{
-    FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode, ProjectId, SlotAssignment,
-    SlotContent, SlotPosition,
+    FullScreenMode, LaunchProfile, LaunchProfileId, ProjectId, SlotAssignment, SlotContent,
+    SlotPosition,
 };
 use crate::security::{
     self, CallingTool, ConnectingToTarget, CreatingLauncher, ForwardingCall, NamingSlot,
@@ -442,7 +442,6 @@ impl<'a> DesktopTools<'a> {
         LauncherDescription {
             id: uuid::Uuid::from(id).to_string(),
             name: launcher.name.clone(),
-            mode: launcher.mode.into(),
             params: launcher.params.clone(),
             full_screen_mode: launcher.full_screen_mode.into(),
             instances: self
@@ -472,7 +471,6 @@ fn slot_assignment(content: ContentSpec) -> SlotAssignment {
             id: LaunchProfileId::new(),
             profile: LaunchProfile {
                 name: spec.name.into(),
-                mode: spec.mode.map_or(LauncherMode::Visor, Into::into),
                 params: spec.params.map(Into::into).unwrap_or_default(),
                 full_screen_mode: spec
                     .full_screen_mode

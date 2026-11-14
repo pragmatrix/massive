@@ -2,7 +2,7 @@ use massive_geometry::{Contains, Point, SizedTransform, Vector3};
 use massive_renderer::RenderGeometry;
 
 use crate::coordinate_mapper::{CoordinateMapper, PlacementSource};
-use crate::projects::{RuntimeConfiguration, launcher_mode};
+use crate::projects::RuntimeConfiguration;
 use crate::{DesktopTarget, HitTest, OrderedHierarchy};
 
 /// Decides which target the pointer is over: which targets take part, overflowing children and
@@ -89,10 +89,6 @@ impl<'a> HitTester<'a> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
         for launcher in self.configuration.launchers() {
-            if !launcher_mode::includes_overflow_children_in_hit_testing(launcher.mode) {
-                continue;
-            }
-
             let launcher_target = DesktopTarget::Launcher(launcher.id);
             if !self.hierarchy.exists(&launcher_target) {
                 continue;

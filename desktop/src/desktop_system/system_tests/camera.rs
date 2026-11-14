@@ -98,7 +98,7 @@ const NESTED_PROJECT_CONFIG: &str = r#"{
     "startup": "/labs/shell",
     "slots": [
         { "at": [0, 0], "project": { "name": "labs", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "shell" } }
         ] } }
     ]
 }"#;

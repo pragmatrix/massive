@@ -12,13 +12,13 @@
 //! {
 //!   "startup": "/labs/shell",
 //!   "slots": [
-//!     { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } },
+//!     { "at": [0, 0], "launcher": { "name": "shell" } },
 //!     {
 //!       "at": [1, 0],
 //!       "project": {
 //!         "name": "labs",
 //!         "slots": [
-//!           { "at": [0, 0], "launcher": { "name": "build", "mode": "band", "params": { "command": "just" } } }
+//!           { "at": [0, 0], "launcher": { "name": "build", "params": { "command": "just" } } }
 //!         ]
 //!       }
 //!     }
@@ -26,10 +26,9 @@
 //! }
 //! ```
 //!
-//! `at` is `[column, row]`. `mode` is `visor` or `band`, always written; `params`
-//! carries the launcher's spawn parameters and is omitted when empty. `startup`
-//! is the target path of the launcher the session boots into, omitted when none
-//! is set.
+//! `at` is `[column, row]`. `params` carries the launcher's spawn parameters and
+//! is omitted when empty. `startup` is the target path of the launcher the
+//! session boots into, omitted when none is set.
 //!
 //! A project node with an `mcp` object is an MCP root (ADR 0036), such as
 //! `"mcp": { "access_scopes": ["observe", "act"] }`. The object is omitted for
@@ -42,9 +41,9 @@ use massive_applications::{AccessScopes, McpConfiguration};
 
 use crate::policy::when::{self, LoadingWithoutLauncher};
 use crate::projects::{
-    DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, Launcher,
-    LauncherMode, Params, Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot,
-    SlotAssignment, SlotPayload, SlotPosition,
+    DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, Launcher, Params,
+    Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot, SlotAssignment, SlotPayload,
+    SlotPosition,
 };
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
@@ -81,7 +80,6 @@ pub enum PersistedSlotContent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedLauncher {
     pub name: String,
-    pub mode: LauncherMode,
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// The launcher's Full Screen Mode, shared by its primary instances (ADR 0014).
@@ -125,7 +123,7 @@ impl PersistedConfiguration {
     /// resolves the startup path and synthesizes the root.
     ///
     /// A configuration that defines no launcher is given one in the root project
-    /// (ADR 0012): mode `visor`, no spawn parameters, and the first free
+    /// (ADR 0012): no spawn parameters, and the first free
     /// position of the root matrix. The launcher is part of the aggregate, so
     /// the first persist writes it and a re-load finds it instead of adding a
     /// second one.
@@ -164,7 +162,7 @@ const DEFAULT_CONFIG: &str = r#"{
       "project": {
         "name": "Primary / Local",
         "slots": [
-          { "at": [0, 0], "launcher": { "name": "Primary / Local", "mode": "band" } }
+          { "at": [0, 0], "launcher": { "name": "Primary / Local" } }
         ]
       }
     },
@@ -173,7 +171,7 @@ const DEFAULT_CONFIG: &str = r#"{
       "project": {
         "name": "default",
         "slots": [
-          { "at": [0, 0], "launcher": { "name": "default", "mode": "visor" } }
+          { "at": [0, 0], "launcher": { "name": "default" } }
         ]
       }
     }
@@ -197,12 +195,8 @@ fn persisted_slots(
         match &slot.content {
             PersistedSlotContent::Launcher(launcher) => parsed.push(Slot::launcher(
                 position,
-                Launcher::new(
-                    launcher.name.clone(),
-                    launcher.mode,
-                    launcher.params.clone(),
-                )
-                .with_full_screen_mode(launcher.full_screen_mode),
+                Launcher::new(launcher.name.clone(), launcher.params.clone())
+                    .with_full_screen_mode(launcher.full_screen_mode),
             )),
             PersistedSlotContent::Project(persisted) => {
                 let mut mcp = persisted.mcp.as_ref().map(|mcp| McpConfiguration {
@@ -251,7 +245,6 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
             };
             let profile = LaunchProfile {
                 name: DEFAULT_NEW_LAUNCHER_NAME.into(),
-                mode: LauncherMode::Visor,
                 params: Params::new(),
                 full_screen_mode: FullScreenMode::Regular,
             };
@@ -278,7 +271,6 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
                 SlotPayload::Launcher(launcher) => {
                     PersistedSlotContent::Launcher(PersistedLauncher {
                         name: launcher.name.clone(),
-                        mode: launcher.mode,
                         params: launcher.params.clone(),
                         full_screen_mode: launcher.full_screen_mode,
                     })
@@ -312,7 +304,6 @@ mod tests {
                     at: (0, 0),
                     content: PersistedSlotContent::Launcher(PersistedLauncher {
                         name: "shell".into(),
-                        mode: LauncherMode::Visor,
                         params: Params::new(),
                         full_screen_mode: FullScreenMode::Regular,
                     }),
@@ -326,7 +317,6 @@ mod tests {
                             at: (0, 0),
                             content: PersistedSlotContent::Launcher(PersistedLauncher {
                                 name: "build".into(),
-                                mode: LauncherMode::Band,
                                 params: [("command".into(), Value::String("just".into()))]
                                     .into_iter()
                                     .collect(),
@@ -341,7 +331,7 @@ mod tests {
         let text = serde_json::to_string(&document).unwrap();
         assert_eq!(
             text,
-            r#"{"startup":"/labs/shell","slots":[{"at":[0,0],"launcher":{"name":"shell","mode":"visor"}},{"at":[1,0],"project":{"name":"labs","slots":[{"at":[0,0],"launcher":{"name":"build","mode":"band","params":{"command":"just"}}}]}}]}"#
+            r#"{"startup":"/labs/shell","slots":[{"at":[0,0],"launcher":{"name":"shell"}},{"at":[1,0],"project":{"name":"labs","slots":[{"at":[0,0],"launcher":{"name":"build","params":{"command":"just"}}}]}}]}"#
         );
     }
 
@@ -364,9 +354,9 @@ mod tests {
         let text = r#"{
             "startup": "/labs/build",
             "slots": [
-                { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } },
+                { "at": [0, 0], "launcher": { "name": "shell" } },
                 { "at": [1, 0], "project": { "name": "labs", "mcp": { "access_scopes": ["act", "organize"] }, "slots": [
-                    { "at": [0, 0], "launcher": { "name": "build", "mode": "band", "params": { "command": "just" } } }
+                    { "at": [0, 0], "launcher": { "name": "build", "params": { "command": "just" } } }
                 ] } }
             ]
         }"#;

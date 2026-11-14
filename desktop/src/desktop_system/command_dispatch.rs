@@ -21,8 +21,7 @@ use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::policy::when::{self, TogglingFullScreen, Ungrouping};
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
-    LauncherMode, LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent,
-    SlotPosition,
+    LauncherPresenter, ProjectId, ProjectPresenter, SlotAssignment, SlotContent, SlotPosition,
 };
 use crate::security::{self, ConfiguringMcp};
 
@@ -1114,7 +1113,6 @@ fn new_slot_assignment(target: ConfigurationTarget, name: Option<String>) -> Slo
             id: LaunchProfileId::new(),
             profile: LaunchProfile {
                 name: name.unwrap_or(DEFAULT_NEW_LAUNCHER_NAME.to_string()),
-                mode: LauncherMode::Visor,
                 params: Default::default(),
                 full_screen_mode: Default::default(),
             },

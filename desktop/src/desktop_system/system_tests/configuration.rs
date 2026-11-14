@@ -60,8 +60,8 @@ async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Resu
             r#"{
                 "startup": "/a",
                 "slots": [
-                    { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
-                    { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } }
+                    { "at": [0, 0], "launcher": { "name": "a" } },
+                    { "at": [1, 0], "launcher": { "name": "b" } }
                 ]
             }"#,
         );

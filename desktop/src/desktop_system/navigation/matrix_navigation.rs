@@ -325,12 +325,12 @@ mod tests {
     }
 
     const ESCAPE_CONFIGURATION: &str = r#"{ "slots": [
-        { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
-        { "at": [3, 0], "launcher": { "name": "d", "mode": "visor" } },
+        { "at": [0, 0], "launcher": { "name": "a" } },
+        { "at": [3, 0], "launcher": { "name": "d" } },
         { "at": [3, 1], "project": { "name": "labs", "slots": [
-            { "at": [0, 0], "launcher": { "name": "b", "mode": "visor" } },
+            { "at": [0, 0], "launcher": { "name": "b" } },
             { "at": [1, 1], "project": { "name": "inner", "slots": [
-                { "at": [0, 0], "launcher": { "name": "c", "mode": "visor" } }
+                { "at": [0, 0], "launcher": { "name": "c" } }
             ] } }
         ] } }
     ] }"#;
