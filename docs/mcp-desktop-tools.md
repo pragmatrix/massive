@@ -87,7 +87,6 @@ SlotRef = {
 ```text
 LauncherSpec = {
   name: string,                                 // shown in the title bar [F]
-  mode?: "visor" | "band",                      // default "visor" [F]
   params?: object,                              // passed to the application [F]
   full_screen_mode?: "regular" | "fullscreen"   // default "regular" [F]
 }
@@ -96,7 +95,6 @@ LauncherSpec = {
 | Field | Type | Meaning |
 |---|---|---|
 | `name` | string, 1 to 1000 characters | The launcher's name. Names may repeat. |
-| `mode` | `"visor"` or `"band"` | How the launcher presents its instances. The default is `"visor"`. |
 | `params` | object | The parameters the launcher's application receives when an instance starts, such as a command to run. Their meaning belongs to the application. They nest at most 4 levels deep. Setting them needs `act` on top of the tool's scope, because they decide what the user runs by starting an instance. |
 | `full_screen_mode` | `"regular"` or `"fullscreen"` | The Full Screen Mode the launcher's primary instances share (ADR 0014). The default is `"regular"`. |
 
@@ -141,7 +139,6 @@ Slot = {
 Launcher = {
   id: string,                                  // session id [A]
   name: string,                                // as in LauncherSpec [F]
-  mode: "visor" | "band",                      // as in LauncherSpec [F]
   params: object,                              // as in LauncherSpec [F]
   full_screen_mode: "regular" | "fullscreen",  // as in LauncherSpec [F]
   instances: [Instance, ...]                   // its running instances [A]

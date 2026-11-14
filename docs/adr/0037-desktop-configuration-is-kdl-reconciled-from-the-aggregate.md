@@ -7,6 +7,9 @@ Supersedes the JSON format of
 ADR 0013's central decision stays: the document is derived from the aggregate at
 every persist, and there is no separate edit path.
 
+Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): a launcher has no `mode`, so the
+format neither writes nor reads one.
+
 ## Problem
 
 The JSON file is hard to read and cannot hold comments. `serde_json`'s pretty

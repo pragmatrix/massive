@@ -32,7 +32,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 
 ## Rust
 - Prefer `derive_more` (Debug, Deref) and deriving traits over manual implementations when equivalent derives exist; derives are less error-prone and stay in sync with the type.
-- Don't import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
+- Don't import enum discriminants into scope; prefer qualified variants (e.g., `FullScreenMode::Regular`).
 - Flatten `use` declarations into direct module-path groups; combine leaf imports sharing the exact module path. Keep grouped imports shallow; avoid multi-level brace nesting unless the file already uses that style.
 - Import application prelude modules with `use ...::prelude::*;` rather than importing individual prelude items.
 - Import distinctive external types directly rather than fully qualified paths; keep original names unless they conflict, then use a clear alias.

@@ -2,6 +2,9 @@
 
 ## Status: accepted
 
+Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): a launcher has no mode and
+presents its instances only as a visor.
+
 The desktop previously had exactly two levels: the `Desktop` (the implicit root
 that fit all projects) holding top-level projects, each project owning a matrix
 of launchers. The model now recurses: exactly one project is the root, and

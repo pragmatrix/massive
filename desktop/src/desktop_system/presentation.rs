@@ -12,7 +12,7 @@ use super::selection::Selection;
 use super::{DesktopLayoutState, DesktopTarget, FocusableTarget, LayoutContext};
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::{LaunchProfileId, launcher_mode, matrix_area_placement};
+use crate::projects::{LaunchProfileId, matrix_area_placement};
 
 use super::DesktopSystem;
 
@@ -32,7 +32,7 @@ impl DesktopSystem {
             parameters,
             kind,
         } = presentation;
-        let (render_instance_background, launcher_location, launcher_name) = {
+        let (launcher_location, launcher_name) = {
             let launcher = self
                 .aggregates
                 .launchers
@@ -43,13 +43,7 @@ impl DesktopSystem {
                 .configuration
                 .launcher(launcher_id)
                 .expect("Launcher not found");
-            let render_instance_background =
-                launcher_mode::renders_instance_background(launcher_configuration.mode);
-            (
-                render_instance_background,
-                launcher.location(),
-                launcher_configuration.name.clone(),
-            )
+            (launcher.location(), launcher_configuration.name.clone())
         };
         let mcp_activation = self.mcp_activation(
             self.aggregates
@@ -62,7 +56,6 @@ impl DesktopSystem {
         let presenter = InstancePresenter::new(
             instance,
             initial_center_translation,
-            render_instance_background,
             root,
             parameters,
             launcher_location,

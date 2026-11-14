@@ -10,6 +10,10 @@ no width, and the horizontal alignment of a stretched project's columns is a pol
 Amended by [ADR 0035](./0035-sibling-projects-share-a-column-count.md): a nested project lays out the
 columns of its widest sibling project and stretches only vertically.
 
+Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): launchers present only as
+visors, so a launcher is always one slot extent at scale 1, never stretches, and only nested
+projects shrink.
+
 ## Problem
 
 ADR 0015 scaled nested projects by width only and sized columns and rows by

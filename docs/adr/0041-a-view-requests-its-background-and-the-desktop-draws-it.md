@@ -2,6 +2,9 @@
 
 ## Status: proposed
 
+Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): launchers present only as
+visors, so every instance draws its background and `launcher_mode.rs` is gone.
+
 ## Context
 
 A background has been drawn behind an instance's view since February 2026 (commit `f9bbd577`).

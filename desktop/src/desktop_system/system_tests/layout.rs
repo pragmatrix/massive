@@ -4,10 +4,10 @@ const LONG_AND_SHORT_NAMES_CONFIG: &str = r#"{
     "startup": "/a/shell-a",
     "slots": [
         { "at": [0, 0], "project": { "name": "a", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-a", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "shell-a" } }
         ] } },
         { "at": [1, 0], "project": { "name": "a project name far wider than any slot", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-b", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "shell-b" } }
         ] } }
     ]
 }"#;
@@ -47,19 +47,19 @@ async fn a_project_name_does_not_change_the_project_size() -> Result<()> {
 const SIBLINGS_OF_DIFFERENT_SHAPES_CONFIG: &str = r#"{
     "slots": [
         { "at": [0, 0], "project": { "name": "wide", "slots": [
-            { "at": [0, 0], "launcher": { "name": "wide-0", "mode": "visor" } },
-            { "at": [1, 0], "launcher": { "name": "wide-1", "mode": "visor" } },
-            { "at": [2, 0], "launcher": { "name": "wide-2", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "wide-0" } },
+            { "at": [1, 0], "launcher": { "name": "wide-1" } },
+            { "at": [2, 0], "launcher": { "name": "wide-2" } }
         ] } },
         { "at": [1, 0], "project": { "name": "narrow", "slots": [
-            { "at": [0, 0], "launcher": { "name": "narrow-0", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "narrow-0" } }
         ] } },
         { "at": [2, 0], "project": { "name": "tall", "slots": [
-            { "at": [0, 0], "launcher": { "name": "tall-0", "mode": "visor" } },
-            { "at": [0, 1], "launcher": { "name": "tall-1", "mode": "visor" } },
-            { "at": [0, 2], "launcher": { "name": "tall-2", "mode": "visor" } },
-            { "at": [0, 3], "launcher": { "name": "tall-3", "mode": "visor" } },
-            { "at": [0, 4], "launcher": { "name": "tall-4", "mode": "visor" } }
+            { "at": [0, 0], "launcher": { "name": "tall-0" } },
+            { "at": [0, 1], "launcher": { "name": "tall-1" } },
+            { "at": [0, 2], "launcher": { "name": "tall-2" } },
+            { "at": [0, 3], "launcher": { "name": "tall-3" } },
+            { "at": [0, 4], "launcher": { "name": "tall-4" } }
         ] } }
     ]
 }"#;

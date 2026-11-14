@@ -3,9 +3,7 @@
 
 use derive_more::Debug;
 use massive_applications::InstanceId;
-use massive_geometry::{
-    BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, Size, SizePx, Vector3,
-};
+use massive_geometry::{Centroid, PixelCamera, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_layout::Placement;
 use massive_scene::prelude::*;
 
@@ -15,7 +13,7 @@ use crate::desktop_system::{DesktopTarget, FocusableTarget, ZoomLevel};
 use crate::focus_path::PathResolver;
 use crate::policy::constants::camera;
 use crate::projects::{
-    LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
+    LaunchProfileId, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
 /// Resolves where the camera points for a zoom level, from the placed layout.
@@ -178,20 +176,7 @@ impl<'a> ZoomGeometry<'a> {
             return Some(self.launcher_camera(launcher_id));
         }
 
-        // The band/visor camera split follows the configuration's mode; a launcher
-        // outside the configuration falls through to the visor camera, the default mode.
-        match self
-            .configuration
-            .launcher(launcher_id)
-            .map(|launcher| launcher.mode)
-        {
-            // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
-            // the rows and projects use.
-            Some(LauncherMode::Band) => self.camera_for_rect(self.fold_instance_rect(instances)),
-            // The arc camera is visor-specific; a launcher missing from the configuration falls
-            // through to it, the default mode.
-            Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances),
-        }
+        self.camera_for_visor_arc(instances)
     }
 
     // Orient toward the arc's asymmetric mass: the arc is re-centered on the focused panel, so
@@ -239,16 +224,6 @@ impl<'a> ZoomGeometry<'a> {
             });
         }
         bounds.expect("Internal error: a launcher with visors must yield bounds")
-    }
-
-    // Band overview framing: axis-aligned flat panels only need the union of their rects — no
-    // transformed corner points or mean yaw.
-    fn fold_instance_rect(&self, instances: Vec<InstanceId>) -> Rect {
-        instances
-            .iter()
-            .map(|instance| self.target_rect(&DesktopTarget::from(*instance)))
-            .bounds()
-            .expect("Internal error: a launcher with instances must yield rects")
     }
 
     /// The bounds of the matrix row, every assigned slot of that row included — a project-assigned

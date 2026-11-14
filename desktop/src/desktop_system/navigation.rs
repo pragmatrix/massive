@@ -7,7 +7,7 @@ use super::{
     DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LauncherMap, ProjectMap,
 };
 use crate::projects::{
-    LaunchProfileId, LauncherMode, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
+    LaunchProfileId, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
 mod focus_targets;
@@ -173,8 +173,7 @@ fn plan_navigation_candidate(
         }
         target => target,
     };
-    let candidate =
-        resolve_navigation_focus_target(hierarchy, launchers, configuration, target, direction);
+    let candidate = resolve_navigation_focus_target(hierarchy, launchers, target, direction);
     Some(NavigationPlan {
         candidate,
         column_affinity,
@@ -270,17 +269,17 @@ fn navigate_from_origin(
 /// targets into concrete child instances when appropriate, and an instance resolves
 /// to its view when it has one. A project
 /// target stays the project (ADR 0018). This is the directional variant of
-/// `DesktopSystem::slot_focus_target`: a band launcher picks its edge instance by direction.
+/// `DesktopSystem::slot_focus_target`: a launcher without a focus anchor picks its edge instance by
+/// direction.
 fn resolve_navigation_focus_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
-    configuration: &RuntimeConfiguration,
     target: FocusableTarget,
     direction: Direction,
 ) -> FocusableTarget {
     match target {
         FocusableTarget::Launcher(launcher_id) => {
-            concrete_navigation_target(topology, launchers, configuration, launcher_id, direction)
+            concrete_navigation_target(topology, launchers, launcher_id, direction)
         }
         FocusableTarget::Instance(instance) => topology.instance_focus_target(instance),
         target => target,
@@ -290,32 +289,24 @@ fn resolve_navigation_focus_target(
 /// Chooses a concrete focus target for a launcher.
 ///
 /// If the launcher has instances, returns the preferred instance's focus target for the
-/// current mode and direction (for example, the visor focus anchor when available).
+/// direction: the visor's focus anchor when it has one, otherwise the edge instance the direction
+/// enters from.
 /// Otherwise, it falls back to the launcher itself.
 fn concrete_navigation_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
-    configuration: &RuntimeConfiguration,
     launcher_id: LaunchProfileId,
     direction: Direction,
 ) -> FocusableTarget {
-    // The mode is a configuration question; the anchor is presentation state and stays
-    // on the presenter. A launcher absent from either falls back to itself.
+    // A launcher without a presenter falls back to itself.
     let Some(launcher) = launchers.get(&launcher_id) else {
         return FocusableTarget::Launcher(launcher_id);
     };
-    let mode = configuration
-        .launcher(launcher_id)
-        .map_or(LauncherMode::default(), |launcher| launcher.mode);
     let focus_anchor_instance = launcher.focus_anchor_instance;
 
     let instances: Vec<_> = topology.launcher_instances(launcher_id).collect();
-    let preferred_index = match (mode, focus_anchor_instance) {
-        (LauncherMode::Visor, Some(focused)) => {
-            instances.iter().position(|instance| *instance == focused)
-        }
-        _ => None,
-    };
+    let preferred_index = focus_anchor_instance
+        .and_then(|focused| instances.iter().position(|instance| *instance == focused));
 
     if let Some(target_index) =
         select_concrete_instance_index(instances.len(), direction, preferred_index)

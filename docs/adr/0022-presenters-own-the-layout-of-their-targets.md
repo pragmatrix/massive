@@ -2,6 +2,9 @@
 
 ## Status: accepted
 
+Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): launchers present only as
+visors, so a launcher has no mode that decides its layout.
+
 Each desktop target is laid out by the presenter that draws it. A `TargetLayout` trait on the four owning presenters — desktop, project, launcher and instance — measures, places and applies their targets and decides whether a keyboard-focus change re-runs their layout, so everything about one presenter's layout lives in one impl instead of in parallel matches over every target.
 
 - **A target names its presenter and a part of it.** `DesktopTarget` is `Desktop`, `Project(id, ProjectPart)`, `Launcher(id)` or `Instance(id, InstancePart)`. A presenter that draws several targets — a project's header and matrix, an instance's title bar and views — declares them as its own part type, so a part can only be paired with the presenter that owns it.

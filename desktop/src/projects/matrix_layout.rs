@@ -47,7 +47,7 @@ pub fn measure_matrix(
 
 /// Places the slots. The intervals sit in the matrix's `size`, which exceeds their span, the
 /// `measured_size`, when the project is stretched to its own slot. Each slot's content sits centered
-/// in its slot, which exceeds the content when a band shrinks to fit.
+/// in its slot, which exceeds the content when a nested project shrinks to fit.
 pub fn place_matrix_children(
     project: ProjectId,
     context: &LayoutContext,
@@ -231,10 +231,8 @@ fn matrix_slots(
         .map(|(content, child)| {
             let measured = child.size;
             let scale = match content {
-                // A visor or an empty launcher is one slot extent; only a band shrinks.
-                SlotContent::Launcher(_) => {
-                    presentation_scale(slot_extent, SizePx::new(measured[0], measured[1]))
-                }
+                // A launcher measures exactly one slot extent (`LauncherPresenter::measure`, ADR 0044).
+                SlotContent::Launcher(_) => 1.0,
                 SlotContent::Project(_) => project_scale,
             };
             MatrixSlot {

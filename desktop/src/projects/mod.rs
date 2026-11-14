@@ -1,4 +1,3 @@
-pub mod launcher_mode;
 mod launcher_presenter;
 mod matrix_layout;
 pub mod persistence;

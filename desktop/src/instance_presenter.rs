@@ -153,7 +153,7 @@ pub struct InstancePresenter {
     target_transform: Transform,
     has_applied_layout: bool,
     pub pacing: RenderPacing,
-    background: Option<InstanceBackground>,
+    background: InstanceBackground,
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
     /// commit.
     title_bar: TitleBarPresenter,
@@ -198,7 +198,6 @@ impl InstancePresenter {
     pub fn new(
         id: InstanceId,
         initial_center_translation: Option<Vector3>,
-        show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
         parent: Id<Location>,
@@ -220,12 +219,12 @@ impl InstancePresenter {
         layout_transform.update_if_changed(Transform::from_translation(initial_center_translation));
         layout_location.set_alpha(0.0);
 
-        let background = show_background.then(|| InstanceBackground {
+        let background = InstanceBackground {
             visual: InstanceBackground::shapes(Rect::ZERO)
                 .at(&locations.background_location)
                 .submit(),
             local_rect: Rect::ZERO,
-        });
+        };
 
         let movement = movement(
             InstanceMovement::new(initial_center_translation),
@@ -341,10 +340,7 @@ impl InstancePresenter {
             view: ViewPresenter::new(view_creation_info),
         };
 
-        if let Some(background) = &mut self.background {
-            let rect = Rect::from_size(view_size);
-            background.update_rect(rect);
-        }
+        self.background.update_rect(Rect::from_size(view_size));
 
         Ok(())
     }
@@ -425,9 +421,7 @@ impl InstancePresenter {
             .view_transform
             .update_if_changed(layout.transform);
 
-        if let Some(background) = &mut self.background {
-            background.update_rect(layout.rect());
-        }
+        self.background.update_rect(layout.rect());
 
         Ok(resize)
     }

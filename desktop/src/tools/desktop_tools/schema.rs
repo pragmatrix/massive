@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::desktop_system::{Direction, SlotShift};
 use crate::policy::constants;
 use crate::policy::when::{self, NestingParams};
-use crate::projects::{FullScreenMode, LauncherMode, Params, params_depth};
+use crate::projects::{FullScreenMode, Params, params_depth};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -116,8 +116,6 @@ pub enum ContentSpec {
 pub struct LauncherSpec {
     /// Shown in the title bar. Names may repeat.
     pub name: TargetName,
-    /// The default is "visor".
-    pub mode: Option<LauncherModeValue>,
     pub params: Option<LauncherParams>,
     /// The default is "regular".
     pub full_screen_mode: Option<FullScreenModeValue>,
@@ -311,7 +309,6 @@ pub struct LauncherDescription {
     pub id: String,
     /// Shown in the title bar. Names may repeat.
     pub name: String,
-    pub mode: LauncherModeValue,
     /// Passed to the application when an instance starts, such as a command to run.
     pub params: Params,
     pub full_screen_mode: FullScreenModeValue,
@@ -327,34 +324,6 @@ pub struct InstanceDescription {
     pub kind: InstanceKindDescription,
     /// The title of the instance's primary view, empty while the application has set none.
     pub title: String,
-}
-
-/// How a launcher presents its instances.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum LauncherModeValue {
-    /// The instances stand on an arc around the one in front, which fills the launcher's panel.
-    Visor,
-    /// The instances stand side by side in a row.
-    Band,
-}
-
-impl From<LauncherMode> for LauncherModeValue {
-    fn from(mode: LauncherMode) -> Self {
-        match mode {
-            LauncherMode::Visor => Self::Visor,
-            LauncherMode::Band => Self::Band,
-        }
-    }
-}
-
-impl From<LauncherModeValue> for LauncherMode {
-    fn from(mode: LauncherModeValue) -> Self {
-        match mode {
-            LauncherModeValue::Visor => Self::Visor,
-            LauncherModeValue::Band => Self::Band,
-        }
-    }
 }
 
 /// Whether a launcher's primary instances fill the window.

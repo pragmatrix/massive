@@ -16,8 +16,8 @@ fn two_launchers() -> Result<TwoLaunchers> {
         r#"{
             "startup": "/a",
             "slots": [
-                { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
-                { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } }
+                { "at": [0, 0], "launcher": { "name": "a" } },
+                { "at": [1, 0], "launcher": { "name": "b" } }
             ]
         }"#,
     )?;
@@ -161,10 +161,10 @@ async fn the_camera_encloses_a_selection_beyond_the_view() -> Result<()> {
             r#"{
                 "startup": "/b",
                 "slots": [
-                    { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
-                    { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } },
-                    { "at": [2, 0], "launcher": { "name": "c", "mode": "visor" } },
-                    { "at": [3, 0], "launcher": { "name": "d", "mode": "visor" } }
+                    { "at": [0, 0], "launcher": { "name": "a" } },
+                    { "at": [1, 0], "launcher": { "name": "b" } },
+                    { "at": [2, 0], "launcher": { "name": "c" } },
+                    { "at": [3, 0], "launcher": { "name": "d" } }
                 ]
             }"#,
         )?;
@@ -478,9 +478,9 @@ async fn a_moved_selection_takes_the_focus_and_the_selection_along() -> Result<(
             r#"{
                 "startup": "/a",
                 "slots": [
-                    { "at": [0, 0], "launcher": { "name": "a", "mode": "visor" } },
-                    { "at": [1, 0], "launcher": { "name": "b", "mode": "visor" } },
-                    { "at": [2, 0], "launcher": { "name": "c", "mode": "visor" } }
+                    { "at": [0, 0], "launcher": { "name": "a" } },
+                    { "at": [1, 0], "launcher": { "name": "b" } },
+                    { "at": [2, 0], "launcher": { "name": "c" } }
                 ]
             }"#,
         )?;
@@ -519,12 +519,12 @@ async fn a_selection_reaches_the_columns_a_wider_sibling_shares() -> Result<()> 
                 "startup": "/narrow/n",
                 "slots": [
                     { "at": [0, 0], "project": { "name": "wide", "slots": [
-                        { "at": [0, 0], "launcher": { "name": "w0", "mode": "visor" } },
-                        { "at": [1, 0], "launcher": { "name": "w1", "mode": "visor" } },
-                        { "at": [2, 0], "launcher": { "name": "w2", "mode": "visor" } }
+                        { "at": [0, 0], "launcher": { "name": "w0" } },
+                        { "at": [1, 0], "launcher": { "name": "w1" } },
+                        { "at": [2, 0], "launcher": { "name": "w2" } }
                     ] } },
                     { "at": [1, 0], "project": { "name": "narrow", "slots": [
-                        { "at": [0, 0], "launcher": { "name": "n", "mode": "visor" } }
+                        { "at": [0, 0], "launcher": { "name": "n" } }
                     ] } }
                 ]
             }"#,

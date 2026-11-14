@@ -49,16 +49,6 @@ pub const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 /// gives a launcher-less configuration a launcher under this name (ADR 0012).
 pub const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
 
-/// The launcher presentation a slot's panel uses. Serialized as the lowercase
-/// variant name, `visor` the default.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LauncherMode {
-    Band,
-    #[default]
-    Visor,
-}
-
 /// The Full Screen Mode shared by a launcher's primary instances (ADR 0014).
 /// Serialized as the lowercase variant name, `regular` the default.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -182,7 +172,6 @@ impl RuntimeConfiguration {
                 let launcher = Launcher {
                     id,
                     name: profile.name.clone(),
-                    mode: profile.mode,
                     params: profile.params.clone(),
                     full_screen_mode: profile.full_screen_mode,
                 };
@@ -1331,7 +1320,6 @@ impl Index<LaunchProfileId> for RuntimeConfiguration {
 pub struct Launcher {
     pub id: LaunchProfileId,
     pub name: String,
-    pub mode: LauncherMode,
     pub params: Params,
     /// The Full Screen Mode all of the launcher's primary instances follow
     /// (ADR 0014). Persisted with the configuration.
@@ -1341,11 +1329,10 @@ pub struct Launcher {
 impl Launcher {
     /// Creates the launcher's id. The launcher carries no position: the slot
     /// holding it records where it sits.
-    pub(crate) fn new(name: String, mode: LauncherMode, params: Params) -> Self {
+    pub(crate) fn new(name: String, params: Params) -> Self {
         Self {
             id: LaunchProfileId::new(),
             name,
-            mode,
             params,
             full_screen_mode: FullScreenMode::default(),
         }
@@ -1355,7 +1342,6 @@ impl Launcher {
     pub fn profile(&self) -> LaunchProfile {
         LaunchProfile {
             name: self.name.clone(),
-            mode: self.mode,
             params: self.params.clone(),
             full_screen_mode: self.full_screen_mode,
         }
@@ -1374,7 +1360,6 @@ impl Launcher {
 #[derive(Debug, Clone)]
 pub struct LaunchProfile {
     pub name: String,
-    pub mode: LauncherMode,
     pub params: Params,
     pub full_screen_mode: FullScreenMode,
 }
@@ -2086,7 +2071,7 @@ mod tests {
     }
 
     fn launcher(name: &str) -> Launcher {
-        Launcher::new(name.into(), LauncherMode::Visor, Params::new())
+        Launcher::new(name.into(), Params::new())
     }
 
     fn named_project(id: ProjectId, name: &str) -> SlotAssignment {
@@ -2101,7 +2086,6 @@ mod tests {
             id,
             profile: LaunchProfile {
                 name: format!("{id:?}"),
-                mode: LauncherMode::Visor,
                 params: Params::new(),
                 full_screen_mode: FullScreenMode::Regular,
             },
