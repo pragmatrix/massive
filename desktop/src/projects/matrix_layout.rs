@@ -231,10 +231,8 @@ fn matrix_slots(
         .map(|(content, child)| {
             let measured = child.size;
             let scale = match content {
-                // A launcher, empty or not, measures one slot extent, so its scale stays 1.
-                SlotContent::Launcher(_) => {
-                    presentation_scale(slot_extent, SizePx::new(measured[0], measured[1]))
-                }
+                // A launcher measures exactly one slot extent (ADR 0044).
+                SlotContent::Launcher(_) => 1.0,
                 SlotContent::Project(_) => project_scale,
             };
             MatrixSlot {

@@ -143,8 +143,6 @@ pub mod launcher {
     pub const FADING_DURATION: Duration = Duration::from_millis(500);
     pub const FADING_INTERPOLATION: Interpolation = Interpolation::CubicOut;
     pub const NAME_FONT_SIZE: f32 = 256.0;
-    /// The horizontal gap between neighboring instances of a launcher.
-    pub const CHILD_SPACING: i32 = 0;
     /// How far a collapsed visor pushes its hidden non-anchor instances back.
     pub const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
 }
