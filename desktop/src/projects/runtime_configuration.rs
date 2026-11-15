@@ -38,6 +38,20 @@ pub fn params_depth(params: &Params) -> usize {
     1 + params.values().map(depth).max().unwrap_or(0)
 }
 
+/// Whether `params` hold an object or an array as an element of an array, at any depth.
+pub fn params_nest_in_array(params: &Params) -> bool {
+    fn nests(value: &Value) -> bool {
+        match value {
+            Value::Object(object) => object.values().any(nests),
+            Value::Array(array) => array
+                .iter()
+                .any(|element| matches!(element, Value::Object(_) | Value::Array(_))),
+            _ => false,
+        }
+    }
+    params.values().any(nests)
+}
+
 /// The name the terminal gives the root project it synthesizes.
 pub const ROOT_PROJECT_NAME: &str = "Projects";
 

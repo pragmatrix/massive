@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::desktop_system::{Direction, SlotShift};
 use crate::policy::constants;
-use crate::policy::when::{self, NestingParams};
-use crate::projects::{FullScreenMode, Params, params_depth};
+use crate::policy::when::{self, NestingParams, NestingParamsInArrays};
+use crate::projects::{FullScreenMode, Params, params_depth, params_nest_in_array};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -163,7 +163,8 @@ impl TryFrom<String> for TargetName {
 }
 
 /// The params of a launcher that a tool creates. Decoding refuses params nested deeper than
-/// [`constants::configuration::MAX_PARAMS_DEPTH`], and the schema's description states the limit.
+/// [`constants::configuration::MAX_PARAMS_DEPTH`] and arrays that hold objects or arrays, and the
+/// schema's description states both rules.
 #[derive(Debug, Deserialize, Into)]
 #[serde(try_from = "Params")]
 pub struct LauncherParams(Params);
@@ -180,7 +181,8 @@ impl JsonSchema for LauncherParams {
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
         let description = format!(
             "Passed to the application when an instance starts, such as a command to run. They \
-             nest at most {} levels deep.",
+             nest at most {} levels deep, and an array holds only strings, numbers, booleans, \
+             and null.",
             constants::configuration::MAX_PARAMS_DEPTH
         );
         json_schema!({
@@ -205,6 +207,13 @@ impl TryFrom<Params> for LauncherParams {
                 "params nest at most {} levels deep",
                 constants::configuration::MAX_PARAMS_DEPTH
             ));
+        }
+        if when::nesting_params_in_arrays(params_nest_in_array(&params))
+            == NestingParamsInArrays::RefuseUnwritable
+        {
+            return Err(
+                "an array in params holds only strings, numbers, booleans, and null".into(),
+            );
         }
         Ok(Self(params))
     }
@@ -387,5 +396,21 @@ mod tests {
         let error = decode_arguments::<AssignSlotParams>(&arguments(longest + "n")).unwrap_err();
         assert_eq!(error.code, ToolErrorCode::INVALID_ARGUMENT);
         assert!(decode_arguments::<AssignSlotParams>(&arguments(String::new())).is_err());
+    }
+
+    /// The configuration file writes an array as plain values, so a tool cannot create an array
+    /// that holds an object or an array (ADR 0037).
+    #[test]
+    fn decoding_refuses_params_with_an_object_or_array_inside_an_array() {
+        let decode = |params: serde_json::Value| {
+            let serde_json::Value::Object(params) = params else {
+                unreachable!("the params are an object")
+            };
+            LauncherParams::try_from(params)
+        };
+
+        assert!(decode(serde_json::json!({ "env": { "list": [1, "a", true, null] } })).is_ok());
+        assert!(decode(serde_json::json!({ "list": [{ "a": 1 }] })).is_err());
+        assert!(decode(serde_json::json!({ "env": { "list": [[1]] } })).is_err());
     }
 }
