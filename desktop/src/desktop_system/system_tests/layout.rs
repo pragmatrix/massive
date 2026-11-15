@@ -1,16 +1,14 @@
 use super::*;
 
-const LONG_AND_SHORT_NAMES_CONFIG: &str = r#"{
-    "startup": "/a/shell-a",
-    "slots": [
-        { "at": [0, 0], "project": { "name": "a", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-a" } }
-        ] } },
-        { "at": [1, 0], "project": { "name": "a project name far wider than any slot", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-b" } }
-        ] } }
-    ]
-}"#;
+const LONG_AND_SHORT_NAMES_CONFIG: &str = r#"
+    startup "/a/shell-a"
+    project a at="0,0" {
+        launcher shell-a at="0,0"
+    }
+    project "a project name far wider than any slot" at="1,0" {
+        launcher shell-b at="0,0"
+    }
+"#;
 
 /// A project's header measures no width, so its name never changes the project's size, nor,
 /// through the shared scale, its siblings' (ADR 0034).
@@ -44,25 +42,23 @@ async fn a_project_name_does_not_change_the_project_size() -> Result<()> {
     .await
 }
 
-const SIBLINGS_OF_DIFFERENT_SHAPES_CONFIG: &str = r#"{
-    "slots": [
-        { "at": [0, 0], "project": { "name": "wide", "slots": [
-            { "at": [0, 0], "launcher": { "name": "wide-0" } },
-            { "at": [1, 0], "launcher": { "name": "wide-1" } },
-            { "at": [2, 0], "launcher": { "name": "wide-2" } }
-        ] } },
-        { "at": [1, 0], "project": { "name": "narrow", "slots": [
-            { "at": [0, 0], "launcher": { "name": "narrow-0" } }
-        ] } },
-        { "at": [2, 0], "project": { "name": "tall", "slots": [
-            { "at": [0, 0], "launcher": { "name": "tall-0" } },
-            { "at": [0, 1], "launcher": { "name": "tall-1" } },
-            { "at": [0, 2], "launcher": { "name": "tall-2" } },
-            { "at": [0, 3], "launcher": { "name": "tall-3" } },
-            { "at": [0, 4], "launcher": { "name": "tall-4" } }
-        ] } }
-    ]
-}"#;
+const SIBLINGS_OF_DIFFERENT_SHAPES_CONFIG: &str = r#"
+    project wide at="0,0" {
+        launcher wide-0 at="0,0"
+        launcher wide-1 at="1,0"
+        launcher wide-2 at="2,0"
+    }
+    project narrow at="1,0" {
+        launcher narrow-0 at="0,0"
+    }
+    project tall at="2,0" {
+        launcher tall-0 at="0,0"
+        launcher tall-1 at="0,1"
+        launcher tall-2 at="0,2"
+        launcher tall-3 at="0,3"
+        launcher tall-4 at="0,4"
+    }
+"#;
 
 /// Sibling projects lay out the columns of the widest one, so they are equally wide whatever
 /// their own columns, and the tall project, which sets the shared scale, adds no width beyond

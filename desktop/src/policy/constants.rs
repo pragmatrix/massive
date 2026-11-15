@@ -29,12 +29,12 @@ pub mod mcp_indicator {
 /// Limits on how deeply the desktop configuration nests, for every way it changes.
 pub mod configuration {
     /// The deepest a project may lie below the root project. Real configurations nest two or three
-    /// levels. The limit keeps every saved configuration within the JSON parser's nesting limit of
-    /// 128 levels: each project level costs three, so with params at their limit the file nests at
-    /// most 56 levels.
+    /// levels. The limit keeps every saved configuration far from a stack overflow in the KDL
+    /// parser, which recurses once per children block and sets no limit of its own. With params at
+    /// their limit, the file nests at most 20 children blocks.
     pub const MAX_PROJECT_DEPTH: usize = 16;
-    /// The deepest a launcher's params may nest. Real params are flat, such as
-    /// `{ "command": "just" }`, which nests one level.
+    /// The deepest a launcher's params may nest. Real params are flat, such as `command just`,
+    /// which nests one level.
     pub const MAX_PARAMS_DEPTH: usize = 4;
 }
 

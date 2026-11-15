@@ -44,24 +44,22 @@ mod transform_resolver;
 /// Tests run at the scale factor of a standard display.
 const TEST_SCALE_FACTOR: f64 = 1.0;
 
-const CONFIG: &str = r#"{
-    "startup": "/shell",
-    "slots": [
-        { "at": [0, 0], "launcher": { "name": "shell", "params": { "command": "echo" } } }
-    ]
-}"#;
+const CONFIG: &str = r#"
+    startup "/shell"
+    launcher shell at="0,0" {
+        command echo
+    }
+"#;
 
-const NESTED_SIBLINGS_CONFIG: &str = r#"{
-    "startup": "/labs-a/shell-a",
-    "slots": [
-        { "at": [0, 0], "project": { "name": "labs-a", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-a" } }
-        ] } },
-        { "at": [1, 0], "project": { "name": "labs-b", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell-b" } }
-        ] } }
-    ]
-}"#;
+const NESTED_SIBLINGS_CONFIG: &str = r#"
+    startup "/labs-a/shell-a"
+    project labs-a at="0,0" {
+        launcher shell-a at="0,0"
+    }
+    project labs-b at="1,0" {
+        launcher shell-b at="0,0"
+    }
+"#;
 
 /// The nested siblings booted, with one instance started per sibling and `labs-a`'s focused.
 struct NestedSiblings {
@@ -189,7 +187,7 @@ fn system_with_applications(
         applications,
         projects_dir: None,
     };
-    let path = Path::new("/config/desktop.json");
+    let path = Path::new("/config/desktop.kdl");
     let aggregate = parse_configuration(path, config).unwrap();
     let system = DesktopSystem::new(
         environment,

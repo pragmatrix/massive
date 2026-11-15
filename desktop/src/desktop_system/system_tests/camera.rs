@@ -94,14 +94,12 @@ async fn cmd_t_in_a_nested_slot_keeps_camera_stable() -> Result<()> {
 }
 
 /// The startup launcher nested in a project, so it sits inside a project slot.
-const NESTED_PROJECT_CONFIG: &str = r#"{
-    "startup": "/labs/shell",
-    "slots": [
-        { "at": [0, 0], "project": { "name": "labs", "slots": [
-            { "at": [0, 0], "launcher": { "name": "shell" } }
-        ] } }
-    ]
-}"#;
+const NESTED_PROJECT_CONFIG: &str = r#"
+    startup "/labs/shell"
+    project labs at="0,0" {
+        launcher shell at="0,0"
+    }
+"#;
 
 async fn cmd_t_keeps_camera_stable(config: &str) -> Result<()> {
     task_context::with_context(task_context(), async {

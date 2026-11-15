@@ -324,16 +324,16 @@ mod tests {
         assert_eq!(down, Some(2));
     }
 
-    const ESCAPE_CONFIGURATION: &str = r#"{ "slots": [
-        { "at": [0, 0], "launcher": { "name": "a" } },
-        { "at": [3, 0], "launcher": { "name": "d" } },
-        { "at": [3, 1], "project": { "name": "labs", "slots": [
-            { "at": [0, 0], "launcher": { "name": "b" } },
-            { "at": [1, 1], "project": { "name": "inner", "slots": [
-                { "at": [0, 0], "launcher": { "name": "c" } }
-            ] } }
-        ] } }
-    ] }"#;
+    const ESCAPE_CONFIGURATION: &str = r#"
+        launcher a at="0,0"
+        launcher d at="3,0"
+        project labs at="3,1" {
+            launcher b at="0,0"
+            project inner at="1,1" {
+                launcher c at="0,0"
+            }
+        }
+    "#;
 
     struct EscapeFixture {
         configuration: RuntimeConfiguration,

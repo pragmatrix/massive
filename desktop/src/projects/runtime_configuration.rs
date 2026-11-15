@@ -87,9 +87,9 @@ impl FullScreenMode {
 /// session and the document is keyed by name, so the two representations only
 /// meet during parse and persist.
 ///
-/// The document is the JSON file the configuration persists to
+/// The document is the KDL file the configuration persists to
 /// ([`crate::projects::persistence::PersistedConfiguration`]); it is derived from this
-/// aggregate when persisted (ADR 0013).
+/// aggregate when persisted (ADR 0037).
 #[derive(Debug)]
 pub struct RuntimeConfiguration {
     /// Insertion order is the document order, so boot commands build the scene

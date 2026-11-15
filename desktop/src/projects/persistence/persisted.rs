@@ -1,42 +1,13 @@
-//! The desktop configuration document: the JSON file the aggregate is persisted
-//! to and loaded from.
+//! The typed tree of the desktop configuration file, and its conversion to and from the aggregate.
 //!
-//! The document is the fractal view of the configuration (ADR 0011): a project
-//! node is `name` plus `slots`, the document root is the one node whose name is
-//! implied (the terminal synthesizes the root project `Projects`), and nesting is
-//! structural — a slot hosts either a launcher or a nested project node. Ids are
-//! not serialized: projects and launchers get fresh ids at load, and the document
-//! identifies content by nesting and position alone.
-//!
-//! ```json
-//! {
-//!   "startup": "/labs/shell",
-//!   "slots": [
-//!     { "at": [0, 0], "launcher": { "name": "shell" } },
-//!     {
-//!       "at": [1, 0],
-//!       "project": {
-//!         "name": "labs",
-//!         "slots": [
-//!           { "at": [0, 0], "launcher": { "name": "build", "params": { "command": "just" } } }
-//!         ]
-//!       }
-//!     }
-//!   ]
-//! }
-//! ```
-//!
-//! `at` is `[column, row]`. `params` carries the launcher's spawn parameters and
-//! is omitted when empty. `startup` is the target path of the launcher the
-//! session boots into, omitted when none is set.
-//!
-//! A project node with an `mcp` object is an MCP root (ADR 0036), such as
-//! `"mcp": { "access_scopes": ["observe", "act"] }`. The object is omitted for
-//! every other project.
+//! The tree is the fractal view of the configuration (ADR 0011). A project node is a name plus
+//! slots, and the document root is the one node whose name is implied, because the terminal
+//! synthesizes the root project `Projects`. A slot hosts either a launcher or a nested project
+//! node. Ids are not stored: projects and launchers get fresh ids at load, and the file
+//! identifies content by nesting and position alone. [`super::kdl_format`] maps the tree to KDL
+//! text.
 
 use log::warn;
-use serde::{Deserialize, Serialize};
-
 use massive_applications::{AccessScopes, McpConfiguration};
 
 use crate::policy::when::{self, LoadingWithoutLauncher};
@@ -49,74 +20,54 @@ use crate::projects::{
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
 /// target path and the root project's slots, with every nested project hanging
 /// off the slot that hosts it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PersistedConfiguration {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub startup: Option<String>,
     pub slots: Vec<PersistedSlot>,
 }
 
 /// One assigned slot of a project node: its position plus exactly one content
-/// variant, whose name is the JSON key. Only assigned slots are stored, so
-/// unassigned slots are never serialized.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// variant. Only assigned slots are stored.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PersistedSlot {
-    /// The position as `[column, row]`.
+    /// The position as `(column, row)`.
     pub at: (u32, u32),
-    #[serde(flatten)]
     pub content: PersistedSlotContent,
 }
 
-/// What a slot hosts: a launcher or a nested project, never both. The variant
-/// name is the JSON key (`launcher` / `project`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// What a slot hosts: a launcher or a nested project, never both.
+#[derive(Debug, Clone, PartialEq)]
 pub enum PersistedSlotContent {
     Launcher(PersistedLauncher),
     Project(PersistedProject),
 }
 
 /// A launcher's spawnable profile.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PersistedLauncher {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// The launcher's Full Screen Mode, shared by its primary instances (ADR 0014).
-    #[serde(default, skip_serializing_if = "full_screen_mode_is_regular")]
     pub full_screen_mode: FullScreenMode,
-}
-
-/// The `skip_serializing_if` predicate shape serde expects (by reference): the
-/// regular Full Screen Mode is the default and stays out of the document.
-fn full_screen_mode_is_regular(mode: &FullScreenMode) -> bool {
-    *mode == FullScreenMode::Regular
 }
 
 /// A project node: the fractal unit of the document. The name is required — the
 /// document root is the one node without a `project` wrapper, so it carries no
 /// name and the terminal synthesizes [`ROOT_PROJECT_NAME`] for it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PersistedProject {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<PersistedMcp>,
     pub slots: Vec<PersistedSlot>,
 }
 
 /// The MCP settings of a project node, present exactly when the project is an MCP root.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PersistedMcp {
     pub access_scopes: AccessScopes,
 }
 
 impl PersistedConfiguration {
-    /// The built-in default configuration, written when no file exists. It is
-    /// also a valid config that can be copied and edited as a starting point.
-    pub fn default_document() -> Self {
-        serde_json::from_str(DEFAULT_CONFIG).expect("Built-in default configuration must parse")
-    }
-
     /// Derives the aggregate from the document: a depth-first walk that gives
     /// every project node a fresh id and links children through their slots,
     /// then hands the flat project list to the configuration constructor, which
@@ -151,32 +102,6 @@ impl PersistedConfiguration {
         }
     }
 }
-/// The built-in default configuration, parsed by
-/// [`PersistedConfiguration::default_document`].
-/// Hand-editable: copy it as a starting point for a custom configuration.
-const DEFAULT_CONFIG: &str = r#"{
-  "startup": "/Primary / Local/Primary / Local",
-  "slots": [
-    {
-      "at": [0, 0],
-      "project": {
-        "name": "Primary / Local",
-        "slots": [
-          { "at": [0, 0], "launcher": { "name": "Primary / Local" } }
-        ]
-      }
-    },
-    {
-      "at": [0, 1],
-      "project": {
-        "name": "default",
-        "slots": [
-          { "at": [0, 0], "launcher": { "name": "default" } }
-        ]
-      }
-    }
-  ]
-}"#;
 /// Parses a project node's slots, pushing every nested project into `projects`
 /// before the project hosting it — the order the old parse produced, so
 /// document-order lookups keep their semantics.
@@ -291,12 +216,15 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
 mod tests {
     use anyhow::Result;
 
+    use std::path::Path;
+
     use super::*;
+    use crate::projects::persistence::kdl_format;
     use massive_applications::AccessScope;
     use serde_json::Value;
 
     #[test]
-    fn a_document_serializes_to_the_fractal_shape() {
+    fn a_document_writes_the_fractal_shape() {
         let document = PersistedConfiguration {
             startup: Some("/labs/shell".into()),
             slots: vec![
@@ -328,22 +256,11 @@ mod tests {
             ],
         };
 
-        let text = serde_json::to_string(&document).unwrap();
         assert_eq!(
-            text,
-            r#"{"startup":"/labs/shell","slots":[{"at":[0,0],"launcher":{"name":"shell"}},{"at":[1,0],"project":{"name":"labs","slots":[{"at":[0,0],"launcher":{"name":"build","params":{"command":"just"}}}]}}]}"#
-        );
-    }
-
-    #[test]
-    fn a_document_round_trips_through_json() {
-        let text = r#"{ "startup": "/labs/shell", "slots": [ { "at": [1, 0], "project": { "name": "labs", "slots": [] } } ] }"#;
-        let document: PersistedConfiguration = serde_json::from_str(text).unwrap();
-
-        assert_eq!(document.startup.as_deref(), Some("/labs/shell"));
-        assert_eq!(
-            serde_json::to_string(&document).unwrap(),
-            r#"{"startup":"/labs/shell","slots":[{"at":[1,0],"project":{"name":"labs","slots":[]}}]}"#
+            kdl_format::write_document(&document).to_string(),
+            "startup \"/labs/shell\"\n\
+             launcher shell at=\"0,0\"\n\
+             project labs at=\"1,0\" {\n    launcher build at=\"0,0\" {\n        command just\n    }\n}\n"
         );
     }
 
@@ -351,22 +268,22 @@ mod tests {
     /// nesting, positions, launcher profiles, MCP settings, and the startup path survive.
     #[test]
     fn the_aggregate_round_trips_through_the_document() -> Result<()> {
-        let text = r#"{
-            "startup": "/labs/build",
-            "slots": [
-                { "at": [0, 0], "launcher": { "name": "shell" } },
-                { "at": [1, 0], "project": { "name": "labs", "mcp": { "access_scopes": ["act", "organize"] }, "slots": [
-                    { "at": [0, 0], "launcher": { "name": "build", "params": { "command": "just" } } }
-                ] } }
-            ]
-        }"#;
-        let configuration =
-            serde_json::from_str::<PersistedConfiguration>(text)?.into_configuration();
+        let text = r#"
+            startup "/labs/build"
+            launcher shell at="0,0"
+            project labs at="1,0" {
+                mcp act organize
+                launcher build at="0,0" {
+                    command just
+                }
+            }
+        "#;
+        let configuration = read(text)?.into_configuration();
 
         let written =
-            serde_json::to_string(&PersistedConfiguration::from_configuration(&configuration))?;
-        let reloaded =
-            serde_json::from_str::<PersistedConfiguration>(&written)?.into_configuration();
+            kdl_format::write_document(&PersistedConfiguration::from_configuration(&configuration))
+                .to_string();
+        let reloaded = read(&written)?.into_configuration();
 
         assert_eq!(reloaded.startup_path(), configuration.startup_path());
         assert_eq!(reloaded.launcher_count(), configuration.launcher_count());
@@ -391,13 +308,15 @@ mod tests {
     /// keeps the outermost one.
     #[test]
     fn a_nested_mcp_root_loses_its_mcp_settings_at_load() -> Result<()> {
-        let text = r#"{ "slots": [
-            { "at": [0, 0], "project": { "name": "outer", "mcp": { "access_scopes": ["act"] }, "slots": [
-                { "at": [0, 0], "project": { "name": "inner", "mcp": { "access_scopes": [] }, "slots": [] } }
-            ] } }
-        ] }"#;
-        let configuration =
-            serde_json::from_str::<PersistedConfiguration>(text)?.into_configuration();
+        let text = r#"
+            project outer at="0,0" {
+                mcp act
+                project inner at="0,0" {
+                    mcp
+                }
+            }
+        "#;
+        let configuration = read(text)?.into_configuration();
 
         let outer = configuration
             .child_project_at(ProjectId::ROOT, SlotPosition { column: 0, row: 0 })
@@ -413,5 +332,9 @@ mod tests {
         );
         assert_eq!(configuration[inner].mcp, None);
         Ok(())
+    }
+
+    fn read(text: &str) -> Result<PersistedConfiguration> {
+        kdl_format::read_configuration(Path::new("desktop.kdl"), text)
     }
 }
