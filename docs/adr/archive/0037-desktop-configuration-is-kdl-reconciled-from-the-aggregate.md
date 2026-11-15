@@ -1,13 +1,13 @@
 # The desktop configuration is KDL, reconciled from the aggregate
 
-## Status: accepted, not yet implemented
+## Status: accepted, implemented
 
 Supersedes the JSON format of
-[ADR 0013](./archive/0013-desktop-configuration-is-json-derived-from-the-aggregate.md).
+[ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md).
 ADR 0013's central decision stays: the document is derived from the aggregate at
 every persist, and there is no separate edit path.
 
-Amended by [ADR 0044](./archive/0044-launchers-present-only-as-visors.md): a launcher has no `mode`, so the
+Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): a launcher has no `mode`, so the
 format neither writes nor reads one.
 
 ## Problem
@@ -19,7 +19,7 @@ four of them. The file is meant to be edited by hand, and a hand-edited file
 needs comments that survive the terminal's own writes.
 
 ADR 0013 left KDL because of the machinery around the surgical edits of
-[ADR 0006](./archive/0006-desktop-configuration-is-name-keyed-kdl.md), not because of
+[ADR 0006](./0006-desktop-configuration-is-name-keyed-kdl.md), not because of
 the format. That implementation took about 1,220 lines of persistence code
 (`document.rs`, `configuration.rs`, and `parameters.rs`, removed in massive
 commit `db68925c`). Most of it followed from editing the document alongside the
@@ -53,15 +53,20 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   by the fresh ones. Values cannot be updated in place, because
   `KdlEntry::set_value` keeps printing the old value's text. An existing node
   without a match is removed together with the comments above it. A fresh node
-  without a match is inserted at its fresh position. The fresh document is
+  without a match is inserted at its fresh position. The written document
+  follows the order of the fresh document, so it reads as exactly the fresh
+  document. The fresh document is
   autoformatted and parsed again before the reconcile, so an inserted node
   already has the indentation of its depth.
+- **The comments at the top of the file stay there.** The parser attaches them
+  to the first node, so when a blank line separates them from that node, the
+  reconcile moves them to the document itself. They then stay when the first
+  node is removed or another node comes first.
 - **The format follows the fractal view of ADR 0011.** The root project's slots
   are the top-level nodes. A `project` node and a `launcher` node take the name
   as their first value and the slot position as `at`. A project's slots are its
   child nodes, and a launcher's child nodes are its spawn parameters. Default
-  values are omitted: `mode` is written only for `band`, and `full_screen_mode`
-  only for `fullscreen`.
+  values are omitted: `full_screen_mode` is written only for `fullscreen`.
 
   ```kdl
   startup "/ffm + ber/fs110"
@@ -71,7 +76,7 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
       launcher fs110 at="0,0" {
           command "ssh fs110"
       }
-      launcher build at="1,0" mode=band
+      launcher build at="1,0" full_screen_mode=fullscreen
   }
   ```
 
@@ -94,14 +99,24 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
     the load.
 - **An array that contains an object or another array cannot be written.** One
   rule in the desktop policy refuses such params. The MCP tools apply it to the
-  params they are given, and the load applies it to the file, so no change can
-  create params that a persist would lose.
+  params they are given. The file cannot express such an array, because an array
+  is the arguments of one node, so no change can create params that a persist
+  would lose.
 - **The load is strict.** An unknown node or property fails the load, with the
-  file path and the node in the message. Otherwise the reconcile would find no
-  match for the unknown node and remove it, together with its comments.
-- **A file that does not parse is not overwritten.** When the file on disk fails
-  to parse at a persist, the persist logs a warning and writes nothing. A
-  half-finished hand edit therefore survives. The next persist writes the whole
+  file path, line, and column in the message. Otherwise the reconcile would find
+  no match for the unknown node and remove it, together with its comments. A
+  repeated property and a type annotation fail the load too, because nothing
+  reads them.
+- **A file that does not load is not overwritten.** When the file on disk fails
+  to parse or to load strictly at a persist, the persist writes nothing and logs
+  an error that says the changes are not saved until the file loads again. A
+  half-finished hand edit therefore survives. The persist does not fail the
+  transaction, because only an edit outside the desktop breaks the file, and a
+  typo in it must not end the session.
+- **The written text is checked before it is written.** The persist parses the
+  reconciled text in memory and writes it only when it reads as exactly the
+  fresh document. Otherwise it writes nothing and logs an error, because a bug
+  in the reconcile or in `kdl` would otherwise reach the file. The next persist writes the whole
   aggregate again, so no change is lost.
 
 ## Consequences

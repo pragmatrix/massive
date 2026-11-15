@@ -6,7 +6,7 @@ Amends [ADR 0011](../0011-desktop-is-a-fractal-of-projects-in-slots.md),
 [ADR 0019](./0019-instance-title-bar-is-part-of-the-instance-extent.md),
 [ADR 0022](./0022-presenters-own-the-layout-of-their-targets.md),
 [ADR 0023](./0023-matrix-slots-share-one-slot-extent-and-center-their-content.md),
-[ADR 0037](../0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md) and
+[ADR 0037](./0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md) and
 [ADR 0041](../0041-a-view-requests-its-background-and-the-desktop-draws-it.md) where they describe
 the band mode or a launcher that stretches.
 

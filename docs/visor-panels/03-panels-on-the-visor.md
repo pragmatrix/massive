@@ -54,7 +54,7 @@ views.
 - **A launcher names its application.** An optional `application` field in the desktop
   configuration names the application the launcher starts. Without it, the launcher starts the
   primary application. The field changes the persisted configuration, the
-  [KDL plan](../desktop-configuration-kdl-plan.md), and `desktop_describe`, and both security
+  [KDL format](../adr/archive/0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md), and `desktop_describe`, and both security
   documents ([massive](../security.md), [mt](../../../docs/security.md)) are updated in the same
   change.
 

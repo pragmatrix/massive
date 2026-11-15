@@ -153,7 +153,7 @@ keeps the slot extent
 - [ADR 0019](archive/0019-instance-title-bar-is-part-of-the-instance-extent.md) applies to each panel
   instead of to each instance.
 - The `application` field changes the persisted desktop configuration, the
-  [KDL plan](../desktop-configuration-kdl-plan.md), and `desktop_describe`. Both security documents
+  [KDL format](archive/0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md), and `desktop_describe`. Both security documents
   are updated in the same change.
 - A launcher still measures exactly one slot extent
   ([ADR 0044](archive/0044-launchers-present-only-as-visors.md)). The scaling of a multi-panel launcher
