@@ -48,11 +48,13 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   is one pure function from the existing and the fresh document to the document
   that is written. Nothing is kept between persists: the file is read and parsed
   again each time, so hand edits made while the terminal runs are not lost.
-- **The reconcile keeps what still matches.** A node matches a sibling in the
-  existing document by its kind and slot position. The `startup` node matches by
-  name, and a spawn parameter matches by its key. A second pass pairs the nodes
-  left over on both sides by kind and name, so a moved slot keeps its comments
-  and, for a project, its whole subtree. A matched node keeps its comments and
+- **The reconcile keeps what still matches.** A slot node matches a sibling in
+  the existing document in three passes: by kind, slot position, and name, then
+  by kind and name, then by kind and slot position. A moved slot, even one
+  swapped with another, so keeps its comments and, for a project, its whole
+  subtree, and a slot renamed in place keeps them too. The `startup` node and
+  the `mcp` node match by their node name, and a spawn parameter matches by its
+  key. A matched node keeps its comments and
   formatting. When a matched node's values differ, all of its values are replaced
   by the fresh ones. Values cannot be updated in place, because
   `KdlEntry::set_value` keeps printing the old value's text. An existing node
@@ -65,7 +67,9 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
 - **The comments at the top of the file stay there.** The parser attaches them
   to the first node, so when a blank line separates them from that node, the
   reconcile moves them to the document itself. They then stay when the first
-  node is removed or another node comes first.
+  node is removed or another node comes first. The header ends only at a blank
+  line before which the text parses on its own, so a blank line inside a block
+  comment does not split it.
 - **The format follows the fractal view of ADR 0011.** The root project's slots
   are the top-level nodes. A `project` node and a `launcher` node take the name
   as their first value and the slot position as `at`. A project's slots are its
@@ -92,20 +96,21 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   are the access scopes, for example `mcp observe act`. An MCP root without
   access scopes is the bare node `mcp`. A project without an `mcp` node is not
   an MCP root.
-- **A spawn parameter is a child node of its launcher, named by its key.** The
-  node's shape decides the JSON value it stands for:
-  - A node with exactly one argument is that scalar value.
-  - A node with no arguments or with several arguments is an array of them.
-  - A node with a children block, even an empty one, is an object, and each
-    child node is one of its entries, mapped by the same rules. So
-    `env { PATH "/bin" }` is the object `{ "PATH": "/bin" }`.
-  - A node with both arguments and a children block, or with properties, fails
-    the load.
-- **An array that contains an object or another array cannot be written.** One
-  rule in the desktop policy refuses such params. The MCP tools apply it to the
-  params they are given. The file cannot express such an array, because an array
-  is the arguments of one node, so no change can create params that a persist
-  would lose.
+- **A spawn parameter is a child node of its launcher, named by its key, with
+  its value as its one argument.** The value is a string, a number, a boolean,
+  or `#null`, as in `command "ssh fs110"`. A param node with no argument,
+  several arguments, a property, or a children block fails the load. The MCP
+  tools refuse a param that is an array or an object. Params are plain values
+  because the only param any application reads is the terminal's `command`, a
+  string. JSON arrays and objects do not map onto KDL nodes without a shape of
+  their own for each case. A one-element array, for example, reads back as its
+  element.
+- **Every string is written.** `kdl` escapes only quotes, backslashes, and a few
+  control characters, and it writes the other characters KDL forbids in its
+  text as they are, such as ESC, U+2028, the direction marks, and U+FEFF. It
+  then cannot parse its own output. The writer escapes those characters as
+  `\u{…}` in names, param keys, and string values, so no name or param a tool
+  accepts makes a persist fail.
 - **The load is strict.** An unknown node or property fails the load, with the
   file path, line, and column in the message. Otherwise the reconcile would find
   no match for the unknown node and remove it, together with its comments. A
@@ -114,14 +119,15 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
 - **A file that does not load is not overwritten.** When the file on disk fails
   to parse or to load strictly at a persist, the persist writes nothing and logs
   an error that says the changes are not saved until the file loads again. A
-  half-finished hand edit therefore survives. The persist does not fail the
-  transaction, because only an edit outside the desktop breaks the file, and a
-  typo in it must not end the session.
+  half-finished hand edit therefore survives. The next persist writes the whole
+  aggregate again, so no change is lost once the file loads. The persist does
+  not fail the transaction, because only an edit outside the desktop breaks the
+  file, and a typo in it must not end the session. The persist checks the file
+  with the same check as the load, including the nesting limit.
 - **The written text is checked before it is written.** The persist parses the
   reconciled text in memory and writes it only when it reads as exactly the
   fresh document. Otherwise it writes nothing and logs an error, because a bug
-  in the reconcile or in `kdl` would otherwise reach the file. The next persist writes the whole
-  aggregate again, so no change is lost.
+  in the reconcile or in `kdl` would otherwise reach the file.
 
 ## Consequences
 
@@ -130,11 +136,9 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   do not change.
 - The mapping between the document and the aggregate is written by hand, in both
   directions.
-- Nested spawn parameters keep the limit of `MAX_PARAMS_DEPTH`, because a nested
-  object maps to nested child nodes.
-- An array with exactly one element loads back as its element alone. KDL cannot
-  tell a node with one argument apart from a one-element array without a type
-  annotation, and no params use such arrays today.
+- Params need no nesting limit, so `MAX_PARAMS_DEPTH` and its policy rule go.
+  An application that needs a list or a map in its params gets a design of its
+  own, typed by that application, once one exists.
 - Hand edits to values made while the terminal runs are replaced at the next
   persist, because the aggregate in memory wins. Only comments and formatting
   survive. Reloading the file while the terminal runs is left to
@@ -180,8 +184,15 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   the previous aggregate between persists, and it would find nodes in the file
   by their old paths, which a hand edit invalidates. It can later replace the
   reconcile's pass by name without a change to the format.
-- **Skipping nested param objects and lowering `MAX_PARAMS_DEPTH` to 1.**
-  Rejected: nested child nodes write nested objects, so the limit can stay.
+- **Params as any JSON value, with nested objects as nested child nodes.**
+  Rejected after review. Each JSON shape needs a node shape of its own: an
+  array is several arguments, an object a children block, and an empty object
+  `{}`. A one-element array cannot be told apart from its element without one
+  more shape, and an array inside an array needs yet another rule. No
+  application reads any of these.
+- **Typed params, declared by each application.** Not now: the reader and the
+  tools would validate against a schema per application. That pays off once an
+  application reads a second param.
 - **The access scopes as a property (`mcp="observe act"`) or as a nested node
   (`mcp { access_scopes observe act }`).** Rejected: the property needs
   `mcp=""` for an MCP root without scopes, and the nested node adds a level
