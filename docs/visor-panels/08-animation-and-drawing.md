@@ -23,7 +23,7 @@ connectors from the current values.
 
 - The scene cannot animate on its own. Every moving transform is computed by a movement on the task
   side and sent again every frame (`massive-animation`,
-  [ADR 0039](../adr/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md)).
+  [ADR 0039](../adr/archive/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md)).
 - The launcher's presenter animates its instances on the visor this way today
   ([launcher_presenter.rs](../../desktop/src/projects/launcher_presenter.rs)).
 - The desktop hit-tests by its own placements, not by scene transforms

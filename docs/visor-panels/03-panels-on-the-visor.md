@@ -14,7 +14,7 @@ views.
 ## Current situation
 
 - Every launcher presents its instances as a visor
-  ([ADR 0044](../adr/0044-launchers-present-only-as-visors.md)). The visor places them on an arc
+  ([ADR 0044](../adr/archive/0044-launchers-present-only-as-visors.md)). The visor places them on an arc
   around its center visor instance and collapses to that instance when the focus leaves the launcher
   ([launcher_presenter.rs](../../desktop/src/projects/launcher_presenter.rs)).
 - The arc's placement takes an instance's index and the number of instances
@@ -25,19 +25,19 @@ views.
   ([instance_presenter.rs:312](../../desktop/src/instance_presenter.rs#L312)).
 - The desktop positions the one view itself. A view is a part of its instance
   (`InstancePart::View`), and the instance presenter lays it out
-  ([ADR 0022](../adr/0022-presenters-own-the-layout-of-their-targets.md)).
+  ([ADR 0022](../adr/archive/0022-presenters-own-the-layout-of-their-targets.md)).
 - A view states its size when it is created (`ViewCreationInfo`). The desktop does not handle
   `ViewChange::Resize` yet
   ([command_dispatch.rs:845](../../desktop/src/desktop_system/command_dispatch.rs#L845)).
 - The instance title bar shows the title of the primary view
-  ([ADR 0019](../adr/0019-instance-title-bar-is-part-of-the-instance-extent.md)).
+  ([ADR 0019](../adr/archive/0019-instance-title-bar-is-part-of-the-instance-extent.md)).
 - Every launcher starts the desktop's primary application
   ([command_dispatch.rs:392](../../desktop/src/desktop_system/command_dispatch.rs#L392)).
 - The desktop decides Full Screen Mode. It gives the view the window's size, and the instance only
   receives `ViewEvent::Resized`. The view is then fitted back into its panel with
   `fullscreen_scale` ([fullscreen.rs:30](../../desktop/src/desktop_system/fullscreen.rs#L30),
   [instance_presenter.rs:581](../../desktop/src/instance_presenter.rs#L581),
-  [ADR 0014](../adr/0014-fullscreen-mode-is-per-launcher-content-scaling.md)).
+  [ADR 0014](../adr/archive/0014-fullscreen-mode-is-per-launcher-content-scaling.md)).
 
 ## Decisions
 
@@ -49,7 +49,7 @@ views.
 - **A launcher runs any number of instances.** Cmd+T and Shift+Cmd+T always start another one,
   whatever application the launcher starts.
 - **The shell still shows one view per instance.** A second view ends the shell with an error, as
-  [ADR 0039](../adr/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) already
+  [ADR 0039](../adr/archive/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) already
   says. An application that needs several views therefore runs only in the desktop.
 - **A launcher names its application.** An optional `application` field in the desktop
   configuration names the application the launcher starts. Without it, the launcher starts the
@@ -79,7 +79,7 @@ views.
   offsets ([06](06-visor-layouter.md)), and the arc turns panels only around the vertical axis, so
   the offsets stay valid.
 - **Each panel has a title bar.** It shows the title of the panel's remembered view
-  ([ADR 0019](../adr/0019-instance-title-bar-is-part-of-the-instance-extent.md) applies per panel).
+  ([ADR 0019](../adr/archive/0019-instance-title-bar-is-part-of-the-instance-extent.md) applies per panel).
   The title bar is a node of the stage tree under its panel. A click on it still selects its
   target.
 
@@ -93,15 +93,15 @@ views.
   panels are shown 1:1 on screen.
 - **Full Screen Mode enlarges the primary view**, so it shrinks all panels of that instance. It
   therefore changes the visor layout, which
-  [ADR 0014](../adr/0014-fullscreen-mode-is-per-launcher-content-scaling.md) excluded until
+  [ADR 0014](../adr/archive/0014-fullscreen-mode-is-per-launcher-content-scaling.md) excluded until
   ADR 0046. Title bars keep their regular size.
 - **Nothing visible changes today.** Every current application has one view, so its one panel is
   scaled by the same rule as today.
 - **A collapsed visor shows the primary view of the instance that holds the center visor view.**
 - **The slot measures the fitted primary view.** So a launcher stays one slot extent ([ADR
-  0044](../adr/0044-launchers-present-only-as-visors.md)), and every row of the matrix keeps the
+  0044](../adr/archive/0044-launchers-present-only-as-visors.md)), and every row of the matrix keeps the
   slot extent ([ADR
-  0023](../adr/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)). Panels may
+  0023](../adr/archive/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)). Panels may
   extend beyond the slot while the visor is expanded, also vertically.
 
 ### Focus and navigation
@@ -140,7 +140,7 @@ views.
 - Whether `ViewRole` means more than "primary" for an instance with several views.
 - Whether `desktop_describe` lists an instance's panels and views.
 - How placement visibility ([ADR
-  0001](../adr/0001-placement-visibility-drives-interaction-and-fade.md)) applies to several views
+  0001](../adr/archive/0001-placement-visibility-drives-interaction-and-fade.md)) applies to several views
   and panels of one instance.
 - How a visor gets rows, so that a parent instance can place nested instances below its own panels.
   Panels can have arbitrary heights, which this has to take into account.

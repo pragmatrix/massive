@@ -11,10 +11,10 @@ shows the view that leads into it, when both fit. Text in the focused view is ne
 ## Current situation
 
 - The camera frames the keyboard-focused target
-  ([ADR 0016](../adr/0016-camera-zoom-is-relative-to-keyboard-focus.md)), at a zoom level relative
-  to that target ([ADR 0018](../adr/0018-zoom-is-a-level-relative-to-the-focused-target.md)).
+  ([ADR 0016](../adr/archive/0016-camera-zoom-is-relative-to-keyboard-focus.md)), at a zoom level relative
+  to that target ([ADR 0018](../adr/archive/0018-zoom-is-a-level-relative-to-the-focused-target.md)).
 - A view holds the keyboard focus itself, so a focused view is already a target the camera can
-  frame ([ADR 0022](../adr/0022-presenters-own-the-layout-of-their-targets.md)).
+  frame ([ADR 0022](../adr/archive/0022-presenters-own-the-layout-of-their-targets.md)).
 - At Focus today, the camera frames an instance's panel together with its title bar.
 
 ## Decisions

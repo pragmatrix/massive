@@ -3,11 +3,11 @@
 ## Status: accepted, not yet implemented
 
 Supersedes the JSON format of
-[ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md).
+[ADR 0013](./archive/0013-desktop-configuration-is-json-derived-from-the-aggregate.md).
 ADR 0013's central decision stays: the document is derived from the aggregate at
 every persist, and there is no separate edit path.
 
-Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): a launcher has no `mode`, so the
+Amended by [ADR 0044](./archive/0044-launchers-present-only-as-visors.md): a launcher has no `mode`, so the
 format neither writes nor reads one.
 
 ## Problem
@@ -19,7 +19,7 @@ four of them. The file is meant to be edited by hand, and a hand-edited file
 needs comments that survive the terminal's own writes.
 
 ADR 0013 left KDL because of the machinery around the surgical edits of
-[ADR 0006](./0006-desktop-configuration-is-name-keyed-kdl.md), not because of
+[ADR 0006](./archive/0006-desktop-configuration-is-name-keyed-kdl.md), not because of
 the format. That implementation took about 1,220 lines of persistence code
 (`document.rs`, `configuration.rs`, and `parameters.rs`, removed in massive
 commit `db68925c`). Most of it followed from editing the document alongside the

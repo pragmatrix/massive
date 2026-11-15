@@ -7,7 +7,7 @@ format and the decisions behind it. This plan holds only the steps.
 ## Starting point
 
 The desktop configuration is stored as JSON in `~/.massive/desktop.json`
-([ADR 0013](adr/0013-desktop-configuration-is-json-derived-from-the-aggregate.md)). The code lives
+([ADR 0013](adr/archive/0013-desktop-configuration-is-json-derived-from-the-aggregate.md)). The code lives
 in `desktop/src/projects/persistence/`:
 
 - `persisted.rs` defines `PersistedConfiguration`, a typed tree of the document with serde

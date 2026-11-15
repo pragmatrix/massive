@@ -10,7 +10,7 @@ and a connector stage routes and draws the connectors.
 ## Context
 
 Every launcher presents its instances as a visor
-([ADR 0044](0044-launchers-present-only-as-visors.md)). A visor places the instances of a launcher
+([ADR 0044](archive/0044-launchers-present-only-as-visors.md)). A visor places the instances of a launcher
 on an arc around its center visor instance. When the keyboard focus leaves the launcher, the visor
 collapses to that instance ([launcher_presenter.rs](../../desktop/src/projects/launcher_presenter.rs),
 [visor_layout.rs](../../desktop/src/projects/visor_layout.rs)).
@@ -54,7 +54,7 @@ The two kinds of launchers scale their content in different ways.
 
 In both kinds, the slot measures the primary view fitted into the slot. So every row of the matrix
 keeps the slot extent
-([ADR 0023](0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)).
+([ADR 0023](archive/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)).
 
 **A multi-instance launcher scales as it does today.**
 
@@ -65,7 +65,7 @@ keeps the slot extent
 - At the Focus zoom level, the camera comes close enough to cancel the instance scale, so the
   focused instance is shown at 1:1 on screen.
 - Full Screen Mode stays as it is
-  ([ADR 0014](0014-fullscreen-mode-is-per-launcher-content-scaling.md)). The desktop decides it and
+  ([ADR 0014](archive/0014-fullscreen-mode-is-per-launcher-content-scaling.md)). The desktop decides it and
   gives the primary view the size of the window, and the instance only receives the new size of its
   view. The instance scale fits that window-sized view into the slot. So a full-screen instance stays
   shrunk into its slot at every zoom level except Focus.
@@ -107,7 +107,7 @@ keeps the slot extent
   view's panel. The application never sees this event.
 - The stage follows the layout focus, not the keyboard focus. The layout focus waits while a mouse
   button is pressed, so a click never slides a panel under the pointer
-  ([ADR 0002](0002-keyboard-focus-changes-are-command-mediated.md)). The stage's sliding also starts
+  ([ADR 0002](archive/0002-keyboard-focus-changes-are-command-mediated.md)). The stage's sliding also starts
   together with the desktop's centering of the arc.
 - Every panel slides vertically so that the center of its remembered view lies on a **center line**
   at y = 0. The focused view is the remembered view of its panel, so it lies on the center line too.
@@ -150,13 +150,13 @@ keeps the slot extent
 
 - Instances that run today do not change visibly, because every application today is
   multi-instance.
-- [ADR 0019](0019-instance-title-bar-is-part-of-the-instance-extent.md) applies to each panel
+- [ADR 0019](archive/0019-instance-title-bar-is-part-of-the-instance-extent.md) applies to each panel
   instead of to each instance.
 - The `application` field changes the persisted desktop configuration, the
   [KDL plan](../desktop-configuration-kdl-plan.md), and `desktop_describe`. Both security documents
   are updated in the same change.
 - A launcher still measures exactly one slot extent
-  ([ADR 0044](0044-launchers-present-only-as-visors.md)). The scaling of a multi-panel launcher
+  ([ADR 0044](archive/0044-launchers-present-only-as-visors.md)). The scaling of a multi-panel launcher
   applies to the primary view inside the launcher, not to the launcher.
 - The view columns plan is revised as the [visor panels](../visor-panels/README.md) plan. Its
   pixel-perfect experiment is dropped, because an expanded multi-panel launcher shows its panels at

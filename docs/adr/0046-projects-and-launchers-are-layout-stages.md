@@ -2,11 +2,11 @@
 
 ## Status: proposed
 
-Amends [ADR 0022](0022-presenters-own-the-layout-of-their-targets.md), where it describes how the
+Amends [ADR 0022](archive/0022-presenters-own-the-layout-of-their-targets.md), where it describes how the
 desktop lays out projects and launchers. Amends
 [ADR 0045](0045-a-visor-is-an-arc-of-panels-laid-out-by-a-stage.md) in its sections on application
 kinds, size and scale, navigation and focus, the layout stage, and its consequences. Amends
-[ADR 0014](0014-fullscreen-mode-is-per-launcher-content-scaling.md), because Full Screen Mode now
+[ADR 0014](archive/0014-fullscreen-mode-is-per-launcher-content-scaling.md), because Full Screen Mode now
 changes the visor layout.
 
 ## Context
@@ -17,7 +17,7 @@ instance's views into panels, slides the panels, and routes and draws the connec
 views. The desktop places the panels on the visor's arc and knows nothing about connectors.
 
 The desktop lays out its projects and launchers itself. Each of them has a presenter that implements
-`TargetLayout` ([ADR 0022](0022-presenters-own-the-layout-of-their-targets.md)). The launcher's
+`TargetLayout` ([ADR 0022](archive/0022-presenters-own-the-layout-of-their-targets.md)). The launcher's
 presenter places the visor's arc
 ([launcher_presenter.rs](../../desktop/src/projects/launcher_presenter.rs)), and the project's
 presenter places the matrix
@@ -29,7 +29,7 @@ instance and the title bar metrics.
 
 One tree, `OrderedHierarchy<DesktopTarget>`, serves five jobs at once. It holds the structure of
 projects, launchers, instances and views. It carries the focus, the key path of
-[ADR 0020](0020-keys-are-delivered-top-down-and-the-consumer-is-the-input-focus.md), the zoom chain
+[ADR 0020](archive/0020-keys-are-delivered-top-down-and-the-consumer-is-the-input-focus.md), the zoom chain
 and Esc. The layout measures and places along it. Hit testing and coordinate mapping walk it. Each
 presenter's scene location hangs under its parent's location along it.
 
@@ -42,16 +42,16 @@ the desktop.
 Three facts weigh against making every level an instance.
 
 - Several parts of the desktop span every level. The camera zooms relative to the focused target
-  ([ADR 0018](0018-zoom-is-a-level-relative-to-the-focused-target.md)). Keys are delivered from the
+  ([ADR 0018](archive/0018-zoom-is-a-level-relative-to-the-focused-target.md)). Keys are delivered from the
   top down along the focus path, and outer levels get the first refusal (ADR 0020). The selection
-  spans slots ([ADR 0025](0025-slots-can-be-selected-beside-the-keyboard-focus.md)), and hit testing
+  spans slots ([ADR 0025](archive/0025-slots-can-be-selected-beside-the-keyboard-focus.md)), and hit testing
   spans the whole window.
 - `MoveSlot` moves a slot into another project's matrix, and `Group` and `Ungroup` move slots into a
   new project or back into its parent
   ([ADR 0011](0011-desktop-is-a-fractal-of-projects-in-slots.md),
-  [ADR 0026](0026-grouping-wraps-the-selected-slots-into-a-project-in-place.md)).
+  [ADR 0026](archive/0026-grouping-wraps-the-selected-slots-into-a-project-in-place.md)).
 - The desktop draws into its own window, and the shell hosts it as its one instance.
-  [ADR 0039](0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) rejected letting
+  [ADR 0039](archive/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) rejected letting
   the desktop draw through a view, because a view has no camera, no native full screen and no
   background, and the resize-synchronous renderer would be lost.
 
@@ -99,7 +99,7 @@ the arc, and only the desktop knows the arc.
   or a visor is.
 - `MoveSlot`, `Group` and `Ungroup` re-parent stages. No running instance changes its parent.
 - The shell still hosts the desktop as its one instance, and no stage sits between them.
-  [ADR 0039](0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) is unchanged.
+  [ADR 0039](archive/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) is unchanged.
   The desktop owns the only camera, and everything below it is framed by that camera.
 
 ### Two trees: the target tree and the stage tree
@@ -121,7 +121,7 @@ the arc, and only the desktop knows the arc.
   and it gives the parent's stage its new child list. The stage compares the list with its last one
   and marks `Measure` only when something changed. The effect reads the target tree, so it runs
   after the structural changes and before `Measure` ([ADR
-  0043](0043-effects-are-ordered-by-what-they-read-and-marked-through-the-transaction.md)).
+  0043](archive/0043-effects-are-ordered-by-what-they-read-and-marked-through-the-transaction.md)).
 - The rules where the two trees differ live in `SyncChildren` alone. A visor stage's children are
   panels, not instances. A connector stage sits above every visor stage. A nested instance's panels
   join its parent's visor.
@@ -138,7 +138,7 @@ the arc, and only the desktop knows the arc.
   - Its direct children, through `SyncChildren`, only when they change. A `MoveSlot` between two
     projects therefore sends two short lists, and a change of focus sends none.
   - Its placement and its presentation scale
-    ([ADR 0023](0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)), from its
+    ([ADR 0023](archive/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md)), from its
     parent stage.
   - The layout focus and the animation ticks.
   - Values that its parent settles for it. A visor stage receives the connector lanes that its
@@ -150,7 +150,7 @@ the arc, and only the desktop knows the arc.
   the views. To its child side, it sends one placement per child.
 - A value that siblings share is settled by their parent stage. The shared column count
   ([ADR 0035](0035-sibling-projects-share-a-column-count.md)) and the shared project scale
-  ([ADR 0015](0015-nested-projects-share-a-width-derived-presentation-scale.md)) are examples. Each
+  ([ADR 0015](archive/0015-nested-projects-share-a-width-derived-presentation-scale.md)) are examples. Each
   child reports what it needs, and the parent sends the shared value down. Siblings never read each
   other.
 - Stages receive no keys. The keys that a launcher or a project handles today start instances,
@@ -169,7 +169,7 @@ the arc, and only the desktop knows the arc.
   children with their visibility, plain decoration, and what the stage reports to its parent side.
 - Plain decoration is only what cannot be hit, such as a visor background. A title bar or a project
   header can be clicked to select its target
-  ([ADR 0019](0019-instance-title-bar-is-part-of-the-instance-extent.md)), so it is a node of the
+  ([ADR 0019](archive/0019-instance-title-bar-is-part-of-the-instance-extent.md)), so it is a node of the
   stage tree with its target, placed like any other child.
 - A layouter is not incremental. It recomputes one stage in full, and a stage has only a few
   children. The stage remembers its last inputs and outputs. It runs the layouter only when an input
@@ -251,7 +251,7 @@ the arc, and only the desktop knows the arc.
 - At the Focus zoom level, the camera comes close enough to cancel the instance scale, so the
   focused instance's panels are shown 1:1 on screen.
 - Full Screen Mode enlarges the primary view
-  ([ADR 0014](0014-fullscreen-mode-is-per-launcher-content-scaling.md)), so it shrinks all panels of
+  ([ADR 0014](archive/0014-fullscreen-mode-is-per-launcher-content-scaling.md)), so it shrinks all panels of
   that instance. Full Screen Mode therefore changes the visor layout, which ADR 0014 excluded. Title
   bars keep their regular size, as ADR 0019 requires.
 - Nothing visible changes today. Every current application has one view, so its one panel is
@@ -295,7 +295,7 @@ the arc, and only the desktop knows the arc.
   property live in `massive-applications`. The registry of applications, the start of the instance
   and the checks stay with the desktop.
 - A nested instance must be an application that the desktop's registry knows. It inherits its parent
-  instance's MCP root ([ADR 0036](0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)), so it
+  instance's MCP root ([ADR 0036](archive/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)), so it
   can reach no more than its parent can.
 - In the target tree, a nested instance hangs under the launcher of its parent instance. Its parent
   instance is an attribute, not an edge. So the parent instance is not on the nested instance's key
@@ -405,9 +405,9 @@ the arc, and only the desktop knows the arc.
   machine. That widens the trust model beyond what [security.md](../security.md) covers.
 - **The hosted application, or the configuration, picks the stages above it.** If the application
   picked them, it would take decisions that belong to the desktop policy
-  ([ADR 0029](0029-exceptional-desktop-behaviors-are-decided-by-the-desktop-policy.md)). If the
+  ([ADR 0029](archive/0029-exceptional-desktop-behaviors-are-decided-by-the-desktop-policy.md)). If the
   configuration picked them, it would bring back the mode that
-  [ADR 0044](0044-launchers-present-only-as-visors.md) removed, without a second stage that serves
+  [ADR 0044](archive/0044-launchers-present-only-as-visors.md) removed, without a second stage that serves
   someone.
 - **Layout and presentation as two stages in series.** One presentation stage would animate every
   level. The placement it receives would have to carry transitions and visibility, and the layout

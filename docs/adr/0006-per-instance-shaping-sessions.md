@@ -1,6 +1,6 @@
 # Per-instance shaping
 
-Supersedes the "Planned next — per-instance sessions" sketch in [ADR 0005](0005-dual-shaping-engines-cosmic-text-and-parley.md). That sketch proposed a replica/broadcast model for the font database; the design settled here is different and strictly less coordinated: fontique's *native shared collection* carries parley's font loading, and a *registry sync* pattern replaces broadcast for cosmic-text. Two grilling findings reshaped the sketch most: (1) font loading must be possible at any time — static-after-startup was rejected; (2) there must be exactly one shaping entry point — no instance/non-instance API split.
+Supersedes the "Planned next — per-instance sessions" sketch in [ADR 0005](archive/0005-dual-shaping-engines-cosmic-text-and-parley.md). That sketch proposed a replica/broadcast model for the font database; the design settled here is different and strictly less coordinated: fontique's *native shared collection* carries parley's font loading, and a *registry sync* pattern replaces broadcast for cosmic-text. Two grilling findings reshaped the sketch most: (1) font loading must be possible at any time — static-after-startup was rejected; (2) there must be exactly one shaping entry point — no instance/non-instance API split.
 
 Terminology follows the glossary in [`GLOSSARY.md`](../../GLOSSARY.md): faces are **loaded** (client-directed) or **resolved** (picked up by the shaper at fallback time), the canonical engine behind the manager lock is the **face authority**, and per-session scratch alignment is **registry sync**.
 

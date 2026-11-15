@@ -2,12 +2,12 @@
 
 ## Status: proposed
 
-Builds on [ADR 0023](./0023-matrix-slots-share-one-slot-extent-and-center-their-content.md), whose
+Builds on [ADR 0023](./archive/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md), whose
 slot extent and shared project scale stay in force, and on
-[ADR 0034](./0034-a-project-header-does-not-widen-its-project.md), whose header measures no width.
+[ADR 0034](./archive/0034-a-project-header-does-not-widen-its-project.md), whose header measures no width.
 Amends ADR 0023 in that a nested project no longer stretches horizontally to its slot, and ADR 0034
 in that the horizontal alignment of a project's columns is no longer a policy. Amends
-[ADR 0033](./0033-ctrl-shift-cmd-arrows-move-the-selected-slots.md): a selected block moves within
+[ADR 0033](./archive/0033-ctrl-shift-cmd-arrows-move-the-selected-slots.md): a selected block moves within
 the project's shared column count instead of within its assigned slots.
 
 ## Problem

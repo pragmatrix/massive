@@ -3,7 +3,7 @@
 Status: **decided** (2026-10-24). Every tool is implemented (2026-10-31).
 
 This document specifies the MCP tools the desktop offers to agents through an MCP root
-([ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)). The desktop is a tool
+([ADR 0036](adr/archive/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)). The desktop is a tool
 provider with the MCP id `desktop`, so every tool's name starts with `desktop_`. An agent sees these
 names with its client's prefix, for example `mcp__<server>__desktop_describe` in Claude Code.
 
