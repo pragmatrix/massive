@@ -2,6 +2,10 @@
 
 ## Status: accepted, implemented
 
+Amended by [ADR 0047](../0047-a-watcher-applies-desktop-configuration-edits-at-once.md) (proposed):
+once a watcher applies edits of the file at once, the persistence keeps the document in memory and
+no longer reads the file at each persist.
+
 Supersedes the JSON format of
 [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md).
 ADR 0013's central decision stays: the document is derived from the aggregate at
