@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::desktop_system::{Direction, SlotShift};
 use crate::policy::constants;
-use crate::policy::when::{self, NestingParams, NestingParamsInArrays};
-use crate::projects::{FullScreenMode, Params, params_depth, params_nest_in_array};
+use crate::projects::{FullScreenMode, Params};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -162,9 +161,9 @@ impl TryFrom<String> for TargetName {
     }
 }
 
-/// The params of a launcher that a tool creates. Decoding refuses params nested deeper than
-/// [`constants::configuration::MAX_PARAMS_DEPTH`] and arrays that hold objects or arrays, and the
-/// schema's description states both rules.
+/// The params of a launcher that a tool creates. Decoding refuses a param that is an array or an
+/// object, because the configuration file holds only plain values (ADR 0037), and the schema
+/// states the value types.
 #[derive(Debug, Deserialize, Into)]
 #[serde(try_from = "Params")]
 pub struct LauncherParams(Params);
@@ -179,15 +178,11 @@ impl JsonSchema for LauncherParams {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        let description = format!(
-            "Passed to the application when an instance starts, such as a command to run. They \
-             nest at most {} levels deep, and an array holds only strings, numbers, booleans, \
-             and null.",
-            constants::configuration::MAX_PARAMS_DEPTH
-        );
         json_schema!({
             "type": "object",
-            "description": description,
+            "description": "Passed to the application when an instance starts, such as a command \
+                            to run.",
+            "additionalProperties": { "type": ["string", "number", "boolean", "null"] },
         })
     }
 }
@@ -202,18 +197,15 @@ impl TryFrom<Params> for LauncherParams {
     type Error = String;
 
     fn try_from(params: Params) -> Result<Self, Self::Error> {
-        if when::nesting_params(params_depth(&params)) == NestingParams::RefuseTooDeep {
+        if let Some((key, _)) = params.iter().find(|(_, value)| {
+            matches!(
+                value,
+                serde_json::Value::Array(_) | serde_json::Value::Object(_)
+            )
+        }) {
             return Err(format!(
-                "params nest at most {} levels deep",
-                constants::configuration::MAX_PARAMS_DEPTH
+                "the param `{key}` is not a string, number, boolean, or null"
             ));
-        }
-        if when::nesting_params_in_arrays(params_nest_in_array(&params))
-            == NestingParamsInArrays::RefuseUnwritable
-        {
-            return Err(
-                "an array in params holds only strings, numbers, booleans, and null".into(),
-            );
         }
         Ok(Self(params))
     }
@@ -398,10 +390,10 @@ mod tests {
         assert!(decode_arguments::<AssignSlotParams>(&arguments(String::new())).is_err());
     }
 
-    /// The configuration file writes an array as plain values, so a tool cannot create an array
-    /// that holds an object or an array (ADR 0037).
+    /// The configuration file holds only plain values, so a tool cannot create a param that is an
+    /// array or an object (ADR 0037).
     #[test]
-    fn decoding_refuses_params_with_an_object_or_array_inside_an_array() {
+    fn decoding_refuses_params_that_are_not_plain_values() {
         let decode = |params: serde_json::Value| {
             let serde_json::Value::Object(params) = params else {
                 unreachable!("the params are an object")
@@ -409,8 +401,8 @@ mod tests {
             LauncherParams::try_from(params)
         };
 
-        assert!(decode(serde_json::json!({ "env": { "list": [1, "a", true, null] } })).is_ok());
-        assert!(decode(serde_json::json!({ "list": [{ "a": 1 }] })).is_err());
-        assert!(decode(serde_json::json!({ "env": { "list": [[1]] } })).is_err());
+        assert!(decode(serde_json::json!({ "command": "just", "count": 1, "flag": true })).is_ok());
+        assert!(decode(serde_json::json!({ "args": ["--login"] })).is_err());
+        assert!(decode(serde_json::json!({ "env": { "PATH": "/bin" } })).is_err());
     }
 }

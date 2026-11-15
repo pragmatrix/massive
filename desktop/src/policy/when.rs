@@ -93,41 +93,6 @@ pub fn nesting_projects(deepest_project: Option<usize>) -> NestingProjects {
     NestingProjects::Allow
 }
 
-/// Whether a launcher's params may nest as deep as they do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NestingParams {
-    Allow,
-    /// A deeper configuration might not load again (see
-    /// [`constants::configuration::MAX_PARAMS_DEPTH`]).
-    RefuseTooDeep,
-}
-
-#[must_use]
-pub fn nesting_params(params_depth: usize) -> NestingParams {
-    if params_depth > constants::configuration::MAX_PARAMS_DEPTH {
-        return NestingParams::RefuseTooDeep;
-    }
-    NestingParams::Allow
-}
-
-/// Whether a launcher's params may hold an object or an array as an element of an array.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NestingParamsInArrays {
-    Allow,
-    /// The configuration file writes an array as the arguments of one node, which hold only plain
-    /// values, so a persist would lose such an element (ADR 0037). The file cannot express one
-    /// either, so only a tool call needs this rule.
-    RefuseUnwritable,
-}
-
-#[must_use]
-pub fn nesting_params_in_arrays(params_nest_in_array: bool) -> NestingParamsInArrays {
-    if params_nest_in_array {
-        return NestingParamsInArrays::RefuseUnwritable;
-    }
-    NestingParamsInArrays::Allow
-}
-
 /// Where the focus goes when a project's slots move out of it (ADR 0026, ADR 0036).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UngroupingFocus {

@@ -12,9 +12,7 @@ use std::mem;
 
 use kdl::{KdlDocument, KdlNode};
 
-/// The property that places a slot node. It identifies a node among its siblings, together with
-/// the node's kind.
-const AT: &str = "at";
+use super::kdl_format::{slot_name, slot_position};
 
 /// Reconciles `fresh`, the document derived from the aggregate, into `existing`, the document parsed
 /// from the file. The returned document follows the order of `fresh`.
@@ -27,6 +25,9 @@ pub fn reconcile(mut existing: KdlDocument, fresh: &KdlDocument) -> KdlDocument 
 /// Moves the comments at the top of the file into the document's own leading text, when a blank
 /// line separates them from the first node. The parser attaches them to the first node, so they
 /// would otherwise move or vanish with whichever node happens to come first.
+///
+/// The header ends at the last blank line before which the text parses on its own. A blank line
+/// inside a block comment therefore does not split it.
 fn keep_file_header(document: &mut KdlDocument) {
     let Some(first) = document.nodes_mut().first_mut() else {
         return;
@@ -35,10 +36,14 @@ fn keep_file_header(document: &mut KdlDocument) {
         .format_mut()
         .expect("A parsed node has a format")
         .leading;
-    let Some(end) = leading.rfind("\n\n") else {
+    let Some(end) = leading
+        .rmatch_indices("\n\n")
+        .map(|(index, _)| index + 2)
+        .find(|&end| KdlDocument::parse(&leading[..end]).is_ok())
+    else {
         return;
     };
-    let header: String = leading.drain(..end + 2).collect();
+    let header: String = leading.drain(..end).collect();
     document
         .format_mut()
         .expect("A parsed document has a format")
@@ -71,24 +76,28 @@ fn reconcile_nodes(existing: &mut Vec<KdlNode>, fresh: &[KdlNode]) {
 
 /// Pairs each fresh node with at most one existing node, as the index of the existing node.
 ///
-/// The first pass pairs by kind and position. A node without `at`, such as `startup`, `mcp`, or a
-/// spawn parameter, pairs by its kind alone. The second pass pairs the slot nodes left over on both
-/// sides by kind and name, so a moved slot keeps its comments and, for a project, its subtree.
-/// Nodes with equal keys pair in document order.
+/// A node without a position, such as `startup`, `mcp`, or a spawn parameter, pairs by its node
+/// name alone in the first pass. Slot nodes pair in three passes: by kind, position, and name, then by
+/// kind and name, then by kind and position. A moved slot, even one swapped with another, so keeps
+/// its comments and, for a project, its subtree, and a slot renamed in place keeps them too. Nodes
+/// with equal keys pair in document order.
 fn pair_nodes(existing: &[KdlNode], fresh: &[KdlNode]) -> Vec<Option<usize>> {
     let mut pairs = vec![None; fresh.len()];
     let mut paired = vec![false; existing.len()];
     pair_by(
         existing,
         fresh,
-        |node| Some(position_key(node)),
+        |node| Some(full_key(node)),
         &mut pairs,
         &mut paired,
     );
     pair_by(existing, fresh, name_key, &mut pairs, &mut paired);
+    pair_by(existing, fresh, position_key, &mut pairs, &mut paired);
     pairs
 }
 
+/// One pass of [`pair_nodes`]: pairs the fresh nodes not yet paired with the existing nodes not yet
+/// paired that have the same key. A node whose key is `None` takes no part in the pass.
 fn pair_by<'a, K: Eq + Hash>(
     existing: &'a [KdlNode],
     fresh: &'a [KdlNode],
@@ -118,17 +127,23 @@ fn pair_by<'a, K: Eq + Hash>(
     }
 }
 
-/// The kind of a node and its `at` property, when it has one.
-fn position_key(node: &KdlNode) -> (&str, Option<&str>) {
-    let at = node.get(AT).and_then(|value| value.as_string());
-    (node.name().value(), at)
+/// The kind, position, and name of a slot node, or the node name alone of any other node. The name of
+/// a node without a position stays out, because a param's argument is its value, which may change.
+fn full_key(node: &KdlNode) -> (&str, Option<(u32, u32)>, Option<&str>) {
+    let position = slot_position(node);
+    (node.name().value(), position, position.and(slot_name(node)))
 }
 
-/// The kind of a slot node and its name. Nodes without `at` are no slots and take no part.
+/// The kind and name of a slot node. A node without a position is not a slot, so it takes no part
+/// in this pass.
 fn name_key(node: &KdlNode) -> Option<(&str, &str)> {
-    node.get(AT)?;
-    let name = node.entries().first()?.value().as_string()?;
-    Some((node.name().value(), name))
+    slot_position(node)?;
+    Some((node.name().value(), slot_name(node)?))
+}
+
+/// The kind and position of a slot node.
+fn position_key(node: &KdlNode) -> Option<(&str, (u32, u32))> {
+    Some((node.name().value(), slot_position(node)?))
 }
 
 /// Gives a matched existing node the values and children of its fresh counterpart, and keeps its
@@ -181,6 +196,10 @@ fn terminate_nodes(nodes: &mut [KdlNode]) {
     for node in nodes.iter_mut().take(count.saturating_sub(1)) {
         let format = node.format_mut().expect("A parsed node has a format");
         if format.terminator.is_empty() {
+            // The space that stood before the closing brace would end the line otherwise.
+            format
+                .before_terminator
+                .truncate(format.before_terminator.trim_end().len());
             format.terminator = "\n".into();
         }
     }
@@ -274,6 +293,47 @@ launcher login at=\"0,0\" full_screen_mode=fullscreen {
         );
     }
 
+    /// When two slots swap their positions, each keeps its own comments.
+    #[test]
+    fn swapped_slots_keep_their_comments() {
+        let existing = "\
+// The shell.
+launcher shell at=\"0,0\" {
+    // A login shell.
+    command \"zsh -l\"
+}
+// The build.
+launcher build at=\"1,0\"
+";
+        let fresh = "\
+launcher build at=\"0,0\"
+launcher shell at=\"1,0\" {
+    command \"zsh -l\"
+}
+";
+        assert_eq!(
+            reconciled(existing, fresh),
+            "\
+// The build.
+launcher build at=\"0,0\"
+// The shell.
+launcher shell at=\"1,0\" {
+    // A login shell.
+    command \"zsh -l\"
+}
+"
+        );
+    }
+
+    /// A blank line inside a block comment does not end the file header, so removing the first node
+    /// keeps the comment whole.
+    #[test]
+    fn a_block_comment_with_a_blank_line_stays_whole() {
+        let existing = "/* One.\n\nTwo. */\nlauncher shell at=\"0,0\"\nlauncher build at=\"1,0\"\n";
+        let fresh = "launcher build at=\"1,0\"\n";
+        assert_eq!(reconciled(existing, fresh), "launcher build at=\"1,0\"\n");
+    }
+
     /// The comments at the top of the file stay there, even when the node below them goes away.
     #[test]
     fn the_file_header_stays_when_the_first_node_goes() {
@@ -293,13 +353,12 @@ launcher login at=\"0,0\" full_screen_mode=fullscreen {
         let fresh = "\
 launcher shell at=\"0,0\" {
     command just
-    env {
-        PATH \"/bin\"
-    }
+    term xterm
 }
 launcher build at=\"1,0\"
 ";
-        reconciled(existing, fresh);
+        let text = reconciled(existing, fresh);
+        assert!(text.contains("command just\n"), "{text}");
     }
 
     /// Reconciles the fresh text into the existing text, and checks that the result reads as

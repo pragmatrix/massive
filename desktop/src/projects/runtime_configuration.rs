@@ -22,35 +22,9 @@ use massive_applications::{Direction, McpConfiguration};
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
 use crate::policy::when::{self, Booting};
 
-/// Spawn parameters of a launcher: JSON values passed to the spawned application.
+/// Spawn parameters of a launcher, passed to the spawned application. Each value is a plain JSON
+/// value, never an array or an object (ADR 0037).
 pub type Params = Map<String, Value>;
-
-/// How deeply `params` nest: 1 for an object of plain values, and one more for each object or array
-/// nested inside.
-pub fn params_depth(params: &Params) -> usize {
-    fn depth(value: &Value) -> usize {
-        match value {
-            Value::Object(object) => 1 + object.values().map(depth).max().unwrap_or(0),
-            Value::Array(array) => 1 + array.iter().map(depth).max().unwrap_or(0),
-            _ => 0,
-        }
-    }
-    1 + params.values().map(depth).max().unwrap_or(0)
-}
-
-/// Whether `params` hold an object or an array as an element of an array, at any depth.
-pub fn params_nest_in_array(params: &Params) -> bool {
-    fn nests(value: &Value) -> bool {
-        match value {
-            Value::Object(object) => object.values().any(nests),
-            Value::Array(array) => array
-                .iter()
-                .any(|element| matches!(element, Value::Object(_) | Value::Array(_))),
-            _ => false,
-        }
-    }
-    params.values().any(nests)
-}
 
 /// The name the terminal gives the root project it synthesizes.
 pub const ROOT_PROJECT_NAME: &str = "Projects";
@@ -84,11 +58,10 @@ impl FullScreenMode {
 
 /// The canonical desktop configuration: what is parsed from the configuration
 /// document and what the boot flow derives its commands from. Ids are fresh per
-/// session and the document is keyed by name, so the two representations only
-/// meet during parse and persist.
+/// session and the document identifies content by nesting and position, so the two
+/// representations only meet during parse and persist.
 ///
-/// The document is the KDL file the configuration persists to
-/// ([`crate::projects::persistence::PersistedConfiguration`]); it is derived from this
+/// The document is the KDL file the configuration persists to. It is derived from this
 /// aggregate when persisted (ADR 0037).
 #[derive(Debug)]
 pub struct RuntimeConfiguration {

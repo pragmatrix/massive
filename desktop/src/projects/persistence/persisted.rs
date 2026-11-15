@@ -221,48 +221,6 @@ mod tests {
     use super::*;
     use crate::projects::persistence::kdl_format;
     use massive_applications::AccessScope;
-    use serde_json::Value;
-
-    #[test]
-    fn a_document_writes_the_fractal_shape() {
-        let document = PersistedConfiguration {
-            startup: Some("/labs/shell".into()),
-            slots: vec![
-                PersistedSlot {
-                    at: (0, 0),
-                    content: PersistedSlotContent::Launcher(PersistedLauncher {
-                        name: "shell".into(),
-                        params: Params::new(),
-                        full_screen_mode: FullScreenMode::Regular,
-                    }),
-                },
-                PersistedSlot {
-                    at: (1, 0),
-                    content: PersistedSlotContent::Project(PersistedProject {
-                        name: "labs".into(),
-                        mcp: None,
-                        slots: vec![PersistedSlot {
-                            at: (0, 0),
-                            content: PersistedSlotContent::Launcher(PersistedLauncher {
-                                name: "build".into(),
-                                params: [("command".into(), Value::String("just".into()))]
-                                    .into_iter()
-                                    .collect(),
-                                full_screen_mode: FullScreenMode::Regular,
-                            }),
-                        }],
-                    }),
-                },
-            ],
-        };
-
-        assert_eq!(
-            kdl_format::write_document(&document).to_string(),
-            "startup \"/labs/shell\"\n\
-             launcher shell at=\"0,0\"\n\
-             project labs at=\"1,0\" {\n    launcher build at=\"0,0\" {\n        command just\n    }\n}\n"
-        );
-    }
 
     /// The document is derived from the aggregate and back without loss: the
     /// nesting, positions, launcher profiles, MCP settings, and the startup path survive.

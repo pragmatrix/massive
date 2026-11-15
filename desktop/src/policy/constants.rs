@@ -30,12 +30,9 @@ pub mod mcp_indicator {
 pub mod configuration {
     /// The deepest a project may lie below the root project. Real configurations nest two or three
     /// levels. The limit keeps every saved configuration far from a stack overflow in the KDL
-    /// parser, which recurses once per children block and sets no limit of its own. With params at
-    /// their limit, the file nests at most 20 children blocks.
+    /// parser, which recurses once per children block and sets no limit of its own. With a
+    /// launcher's params below the deepest project, the file nests at most 17 children blocks.
     pub const MAX_PROJECT_DEPTH: usize = 16;
-    /// The deepest a launcher's params may nest. Real params are flat, such as `command just`,
-    /// which nests one level.
-    pub const MAX_PARAMS_DEPTH: usize = 4;
 }
 
 /// Limits on what an agent's tool call creates (ADR 0036).

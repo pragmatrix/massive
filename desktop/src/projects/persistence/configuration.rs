@@ -11,8 +11,8 @@ use super::persisted::PersistedConfiguration;
 use super::reconcile::reconcile;
 use super::{kdl_format, write_atomic};
 use crate::policy::constants;
-use crate::policy::when::{self, NestingParams, NestingProjects};
-use crate::projects::{ProjectId, RuntimeConfiguration, SlotContent, params_depth};
+use crate::policy::when::{self, NestingProjects};
+use crate::projects::{ProjectId, RuntimeConfiguration, SlotContent};
 
 /// The file view of the desktop configuration: the path the KDL document, derived from the
 /// aggregate, is written to atomically.
@@ -87,7 +87,7 @@ impl ConfigurationPersistence {
         Ok(())
     }
 
-    /// Reads and parses the file on disk, as strictly as the load does. An unknown node passes
+    /// Reads and parses the file on disk, and checks it as the load does. An unknown node passes
     /// the KDL parser, but the reconcile would remove it. `None` when the file does not exist.
     fn read_existing_document(&self) -> Result<Option<KdlDocument>> {
         let text = match fs::read_to_string(&self.path) {
@@ -98,7 +98,7 @@ impl ConfigurationPersistence {
             }
         };
         let document = kdl_format::parse_document(&self.path, &text)?;
-        kdl_format::read_document(&self.path, &text, &document)?;
+        configuration_from_document(&self.path, &text, &document)?;
         Ok(Some(document))
     }
 }
@@ -106,11 +106,22 @@ impl ConfigurationPersistence {
 /// Parses the aggregate from configuration text; parse errors fail. Deriving
 /// the aggregate cannot: the document is self-contained.
 ///
-/// A configuration that nests deeper than the desktop allows fails to load, with an error that
-/// names the depth and the limit. Every change keeps within the limits, so only a hand edit gets
+/// A configuration that nests projects deeper than the desktop allows fails to load, with an error
+/// that names the depth and the limit. Every change keeps within the limits, so only a hand edit gets
 /// there, and the user fixes the file.
 pub fn parse_configuration(path: &Path, text: &str) -> Result<RuntimeConfiguration> {
-    let configuration = kdl_format::read_configuration(path, text)?.into_configuration();
+    let document = kdl_format::parse_document(path, text)?;
+    configuration_from_document(path, text, &document)
+}
+
+/// Derives the aggregate from a document parsed from `text` and checks the nesting limit. The load
+/// and the persist share it, so a persist leaves alone exactly the files the load refuses.
+fn configuration_from_document(
+    path: &Path,
+    text: &str,
+    document: &KdlDocument,
+) -> Result<RuntimeConfiguration> {
+    let configuration = kdl_format::read_document(path, text, document)?.into_configuration();
 
     // The root project counts as one level of its own nesting height.
     let deepest_project = configuration.nesting_height(SlotContent::Project(ProjectId::ROOT)) - 1;
@@ -119,17 +130,6 @@ pub fn parse_configuration(path: &Path, text: &str) -> Result<RuntimeConfigurati
         "{} nests projects {deepest_project} levels deep, at most {} are allowed",
         path.display(),
         constants::configuration::MAX_PROJECT_DEPTH
-    );
-    let deepest_params = configuration
-        .launchers()
-        .map(|launcher| params_depth(&launcher.params))
-        .max()
-        .unwrap_or(0);
-    ensure!(
-        when::nesting_params(deepest_params) == NestingParams::Allow,
-        "{} nests launcher params {deepest_params} levels deep, at most {} are allowed",
-        path.display(),
-        constants::configuration::MAX_PARAMS_DEPTH
     );
     Ok(configuration)
 }
@@ -164,13 +164,13 @@ mod tests {
     use super::*;
     use crate::projects::{ProjectId, SlotAssignment, SlotPosition};
 
-    /// A configuration whose projects and params nest as deep as the limits allow saves and loads
-    /// again, so no configuration the desktop accepts keeps it from starting. A change to the
-    /// saved format that adds nesting levels fails here first.
+    /// A configuration whose projects nest as deep as the limit allows saves and loads again, so
+    /// no configuration the desktop accepts keeps it from starting. A change to the saved format
+    /// that adds nesting levels fails here first.
     #[test]
-    fn a_configuration_at_the_nesting_limits_saves_and_loads() -> Result<()> {
-        use crate::policy::constants::configuration::{MAX_PARAMS_DEPTH, MAX_PROJECT_DEPTH};
-        use crate::projects::{LaunchProfile, LaunchProfileId, params_depth};
+    fn a_configuration_at_the_nesting_limit_saves_and_loads() -> Result<()> {
+        use crate::policy::constants::configuration::MAX_PROJECT_DEPTH;
+        use crate::projects::{LaunchProfile, LaunchProfileId};
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("desktop.kdl");
@@ -189,12 +189,7 @@ mod tests {
             );
             deepest = nested;
         }
-        let mut value = serde_json::json!(1);
-        for _ in 1..MAX_PARAMS_DEPTH {
-            value = serde_json::json!({ "a": value });
-        }
-        let params = serde_json::Map::from_iter([("a".to_string(), value)]);
-        assert_eq!(params_depth(&params), MAX_PARAMS_DEPTH);
+        let params = serde_json::Map::from_iter([("command".to_string(), "just".into())]);
         configuration.assign_slot(
             Some(deepest),
             first,
@@ -214,29 +209,20 @@ mod tests {
         Ok(())
     }
 
-    /// A file that nests deeper than either limit fails to load, and the error names the depth, so
+    /// A file that nests deeper than the limit fails to load, and the error names the depth, so
     /// the user can find and fix it. Only a hand edit gets a file there.
     #[test]
-    fn a_configuration_past_a_nesting_limit_fails_to_load() {
-        use crate::policy::constants::configuration::{MAX_PARAMS_DEPTH, MAX_PROJECT_DEPTH};
+    fn a_configuration_past_the_nesting_limit_fails_to_load() {
+        use crate::policy::constants::configuration::MAX_PROJECT_DEPTH;
 
         let path = Path::new("desktop.kdl");
-        let launcher = |params: &str| format!("launcher shell at=\"0,0\" {{ {params} }}");
         let nested = |depth: usize, innermost: String| {
             (0..depth).fold(innermost, |inner, _| {
                 format!("project p at=\"0,0\" {{ {inner} }}")
             })
         };
-        // A param node nested `depth` levels deep holds the integer 1 in its innermost node.
-        let params = |depth: usize| {
-            format!(
-                "{}1{}",
-                "a { ".repeat(depth - 1) + "a ",
-                " }".repeat(depth - 1)
-            )
-        };
 
-        let too_deep = nested(MAX_PROJECT_DEPTH + 1, launcher(""));
+        let too_deep = nested(MAX_PROJECT_DEPTH + 1, "launcher shell at=\"0,0\"".into());
         let error = parse_configuration(path, &too_deep).unwrap_err();
         assert!(
             error
@@ -244,8 +230,6 @@ mod tests {
                 .contains(&format!("{} levels deep", MAX_PROJECT_DEPTH + 1)),
             "{error}"
         );
-        let deep_params = launcher(&params(MAX_PARAMS_DEPTH + 1));
-        assert!(parse_configuration(path, &deep_params).is_err());
     }
 
     /// The built-in default configuration is text, so only a test catches a mistake in it before a

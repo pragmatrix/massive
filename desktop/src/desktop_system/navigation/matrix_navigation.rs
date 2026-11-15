@@ -345,7 +345,7 @@ mod tests {
     impl EscapeFixture {
         fn new() -> Self {
             let configuration =
-                parse_configuration(Path::new("test.json"), ESCAPE_CONFIGURATION).unwrap();
+                parse_configuration(Path::new("test.kdl"), ESCAPE_CONFIGURATION).unwrap();
             let labs = configuration
                 .child_project_at(ProjectId::ROOT, (3, 1).into())
                 .unwrap();
