@@ -112,13 +112,15 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   and the next persist writes it plainly. A param node with no argument, several
   arguments, a property, a children block, or another type annotation fails the
   load.
-- **Every string is written.** `kdl` escapes only quotes, backslashes, and a few
-  control characters, and it writes the other characters KDL forbids in its
-  text as they are, such as ESC, U+2028, the direction marks, and U+FEFF. It
-  then cannot parse its own output. The writer escapes those characters as
-  `\u{…}` in names, param keys, and string values, so no name or param a tool
-  accepts makes a persist fail. A raw string cannot escape, so a `(json)` value
-  with such a character is written as an escaped string instead.
+- **Every string is written.** `kdl` 6.7.1 writes some strings in a form it
+  then cannot parse. It writes the characters KDL forbids as they are, such as
+  ESC, U+2028, the direction marks, and U+FEFF, and it leaves strings such as
+  `-.5` unquoted. The writer therefore parses the form `kdl` gives each name,
+  param key, and string value, and quotes the string itself when that form does
+  not read back, with forbidden characters escaped as `\u{…}`. No name or
+  param a tool accepts makes a persist fail. A raw string cannot escape, so a
+  `(json)` value with a forbidden character is written as a quoted string
+  instead.
 - **The load is strict.** An unknown node or property fails the load, with the
   file path, line, and column in the message. Otherwise the reconcile would find
   no match for the unknown node and remove it, together with its comments. A
@@ -158,6 +160,10 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   persist, because the aggregate in memory wins. Only comments and formatting
   survive. Reloading the file while the terminal runs is left to
   `docs/desktop-configuration-file-observer-plan.md`.
+- A comment or other text after a block's closing `}` on the same line, as in
+  `} // labs`, is lost at every persist. `kdl` 6.7.1 drops it while parsing,
+  and the file still loads, so the read-back check cannot notice. Such a
+  comment belongs above the node instead.
 - A node whose values changed loses the formatting of its values, such as quotes.
   `kdl` 6 writes KDL v2, which leaves plain strings unquoted, for example
   `launcher shell`.
