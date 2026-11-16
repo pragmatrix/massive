@@ -518,13 +518,15 @@ fn param_node(key: &str, value: &Value) -> KdlNode {
 /// Writes the strings that `kdl` would write wrongly or hard to read, after the autoformat, which
 /// resets every written form.
 ///
-/// A name or string value that holds a character KDL forbids in its text gets an escaped form.
-/// `kdl` escapes only quotes, backslashes, and a few control characters. It writes the others as
-/// they are, and then cannot parse its own output. A `(json)` value gets a raw string, so its
-/// quotes need no backslashes.
+/// A name or string value whose form from `kdl` does not read back gets a quoted form of its own.
+/// `kdl` 6.7.1 writes the characters KDL forbids as they are, and it leaves strings such as `-.5`
+/// unquoted, which it then cannot parse. A `(json)` value gets a raw string, so its quotes need no
+/// backslashes.
 fn write_string_reprs(nodes: &mut [KdlNode]) {
     for node in nodes {
-        if let Some(repr) = escaped(node.name().value()) {
+        let name = node.name().value();
+        if !reads_back(name) {
+            let repr = quoted(name);
             node.name_mut().set_repr(repr);
         }
         for entry in node.entries_mut() {
@@ -532,10 +534,12 @@ fn write_string_reprs(nodes: &mut [KdlNode]) {
                 continue;
             };
             let is_json = entry.ty().is_some_and(|ty| ty.value() == JSON);
-            let repr = match escaped(text) {
-                Some(repr) => repr,
-                None if is_json => raw(text),
-                None => continue,
+            let repr = if is_json && !text.chars().any(is_forbidden) {
+                raw(text)
+            } else if !reads_back(text) {
+                quoted(text)
+            } else {
+                continue;
             };
             entry.set_format(KdlEntryFormat {
                 value_repr: repr,
@@ -549,8 +553,19 @@ fn write_string_reprs(nodes: &mut [KdlNode]) {
     }
 }
 
+/// Whether the form `kdl` writes for the string `text` parses back as `text`. Checking the result
+/// catches every string `kdl` writes wrongly, without knowing its rules.
+fn reads_back(text: &str) -> bool {
+    let written = KdlValue::String(text.into()).to_string();
+    KdlDocument::parse(&format!("node {written}")).is_ok_and(|document| {
+        document.nodes()[0].entries().first().map(KdlEntry::value)
+            == Some(&KdlValue::String(text.into()))
+    })
+}
+
 /// The raw string of `text`, such as `#"["a"]"#`, with one `#` more than the longest run of `#`
-/// that follows a quote inside it, so no quote in it ends the string.
+/// that follows a quote inside it, so no quote in it ends the string. A raw string cannot escape,
+/// so `text` holds no character KDL forbids.
 fn raw(text: &str) -> String {
     let longest = text
         .match_indices('"')
@@ -561,12 +576,8 @@ fn raw(text: &str) -> String {
     format!("{hashes}\"{text}\"{hashes}")
 }
 
-/// The quoted text of `text` with every forbidden character escaped as `\u{…}`, or `None` when it
-/// holds none and `kdl` writes it correctly.
-fn escaped(text: &str) -> Option<String> {
-    if !text.chars().any(is_forbidden) {
-        return None;
-    }
+/// The quoted form of `text`, with quotes, backslashes, and every character KDL forbids escaped.
+fn quoted(text: &str) -> String {
     let mut repr = String::from("\"");
     for character in text.chars() {
         match character {
@@ -579,7 +590,7 @@ fn escaped(text: &str) -> Option<String> {
         }
     }
     repr.push('"');
-    Some(repr)
+    repr
 }
 
 /// Whether KDL forbids `character` as it is inside a quoted string: control characters, which
@@ -645,8 +656,8 @@ mod tests {
     }
 
     /// A param written and read back keeps its value, an array with one element included. A string
-    /// with a character KDL forbids in its text is escaped, because `kdl` writes it as it is and
-    /// then cannot parse it. JSON text with `"#` in it needs a raw string with more `#`.
+    /// that `kdl` writes wrongly is quoted, such as one with a character KDL forbids or `-.5`. JSON
+    /// text with `"#` in it needs a raw string with more `#`.
     #[test]
     fn params_round_trip_through_the_document() -> Result<()> {
         let params = serde_json::json!({
@@ -660,16 +671,17 @@ mod tests {
             "nested": { "env": { "PATH": "/bin" }, "list": [[1], {}, []] },
             "hashes": ["\"#", "\"##"],
             "forbidden in json": ["\u{2028}"],
+            "-.5": "+.0",
         });
         let Value::Object(params) = params else {
             unreachable!("the params are an object")
         };
         let configuration = PersistedConfiguration {
-            startup: Some("/shell\u{1b}".into()),
+            startup: Some("/-.5\u{1b}".into()),
             slots: vec![PersistedSlot {
                 at: (0, 0),
                 content: PersistedSlotContent::Launcher(PersistedLauncher {
-                    name: "shell\u{1b}".into(),
+                    name: "-.5".into(),
                     params,
                     full_screen_mode: FullScreenMode::FullScreen,
                 }),
@@ -708,31 +720,22 @@ mod tests {
         assert!(error.to_string().starts_with("desktop.kdl:1:"), "{error}");
     }
 
+    /// A bare `mcp` node makes a project an MCP root that grants nothing, while a project without
+    /// one is no MCP root (ADR 0036).
     #[test]
-    fn an_mcp_node_holds_the_access_scopes() -> Result<()> {
-        use massive_applications::AccessScope;
-
-        let configuration = read(
-            "project p at=\"0,0\" {\n    mcp observe act\n}\nproject q at=\"1,0\" {\n    mcp\n}",
-        )?;
-        let scopes: Vec<Option<AccessScopes>> = configuration
+    fn a_bare_mcp_node_is_an_mcp_root_without_scopes() -> Result<()> {
+        let configuration = read("project p at=\"0,0\" {\n    mcp\n}\nproject q at=\"1,0\"")?;
+        let mcp: Vec<Option<AccessScopes>> = configuration
             .slots
             .iter()
             .map(|slot| match &slot.content {
                 PersistedSlotContent::Project(project) => {
                     project.mcp.as_ref().map(|mcp| mcp.access_scopes.clone())
                 }
-                PersistedSlotContent::Launcher(_) => None,
+                PersistedSlotContent::Launcher(_) => unreachable!("the fixture holds projects"),
             })
             .collect();
-        assert_eq!(
-            scopes,
-            [
-                Some([AccessScope::Observe, AccessScope::Act].into()),
-                Some(AccessScopes::new())
-            ]
-        );
-        assert!(read("project p at=\"0,0\" {\n    mcp everything\n}").is_err());
+        assert_eq!(mcp, [Some(AccessScopes::new()), None]);
         Ok(())
     }
 

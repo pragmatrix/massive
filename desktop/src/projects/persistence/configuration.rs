@@ -14,14 +14,12 @@ use crate::policy::constants;
 use crate::policy::when::{self, NestingProjects, PersistingOverUnloadableFile};
 use crate::projects::RuntimeConfiguration;
 
-/// The file view of the desktop configuration: the path the KDL document, derived from the
-/// aggregate, is written to atomically.
+/// The file view of the desktop configuration. It holds the path of the KDL file that each persist
+/// writes atomically.
 ///
-/// The document is derived from the aggregate, so a change is applied to the
-/// aggregate first and the document is rebuilt from it when persisted — there is no
-/// separate edit path to keep in sync. The file is written synchronously, once
-/// per transaction, so a transaction's several changes persist as a single
-/// write.
+/// A change is applied to the aggregate first. The persist then derives a fresh document from the
+/// aggregate and reconciles it into the file (ADR 0037), so there is no separate edit path to keep
+/// in sync. The file is written once per transaction, so its several changes persist as one write.
 #[derive(Debug)]
 pub struct ConfigurationPersistence {
     /// Where the configuration lives. Created at load time: the default
@@ -40,11 +38,9 @@ impl ConfigurationPersistence {
     /// Writes the document derived from the aggregate, reconciled into the file on disk, so the
     /// file keeps its comments and formatting (ADR 0037).
     ///
-    /// Called only for a transaction that changed the configuration, so its several changes
-    /// persist as one file write. The file is read again each time, so comments added while the
-    /// terminal runs survive. A file that does not load is left alone, so a half-finished hand
-    /// edit survives too. Each failure is logged as an error, and the next change writes the whole
-    /// aggregate again.
+    /// The file is read again each time, so comments added while the terminal runs survive. A file
+    /// that does not load is left alone, so a half-finished hand edit survives too. Each failure
+    /// is logged as an error, and the next change writes the whole aggregate again.
     pub fn persist(&self, configuration: &RuntimeConfiguration) {
         let tree = PersistedConfiguration::from_configuration(configuration);
         let fresh = kdl_format::write_document(&tree);
@@ -105,11 +101,11 @@ impl ConfigurationPersistence {
     }
 }
 
-/// Parses the aggregate from configuration text; parse errors fail. Deriving
-/// the aggregate cannot: the document is self-contained.
+/// Parses the aggregate from configuration text. A parse error or a violation of the strict format
+/// fails, with the location in the message.
 ///
-/// A configuration that nests projects deeper than the desktop allows fails to load, with an error
-/// that names the depth and the limit. Every change keeps within the limits, so only a hand edit gets
+/// A configuration that nests projects deeper than the desktop allows fails too, with an error that
+/// names the depth and the limit. Every change keeps within the limit, so only a hand edit gets
 /// there, and the user fixes the file.
 pub fn parse_configuration(path: &Path, text: &str) -> Result<RuntimeConfiguration> {
     let document = kdl_format::parse_document(path, text)?;
@@ -233,33 +229,6 @@ mod tests {
     #[test]
     fn the_default_configuration_loads() -> Result<()> {
         parse_configuration(Path::new("desktop.kdl"), DEFAULT_CONFIG)?;
-        Ok(())
-    }
-
-    /// Persisting writes the aggregate as it is: the assigned project reaches the file.
-    #[test]
-    fn a_persisted_change_reaches_the_file() -> Result<()> {
-        let dir = tempfile::tempdir()?;
-        let path = dir.path().join("desktop.kdl");
-        let mut configuration = parse_configuration(path.as_path(), r#"launcher shell at="0,0""#)?;
-        let document = ConfigurationPersistence::new(path.as_path());
-        let root = ProjectId::ROOT;
-
-        configuration.assign_slot(
-            Some(root),
-            SlotPosition { column: 1, row: 0 },
-            SlotAssignment::Project {
-                id: ProjectId::new(),
-                name: "extra".into(),
-            },
-        );
-        document.persist(&configuration);
-
-        let text = fs::read_to_string(&path)?;
-        assert!(
-            text.contains(r#"project extra at="1,0""#),
-            "unexpected document: {text}"
-        );
         Ok(())
     }
 

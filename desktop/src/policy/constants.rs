@@ -29,10 +29,8 @@ pub mod mcp_indicator {
 /// Limits on how deeply the desktop configuration nests, for every way it changes.
 pub mod configuration {
     /// The deepest a project may lie below the root project. Real configurations nest two or three
-    /// levels. The limit keeps every saved configuration far from a stack overflow in the KDL
-    /// parser, which recurses once per children block and overflows a 2 MiB stack at about 50
-    /// blocks in a debug build. With a launcher's params below the deepest project, the file nests
-    /// at most 17 children blocks.
+    /// levels. A saved file then nests at most 17 blocks, far below the about 50 that overflow
+    /// `kdl` 6.7.1's parser on a 2 MiB stack in a debug build (`docs/security.md`, gap 8).
     pub const MAX_PROJECT_DEPTH: usize = 16;
 }
 

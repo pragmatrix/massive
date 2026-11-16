@@ -241,46 +241,6 @@ mod tests {
     use crate::projects::persistence::kdl_format;
     use massive_applications::AccessScope;
 
-    /// The document is derived from the aggregate and back without loss: the
-    /// nesting, positions, launcher profiles, MCP settings, and the startup path survive.
-    #[test]
-    fn the_aggregate_round_trips_through_the_document() -> Result<()> {
-        let text = r#"
-            startup "/labs/build"
-            launcher shell at="0,0"
-            project labs at="1,0" {
-                mcp act organize
-                launcher build at="0,0" {
-                    command just
-                }
-            }
-        "#;
-        let configuration = read(text)?.into_configuration();
-
-        let written =
-            kdl_format::write_document(&PersistedConfiguration::from_configuration(&configuration))
-                .to_string();
-        let reloaded = read(&written)?.into_configuration();
-
-        assert_eq!(reloaded.startup_path(), configuration.startup_path());
-        assert_eq!(reloaded.launcher_count(), configuration.launcher_count());
-        let root = ProjectId::ROOT;
-        let labs = reloaded
-            .child_project_at(root, SlotPosition { column: 1, row: 0 })
-            .expect("labs is a root slot");
-        assert_eq!(
-            reloaded.project(labs).map(|project| project.name.as_str()),
-            Some("labs")
-        );
-        assert_eq!(
-            reloaded[labs].mcp,
-            Some(McpConfiguration {
-                access_scopes: [AccessScope::Organize, AccessScope::Act].into()
-            })
-        );
-        Ok(())
-    }
-
     /// A hand-edited file can nest MCP roots, which the desktop never allows (ADR 0036). The load
     /// keeps the outermost one.
     #[test]

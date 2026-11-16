@@ -22,8 +22,8 @@ use massive_applications::{Direction, McpConfiguration};
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
 use crate::policy::when::{self, Booting};
 
-/// Spawn parameters of a launcher, passed to the spawned application. Each value is a plain JSON
-/// value, never an array or an object (ADR 0037).
+/// Spawn parameters of a launcher, passed to the spawned application. A value is any JSON value, and
+/// the configuration file stores an array or an object as `(json)` text (ADR 0037).
 pub type Params = Map<String, Value>;
 
 /// The name the terminal gives the root project it synthesizes.

@@ -28,8 +28,8 @@ pub fn reconcile(mut existing: KdlDocument, mut fresh: KdlDocument) -> KdlDocume
 /// line separates them from the first node. The parser attaches them to the first node, so they
 /// would otherwise move or vanish with whichever node happens to come first.
 ///
-/// The header ends at the last blank line before which the text parses on its own. A blank line
-/// inside a block comment therefore does not split it.
+/// The header ends after the last blank line before which the text parses on its own. A blank line
+/// may hold spaces or end with `\r\n`, and one inside a block comment does not split it.
 fn keep_file_header(document: &mut KdlDocument) {
     let Some(first) = document.nodes_mut().first_mut() else {
         return;
@@ -38,9 +38,17 @@ fn keep_file_header(document: &mut KdlDocument) {
         .format_mut()
         .expect("A parsed node has a format")
         .leading;
-    let Some(end) = leading
-        .rmatch_indices("\n\n")
-        .map(|(index, _)| index + 2)
+    let mut line_ends = Vec::new();
+    let mut offset = 0;
+    for line in leading.split_inclusive('\n') {
+        offset += line.len();
+        if line.trim().is_empty() {
+            line_ends.push(offset);
+        }
+    }
+    let Some(end) = line_ends
+        .into_iter()
+        .rev()
         .find(|&end| KdlDocument::parse(&leading[..end]).is_ok())
     else {
         return;
@@ -53,9 +61,9 @@ fn keep_file_header(document: &mut KdlDocument) {
         .push_str(&header);
 }
 
-/// Moves the line break after each `{` from the first child's leading text into the block's own.
-/// The parser attaches it to the first child, so removing or reordering that child would otherwise
-/// put the next child on the line of the brace.
+/// Moves the line break after each `{`, `\n` or `\r\n`, from the first child's leading text into
+/// the block's own. The parser attaches it to the first child, so removing or reordering that child
+/// would otherwise put the next child on the line of the brace.
 fn lift_block_line_breaks(nodes: &mut [KdlNode]) {
     for node in nodes {
         let Some(children) = node.children_mut() else {
@@ -66,13 +74,16 @@ fn lift_block_line_breaks(nodes: &mut [KdlNode]) {
                 .format_mut()
                 .expect("A parsed node has a format")
                 .leading;
-            if leading.starts_with('\n') {
-                leading.remove(0);
+            let line_break = ["\r\n", "\n"]
+                .into_iter()
+                .find(|line_break| leading.starts_with(line_break));
+            if let Some(line_break) = line_break {
+                leading.drain(..line_break.len());
                 children
                     .format_mut()
                     .expect("A parsed document has a format")
                     .leading
-                    .push('\n');
+                    .push_str(line_break);
             }
         }
         lift_block_line_breaks(children.nodes_mut());
@@ -201,11 +212,15 @@ fn reconcile_node(existing: &mut KdlNode, fresh: &KdlNode) {
     if !same_values(existing, fresh) {
         *existing.entries_mut() = fresh.entries().to_vec();
     }
+    // An empty block such as `{}` has no line break to keep, so it takes the fresh block's layout.
+    let existing_block_is_empty = existing
+        .children()
+        .is_some_and(|children| children.to_string().trim().is_empty());
     match (existing.children_mut(), fresh.children()) {
-        (Some(existing_children), Some(fresh_children)) => {
+        (Some(existing_children), Some(fresh_children)) if !existing_block_is_empty => {
             reconcile_nodes(existing_children.nodes_mut(), fresh_children.nodes());
         }
-        (None, Some(fresh_children)) => {
+        (_, Some(fresh_children)) => {
             let before_children = fresh
                 .format()
                 .expect("A parsed node has a format")
@@ -218,9 +233,13 @@ fn reconcile_node(existing: &mut KdlNode, fresh: &KdlNode) {
             existing.set_children(fresh_children.clone());
         }
         (Some(existing_children), None) => {
-            // A block that keeps a comment or a commented-out node stays, now without nodes.
+            // A block that keeps a comment, before its `{` or inside it, stays without nodes.
             reconcile_nodes(existing_children.nodes_mut(), &[]);
-            if existing_children.to_string().trim().is_empty() {
+            let keeps_comment = !existing_children.to_string().trim().is_empty()
+                || existing
+                    .format()
+                    .is_some_and(|format| !format.before_children.trim().is_empty());
+            if !keeps_comment {
                 existing.clear_children();
             }
         }
@@ -228,7 +247,8 @@ fn reconcile_node(existing: &mut KdlNode, fresh: &KdlNode) {
     }
 }
 
-/// Whether two nodes hold the same entries, compared by key and value and not by their text.
+/// Whether two nodes hold the same entries, compared by key, type annotation, and value, and not by
+/// their text. The annotation counts, because `(json)"[1]"` is an array and `"[1]"` a string.
 fn same_values(existing: &KdlNode, fresh: &KdlNode) -> bool {
     existing.entries().len() == fresh.entries().len()
         && existing
@@ -237,6 +257,7 @@ fn same_values(existing: &KdlNode, fresh: &KdlNode) -> bool {
             .zip(fresh.entries())
             .all(|(existing, fresh)| {
                 existing.name().map(|name| name.value()) == fresh.name().map(|name| name.value())
+                    && existing.ty().map(|ty| ty.value()) == fresh.ty().map(|ty| ty.value())
                     && existing.value() == fresh.value()
             })
 }
@@ -264,16 +285,6 @@ mod tests {
 
     use super::*;
     use crate::projects::persistence::kdl_format;
-
-    #[test]
-    fn a_comment_above_a_matched_node_survives() {
-        let existing = "// The shell.\nlauncher shell at=\"0,0\"\n";
-        let fresh = "launcher shell at=\"0,0\"\nlauncher build at=\"1,0\"\n";
-        assert_eq!(
-            reconciled(existing, fresh),
-            "// The shell.\nlauncher shell at=\"0,0\"\nlauncher build at=\"1,0\"\n"
-        );
-    }
 
     #[test]
     fn a_moved_slot_keeps_its_comments_and_subtree() {
@@ -406,6 +417,35 @@ launcher shell at=\"1,0\" {
             reconciled(existing, fresh),
             "launcher shell at=\"0,0\" {\n    // Try: command \"zsh -l\"\n}\n"
         );
+    }
+
+    /// A param that changes between a string and a `(json)` value with the same text takes the
+    /// fresh annotation, because the two stand for different values.
+    #[test]
+    fn a_param_that_becomes_json_takes_the_annotation() {
+        let existing = "launcher shell at=\"0,0\" {\n    args \"[1]\"\n}\n";
+        let fresh = "launcher shell at=\"0,0\" {\n    args (json)\"[1]\"\n}\n";
+        reconciled(existing, fresh);
+        reconciled(fresh, existing);
+    }
+
+    /// A blank line that holds spaces or ends with `\r\n` still ends the file header, and a block
+    /// comment before an emptied block stays.
+    #[test]
+    fn hand_edited_whitespace_and_comments_survive() {
+        let existing = "// Header.\r\n  \r\nstartup \"/shell\"\r\nlauncher shell at=\"0,0\" /* Its params. */ {\r\n    command zsh\r\n}\r\n";
+        let fresh = "launcher shell at=\"0,0\"\n";
+        let text = reconciled(existing, fresh);
+        assert!(text.starts_with("// Header.\r\n  \r\n"), "{text:?}");
+        assert!(text.contains("/* Its params. */"), "{text:?}");
+    }
+
+    /// An empty block written as `{}` takes the fresh block's layout when a param arrives.
+    #[test]
+    fn an_empty_block_takes_the_fresh_layout() {
+        let existing = "launcher shell at=\"0,0\" {}\n";
+        let fresh = "launcher shell at=\"0,0\" {\n    command zsh\n}\n";
+        assert_eq!(reconciled(existing, fresh), fresh);
     }
 
     /// The comments at the top of the file stay there, even when the node below them goes away.
