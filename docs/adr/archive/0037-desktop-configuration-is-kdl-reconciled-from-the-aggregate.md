@@ -135,10 +135,10 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   file, and a typo in it must not end the session. The persist checks the file
   with the same check as the load, including the nesting limit. The desktop
   policy decides this fallback (`when::persisting_over_unloadable_file`).
-- **The written text is checked before it is written.** The persist parses the
-  reconciled text in memory and writes it only when it reads as exactly the
-  fresh document. Otherwise it writes nothing and logs an error, because a bug
-  in the reconcile or in `kdl` would otherwise reach the file.
+- **The reconciled text reads as the fresh document.** Tests pin this rule:
+  every reconcile test parses its result and compares it with the fresh typed
+  tree. The persist does not check it again at runtime, because a failure would
+  be a bug in the writer, which tests catch, not input from another party.
 
 ## Consequences
 
@@ -162,8 +162,8 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   `docs/desktop-configuration-file-observer-plan.md`.
 - A comment or other text after a block's closing `}` on the same line, as in
   `} // labs`, is lost at every persist. `kdl` 6.7.1 drops it while parsing,
-  and the file still loads, so the read-back check cannot notice. Such a
-  comment belongs above the node instead.
+  and the file still loads, so nothing notices. Such a comment belongs above
+  the node instead.
 - A node whose values changed loses the formatting of its values, such as quotes.
   `kdl` 6 writes KDL v2, which leaves plain strings unquoted, for example
   `launcher shell`.
