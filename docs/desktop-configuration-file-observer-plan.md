@@ -3,6 +3,10 @@
 Status: **draft, not approved**. Decisions were taken in a session discussion
 (2026-09-29); one follow-up decision is still open (see "Open decisions").
 
+[ADR 0047](adr/0047-a-watcher-applies-desktop-configuration-edits-at-once.md) replaces the
+mechanism below, which builds on the surgical edits of ADR 0006. This plan needs rewriting against
+it before it can be picked up.
+
 ## Goal
 
 Make the desktop configuration file live again during a session: an observer

@@ -29,10 +29,10 @@ it does not own.
 
 | Surface | Who uses it | Decided in |
 |---|---|---|
-| The desktop socket in `~/.massive/run/` | The MCP bridge, and any tool client. A second desktop that finds the socket served leaves it alone, offers no tools, and logs why. | [ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md) |
-| `MASSIVE_SOCKET` and `MASSIVE_INSTANCE`, which an instance passes to the processes it starts | A tool client started in a desktop instance, which names that instance as its target. Under the shell, an instance has no desktop socket and adds neither. Its processes inherit the shell's own environment, though: a shell started from a desktop terminal passes that terminal's variables on, so a tool client started under the shell names that terminal's instance. | [ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md), [ADR 0039](adr/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) |
-| The file descriptor an instance inherits | The CLI | [ADR 0011](adr/0011-desktop-is-a-fractal-of-projects-in-slots.md), [ADR 0024](adr/0024-configuration-operations-are-one-command-vocabulary.md) |
-| `~/.massive/desktop.json` | The user, any same-user process | [ADR 0013](adr/0013-desktop-configuration-is-json-derived-from-the-aggregate.md) |
+| The desktop socket in `~/.massive/run/` | The MCP bridge, and any tool client. A second desktop that finds the socket served leaves it alone, offers no tools, and logs why. | [ADR 0036](adr/archive/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md) |
+| `MASSIVE_SOCKET` and `MASSIVE_INSTANCE`, which an instance passes to the processes it starts | A tool client started in a desktop instance, which names that instance as its target. Under the shell, an instance has no desktop socket and adds neither. Its processes inherit the shell's own environment, though: a shell started from a desktop terminal passes that terminal's variables on, so a tool client started under the shell names that terminal's instance. | [ADR 0036](adr/archive/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md), [ADR 0039](adr/archive/0039-the-shell-hosts-one-instance-and-the-desktop-is-that-instance.md) |
+| The file descriptor an instance inherits | The CLI | [ADR 0011](adr/0011-desktop-is-a-fractal-of-projects-in-slots.md), [ADR 0024](adr/archive/0024-configuration-operations-are-one-command-vocabulary.md) |
+| `~/.massive/desktop.kdl` | The user, any same-user process | [ADR 0037](adr/archive/0037-desktop-configuration-is-kdl-reconciled-from-the-aggregate.md) |
 
 ## Checks
 
@@ -51,7 +51,8 @@ same change.
 | Access scope | Every tool call needs an access scope the MCP root grants. Creating a launcher with params also needs `act`, because they decide what the user runs by starting an instance. A removal never stops running instances, so an agent stops them first, which needs `act`. Only the CLI's `remove` asks the planner to stop them. | Implemented: `security::calling_tool` for the tool's scope, `security::creating_launcher` for params, and the planner's refusal of removals while instances run |
 | No MCP configuration from inside | `ConfigureMcp` is refused when it comes from an instance that any MCP root covers. | Implemented: `security::configuring_mcp` |
 | No nested MCP roots | No change may place an MCP root inside another MCP root's subtree, and the root project is never an MCP root. A loaded file's nested roots lose their `mcp` object. | Enabling is checked by `security::making_mcp_root`. A tool's move stays inside one MCP root, which holds no other, so it cannot nest one. No keyboard or CLI command moves content between projects. |
-| Nesting depth | No change nests a project more than 16 levels below the root project, or a launcher's params more than 4 levels, so every configuration the desktop saves loads again. These limits hold for every issuer, so they are desktop policy, not a check of this module. | Implemented: `when::nesting_projects` in the configuration planner for every command, `when::nesting_params` when a tool's params are decoded, and both when a configuration loads. A file past a limit fails to load with an error that names the depth. |
+| Nesting depth | No change nests a project more than 16 levels below the root project, so every configuration the desktop saves loads again. The limit holds for every issuer, so it is desktop policy, not a check of this module. | Implemented: `when::nesting_projects` in the configuration planner for every command, and when a configuration loads. A file past the limit fails to load with an error that names the depth. |
+| Writable params | Every launcher param a tool accepts is written to the configuration file and read back unchanged. Plain values stay plain, and arrays and objects are stored as `(json)` strings (ADR 0037). Every string is written: a string whose form from `kdl` does not read back, such as one with a character KDL forbids or `-.5`, is quoted and escaped, so no name or param makes a persist fail. | Implemented in the format's writer. The tool protocol's decoder bounds a param's nesting below what `serde_json` reads back. Tests pin that a reconciled file reads back as the configuration in memory. |
 | No desktop-wide changes | A tool connection cannot change the focus, the camera or the startup launcher. | Implemented: every tool command that would move the focus carries `FocusIntent::Keep`, and an instance a tool starts takes no position or animation from the user's focus. No tool sets the startup launcher. |
 | Tool ownership | A call to an application tool targets an instance whose application declared that tool, so only that application decodes its arguments. An instance's answer counts only for a call forwarded to it. | Implemented: `security::forwarding_call`, carried out in `desktop/src/tools/desktop_tools.rs`, and `security::answering_call` in the tool host. Every instance runs the primary application today. |
 
@@ -70,7 +71,7 @@ until it is closed.
 
 1. **An agent that runs commands outside every MCP root can change access scopes.** It can run the
    CLI's `mcp enable` there. The check above only stops processes inside an MCP root.
-2. **Any same-user process can edit `~/.massive/desktop.json`.** The edited access scopes apply at
+2. **Any same-user process can edit `~/.massive/desktop.kdl`.** The edited access scopes apply at
    the next desktop start. The project header shows them, but nothing announces them until the
    desktop has transient notifications.
 3. **Any same-user process can open the desktop socket and connect to any MCP root.** It can pass
@@ -91,6 +92,12 @@ until it is closed.
    their `Connect` frame, and each holds a file descriptor of the desktop. After an accept error,
    such as running out of descriptors, the tool host retries at once, so the log fills up. Any
    same-user process can already connect to any MCP root (gap 3), so this is accepted for now.
+8. **A deeply nested configuration file aborts the desktop.** The KDL parser recurses once per
+   block and sets no limit of its own. Measured with `kdl` 6.7.1, a file nested about 300 blocks
+   deep overflows a 2 MiB stack in a release build, and about 50 in a debug build. The desktop then
+   aborts at startup, or at the next persist, which reads the file again. Only a crafted file gets
+   there, because a file the desktop writes nests at most 17 blocks. Any same-user process that can
+   write the file can already change it or end the desktop (gap 2), so this is accepted for now.
 
 Access scopes are therefore a hard limit for agents whose only reach is MCP, and a statement of the
 user's intent for agents that also have a shell. They are not a sandbox.

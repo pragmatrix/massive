@@ -13,13 +13,11 @@ struct TwoLaunchers {
 
 fn two_launchers() -> Result<TwoLaunchers> {
     let (system, instance_manager) = boot(
-        r#"{
-            "startup": "/a",
-            "slots": [
-                { "at": [0, 0], "launcher": { "name": "a" } },
-                { "at": [1, 0], "launcher": { "name": "b" } }
-            ]
-        }"#,
+        r#"
+            startup "/a"
+            launcher a at="0,0"
+            launcher b at="1,0"
+        "#,
     )?;
     let a = system.aggregates.configuration.boot_launcher().unwrap();
     let Some(SlotContent::Launcher(b)) = system
@@ -158,15 +156,13 @@ async fn the_outline_covers_the_selected_slots() -> Result<()> {
 async fn the_camera_encloses_a_selection_beyond_the_view() -> Result<()> {
     task_context::with_context(task_context(), async {
         let (mut system, mut instance_manager) = boot(
-            r#"{
-                "startup": "/b",
-                "slots": [
-                    { "at": [0, 0], "launcher": { "name": "a" } },
-                    { "at": [1, 0], "launcher": { "name": "b" } },
-                    { "at": [2, 0], "launcher": { "name": "c" } },
-                    { "at": [3, 0], "launcher": { "name": "d" } }
-                ]
-            }"#,
+            r#"
+                startup "/b"
+                launcher a at="0,0"
+                launcher b at="1,0"
+                launcher c at="2,0"
+                launcher d at="3,0"
+            "#,
         )?;
         let b = system.aggregates.configuration.boot_launcher().unwrap();
         focus(
@@ -475,14 +471,12 @@ fn root_content(system: &DesktopSystem, column: u32) -> Option<SlotContent> {
 async fn a_moved_selection_takes_the_focus_and_the_selection_along() -> Result<()> {
     task_context::with_context(task_context(), async {
         let (mut system, mut instance_manager) = boot(
-            r#"{
-                "startup": "/a",
-                "slots": [
-                    { "at": [0, 0], "launcher": { "name": "a" } },
-                    { "at": [1, 0], "launcher": { "name": "b" } },
-                    { "at": [2, 0], "launcher": { "name": "c" } }
-                ]
-            }"#,
+            r#"
+                startup "/a"
+                launcher a at="0,0"
+                launcher b at="1,0"
+                launcher c at="2,0"
+            "#,
         )?;
         let [a, b, c] = [0, 1, 2].map(|column| root_content(&system, column).unwrap());
         focus(&mut system, &mut instance_manager, a.focusable_target())?;
@@ -515,19 +509,17 @@ async fn a_moved_selection_takes_the_focus_and_the_selection_along() -> Result<(
 async fn a_selection_reaches_the_columns_a_wider_sibling_shares() -> Result<()> {
     task_context::with_context(task_context(), async {
         let (mut system, mut instance_manager) = boot(
-            r#"{
-                "startup": "/narrow/n",
-                "slots": [
-                    { "at": [0, 0], "project": { "name": "wide", "slots": [
-                        { "at": [0, 0], "launcher": { "name": "w0" } },
-                        { "at": [1, 0], "launcher": { "name": "w1" } },
-                        { "at": [2, 0], "launcher": { "name": "w2" } }
-                    ] } },
-                    { "at": [1, 0], "project": { "name": "narrow", "slots": [
-                        { "at": [0, 0], "launcher": { "name": "n" } }
-                    ] } }
-                ]
-            }"#,
+            r#"
+                startup "/narrow/n"
+                project wide at="0,0" {
+                    launcher w0 at="0,0"
+                    launcher w1 at="1,0"
+                    launcher w2 at="2,0"
+                }
+                project narrow at="1,0" {
+                    launcher n at="0,0"
+                }
+            "#,
         )?;
         let Some(SlotContent::Project(narrow)) = root_content(&system, 1) else {
             panic!("the narrow project sits in the root's second column");

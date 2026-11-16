@@ -17,12 +17,12 @@ needs ([06](06-visor-layouter.md)).
   ([instance_context.rs:264](../../applications/src/instance_context.rs#L264)). View changes travel
   as typed `InstanceChange`s in the task's change queue, interleaved with scene changes
   ([instance_environment.rs](../../applications/src/instance_environment.rs),
-  [ADR 0008](../adr/0008-task-local-ui-contexts.md)).
+  [ADR 0008](../adr/archive/0008-task-local-ui-contexts.md)).
 - A view gets its `ViewId` when it is created. The id is a random UUID, unique across the desktop
   ([lib.rs:46](../../applications/src/lib.rs#L46)).
 - The desktop lays out projects, launchers and instances through presenters that implement
   `TargetLayout` and read the desktop's state through a `LayoutContext`
-  ([ADR 0022](../adr/0022-presenters-own-the-layout-of-their-targets.md)).
+  ([ADR 0022](../adr/archive/0022-presenters-own-the-layout-of-their-targets.md)).
 - One tree, `OrderedHierarchy<DesktopTarget>`, serves the structure, the focus, the layout, hit
   testing and scene parenting ([desktop_system.rs:289](../../desktop/src/desktop_system.rs#L289)).
 

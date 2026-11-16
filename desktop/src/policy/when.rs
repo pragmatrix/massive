@@ -93,23 +93,6 @@ pub fn nesting_projects(deepest_project: Option<usize>) -> NestingProjects {
     NestingProjects::Allow
 }
 
-/// Whether a launcher's params may nest as deep as they do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NestingParams {
-    Allow,
-    /// A deeper configuration might not load again (see
-    /// [`constants::configuration::MAX_PARAMS_DEPTH`]).
-    RefuseTooDeep,
-}
-
-#[must_use]
-pub fn nesting_params(params_depth: usize) -> NestingParams {
-    if params_depth > constants::configuration::MAX_PARAMS_DEPTH {
-        return NestingParams::RefuseTooDeep;
-    }
-    NestingParams::Allow
-}
-
 /// Where the focus goes when a project's slots move out of it (ADR 0026, ADR 0036).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UngroupingFocus {
@@ -198,6 +181,19 @@ pub enum LoadingWithoutLauncher {
 #[must_use]
 pub fn loading_without_launcher() -> LoadingWithoutLauncher {
     LoadingWithoutLauncher::AddDefaultLauncher
+}
+
+/// What a persist does when the configuration file on disk does not load (ADR 0037).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistingOverUnloadableFile {
+    /// A file that does not load is a hand edit in progress, which a write would destroy. The
+    /// changes stay unsaved until the file loads again, and the next persist then writes them all.
+    KeepFile,
+}
+
+#[must_use]
+pub fn persisting_over_unloadable_file() -> PersistingOverUnloadableFile {
+    PersistingOverUnloadableFile::KeepFile
 }
 
 /// Which launcher the session boots into.

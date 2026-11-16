@@ -1,6 +1,6 @@
 # Parley shaping optimization plan (mt terminal loads)
 
-Background for [ADR 0005](adr/0005-dual-shaping-engines-cosmic-text-and-parley.md):
+Background for [ADR 0005](adr/archive/0005-dual-shaping-engines-cosmic-text-and-parley.md):
 the default parley engine trails cosmic-text on the per-cluster hot path; this
 records the measured state and an ordered optimization list.
 

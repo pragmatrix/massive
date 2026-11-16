@@ -3,7 +3,7 @@
 ## Status: proposed
 
 Replaces the tool protocol of
-[ADR 0036](./0036-an-mcp-root-exposes-a-project-subtree-to-agents.md). It takes up the option
+[ADR 0036](./archive/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md). It takes up the option
 "The desktop speaks MCP directly, and the bridge only copies bytes", which ADR 0036 rejected.
 Everything else in ADR 0036 stays: MCP roots, access scopes, the `security` module, the tool
 catalog, the typed tool API, forwarded calls, and the MCP bridge as the agent's stdio MCP server.

@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::desktop_system::{Direction, SlotShift};
 use crate::policy::constants;
-use crate::policy::when::{self, NestingParams};
-use crate::projects::{FullScreenMode, Params, params_depth};
+use crate::projects::{FullScreenMode, Params};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -162,10 +161,11 @@ impl TryFrom<String> for TargetName {
     }
 }
 
-/// The params of a launcher that a tool creates. Decoding refuses params nested deeper than
-/// [`constants::configuration::MAX_PARAMS_DEPTH`], and the schema's description states the limit.
+/// The params of a launcher that a tool creates. Any JSON value fits, because the configuration
+/// file writes arrays and objects as JSON text (ADR 0037). The tool protocol's decoder bounds their
+/// nesting, so the file reads them back with the same JSON parser.
 #[derive(Debug, Deserialize, Into)]
-#[serde(try_from = "Params")]
+#[serde(transparent)]
 pub struct LauncherParams(Params);
 
 impl JsonSchema for LauncherParams {
@@ -178,14 +178,10 @@ impl JsonSchema for LauncherParams {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        let description = format!(
-            "Passed to the application when an instance starts, such as a command to run. They \
-             nest at most {} levels deep.",
-            constants::configuration::MAX_PARAMS_DEPTH
-        );
         json_schema!({
             "type": "object",
-            "description": description,
+            "description": "Passed to the application when an instance starts, such as a command \
+                            to run.",
         })
     }
 }
@@ -193,20 +189,6 @@ impl JsonSchema for LauncherParams {
 impl LauncherParams {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-}
-
-impl TryFrom<Params> for LauncherParams {
-    type Error = String;
-
-    fn try_from(params: Params) -> Result<Self, Self::Error> {
-        if when::nesting_params(params_depth(&params)) == NestingParams::RefuseTooDeep {
-            return Err(format!(
-                "params nest at most {} levels deep",
-                constants::configuration::MAX_PARAMS_DEPTH
-            ));
-        }
-        Ok(Self(params))
     }
 }
 

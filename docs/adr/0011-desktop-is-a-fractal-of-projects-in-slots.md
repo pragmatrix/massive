@@ -2,7 +2,7 @@
 
 ## Status: accepted
 
-Amended by [ADR 0044](./0044-launchers-present-only-as-visors.md): a launcher has no mode and
+Amended by [ADR 0044](./archive/0044-launchers-present-only-as-visors.md): a launcher has no mode and
 presents its instances only as a visor.
 
 The desktop previously had exactly two levels: the `Desktop` (the implicit root
@@ -58,13 +58,13 @@ depth beyond the root project's Project depth, and `ZoomOut` there is a no-op
 (clamped; repr `0` makes it the underflow guard).
 
 *Update:* the `Full Screen` depth is superseded by
-[ADR 0014](0014-fullscreen-mode-is-per-launcher-content-scaling.md) — the
+[ADR 0014](archive/0014-fullscreen-mode-is-per-launcher-content-scaling.md) — the
 Focus Depths read `Project, Row, Slot, Instance`.
 
 *Update:* the Focus Depth sequence is superseded by
-[ADR 0017](0017-zoom-depth-is-counted-from-the-root.md) — zoom is a depth
+[ADR 0017](archive/0017-zoom-depth-is-counted-from-the-root.md) — zoom is a depth
 counted from the root along the focused target's zoom chain, in turn superseded by
-[ADR 0018](0018-zoom-is-a-level-relative-to-the-focused-target.md) — zoom is a
+[ADR 0018](archive/0018-zoom-is-a-level-relative-to-the-focused-target.md) — zoom is a
 level relative to the focused target.
 
 ## Nested projects render scaled, at full layout size
@@ -118,7 +118,7 @@ Replacing slot content is a clear plus an assign, never an in-place operation.
 project that takes the slot's placement (Cmd+G). Grouping cannot be expressed with assign, clear,
 and move alone: the content and the new project need the same placement, so one of them would
 first have to wait in a temporary slot. `Group` does it in one step, and the content's re-parent
-follows as a topology change. Since [ADR 0026](./0026-grouping-wraps-the-selected-slots-into-a-project-in-place.md),
+follows as a topology change. Since [ADR 0026](./archive/0026-grouping-wraps-the-selected-slots-into-a-project-in-place.md),
 `Group` wraps several slots at once, and the project takes the top-left placement of their
 bounding box.
 
@@ -144,7 +144,7 @@ nested `project` nodes; the terminal creates the root ([`ProjectId::ROOT`], name
 `Projects`) when the document is loaded — the boot flow's first command
 re-applies it, and the parse pre-builds it in the aggregate because the slot
 assignments derive from it. (The document format is now JSON, derived from the
-aggregate — see [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md).) Migration of a file written before this decision is a parse-time step: every
+aggregate — see [ADR 0013](./archive/0013-desktop-configuration-is-json-derived-from-the-aggregate.md).) Migration of a file written before this decision is a parse-time step: every
 former top-level project becomes a root slot at `column=0, row=<document index>`
 — preserving the vertical order the old desktop laid them out in — with its own
 launchers untouched inside it. The file is rewritten only on the first
@@ -232,7 +232,7 @@ to it.
   the placement the camera, hover outline and hit test read.
 - The presentation scale is applied once, by the slot's placement; the nested
   presenter must not apply it again. Its value is defined by
-  [ADR 0023](0023-matrix-slots-share-one-slot-extent-and-center-their-content.md).
+  [ADR 0023](archive/0023-matrix-slots-share-one-slot-extent-and-center-their-content.md).
 
 ### Requests and CLI
 

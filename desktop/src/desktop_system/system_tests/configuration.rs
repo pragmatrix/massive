@@ -57,13 +57,11 @@ async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
 async fn add_launcher_inserts_right_of_the_focused_slot_and_focuses_it() -> Result<()> {
     task_context::with_context(task_context(), async {
         let (mut system, receiver) = system_from(
-            r#"{
-                "startup": "/a",
-                "slots": [
-                    { "at": [0, 0], "launcher": { "name": "a" } },
-                    { "at": [1, 0], "launcher": { "name": "b" } }
-                ]
-            }"#,
+            r#"
+                startup "/a"
+                launcher a at="0,0"
+                launcher b at="1,0"
+            "#,
         );
         let mut instance_manager = instance_manager(&receiver);
         for command in projects::to_commands(&system.aggregates.configuration) {

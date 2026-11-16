@@ -3,7 +3,7 @@
 Status: **decided** (2026-10-24). Every tool is implemented (2026-10-31).
 
 This document specifies the MCP tools the desktop offers to agents through an MCP root
-([ADR 0036](adr/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)). The desktop is a tool
+([ADR 0036](adr/archive/0036-an-mcp-root-exposes-a-project-subtree-to-agents.md)). The desktop is a tool
 provider with the MCP id `desktop`, so every tool's name starts with `desktop_`. An agent sees these
 names with its client's prefix, for example `mcp__<server>__desktop_describe` in Claude Code.
 
@@ -40,7 +40,7 @@ fields of the form `[M]` have a rationale below their tables:
 | Tag | Source |
 |---|---|
 | C | A field of the `ConfigurationCommand` or `DesktopCommand` the tool issues (ADR 0024). |
-| F | A field of the desktop configuration document (ADR 0013). |
+| F | A field of the desktop configuration file (ADR 0037). |
 | A | Runtime state the desktop keeps for the session, such as instances and their titles. |
 | M | Added for MCP. None of the commands or documents has it. |
 
@@ -95,7 +95,7 @@ LauncherSpec = {
 | Field | Type | Meaning |
 |---|---|---|
 | `name` | string, 1 to 1000 characters | The launcher's name. Names may repeat. |
-| `params` | object | The parameters the launcher's application receives when an instance starts, such as a command to run. Their meaning belongs to the application. They nest at most 4 levels deep. Setting them needs `act` on top of the tool's scope, because they decide what the user runs by starting an instance. |
+| `params` | object | The parameters the launcher's application receives when an instance starts, such as a command to run. Their meaning belongs to the application. Any JSON value fits, and the configuration file stores an array or an object as JSON text. Setting them needs `act` on top of the tool's scope, because they decide what the user runs by starting an instance. |
 | `full_screen_mode` | `"regular"` or `"fullscreen"` | The Full Screen Mode the launcher's primary instances share (ADR 0014). The default is `"regular"`. |
 
 **`Content`**: what a tool puts into a slot. Exactly one field is set.

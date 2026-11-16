@@ -4,6 +4,7 @@
 //! Projects are stored flat and nest by id link (ADR 0011): a project's slots
 //! name the launchers and projects they host, so no recursive type is needed.
 
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter;
 use std::ops::Index;
@@ -22,21 +23,9 @@ use massive_applications::{Direction, McpConfiguration};
 use crate::desktop_system::{ConfigurationCommand, DesktopTarget, FocusableTarget, SlotShift};
 use crate::policy::when::{self, Booting};
 
-/// Spawn parameters of a launcher: JSON values passed to the spawned application.
+/// Spawn parameters of a launcher, passed to the spawned application. A value is any JSON value, and
+/// the configuration file stores an array or an object as `(json)` text (ADR 0037).
 pub type Params = Map<String, Value>;
-
-/// How deeply `params` nest: 1 for an object of plain values, and one more for each object or array
-/// nested inside.
-pub fn params_depth(params: &Params) -> usize {
-    fn depth(value: &Value) -> usize {
-        match value {
-            Value::Object(object) => 1 + object.values().map(depth).max().unwrap_or(0),
-            Value::Array(array) => 1 + array.iter().map(depth).max().unwrap_or(0),
-            _ => 0,
-        }
-    }
-    1 + params.values().map(depth).max().unwrap_or(0)
-}
 
 /// The name the terminal gives the root project it synthesizes.
 pub const ROOT_PROJECT_NAME: &str = "Projects";
@@ -70,12 +59,11 @@ impl FullScreenMode {
 
 /// The canonical desktop configuration: what is parsed from the configuration
 /// document and what the boot flow derives its commands from. Ids are fresh per
-/// session and the document is keyed by name, so the two representations only
-/// meet during parse and persist.
+/// session and the document identifies content by nesting and position, so the two
+/// representations only meet during parse and persist.
 ///
-/// The document is the JSON file the configuration persists to
-/// ([`crate::projects::persistence::PersistedConfiguration`]); it is derived from this
-/// aggregate when persisted (ADR 0013).
+/// The document is the KDL file the configuration persists to. It is derived from this
+/// aggregate when persisted (ADR 0037).
 #[derive(Debug)]
 pub struct RuntimeConfiguration {
     /// Insertion order is the document order, so boot commands build the scene
@@ -1254,7 +1242,7 @@ impl Project {
 /// Puts slots into position order: row first, then column, matching the order the
 /// aggregate's readers rely on.
 fn sort_slots(slots: &mut [Slot]) {
-    slots.sort_by_key(|slot| (slot.position.row, slot.position.column));
+    slots.sort_by_key(|slot| slot.position);
 }
 
 /// One assigned slot of a project's matrix.
@@ -1444,6 +1432,20 @@ impl SlotAssignment {
 pub struct SlotPosition {
     pub column: u32,
     pub row: u32,
+}
+
+/// Positions order in matrix order, row by row and each row by column, the order in which a
+/// project keeps its slots.
+impl Ord for SlotPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.row, self.column).cmp(&(other.row, other.column))
+    }
+}
+
+impl PartialOrd for SlotPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Coordinates in a project's matrix, counted in columns along x and rows along y (ADR 0028).

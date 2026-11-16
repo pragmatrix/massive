@@ -7,6 +7,11 @@ A UI framework with a 3D desktop: shell, desktop, views, key delivery and the IM
 `GLOSSARY.md` defines the desktop's terms. Check it, including its `_Avoid_` lists, before naming a
 type, function or concept in code or an ADR, and add the term there when you introduce one.
 
+## ADRs
+
+`docs/adr/` holds the decisions still being built. ADRs that are fully implemented or superseded
+move to `docs/adr/archive/`. An implemented ADR there still applies.
+
 ## Exceptional behaviors
 
 A guard, redirect, or fallback that users could expect to work differently is decided in
