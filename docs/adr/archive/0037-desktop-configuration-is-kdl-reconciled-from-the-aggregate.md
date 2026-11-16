@@ -44,7 +44,10 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
 
 - **Persisting reconciles.** At every persist, the aggregate is turned into a
   fresh KDL document, and the fresh document is reconciled into the document
-  parsed from the file on disk. The result is written atomically. The reconcile
+  parsed from the file on disk. The result is written atomically, through a
+  temp file renamed over the file. A symlinked file is resolved first, so a
+  link into a dotfiles repository stays a link, and an existing file keeps its
+  permissions. The reconcile
   is one pure function from the existing and the fresh document to the document
   that is written. Nothing is kept between persists: the file is read and parsed
   again each time, so hand edits made while the terminal runs are not lost.
@@ -125,7 +128,8 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   file path, line, and column in the message. Otherwise the reconcile would find
   no match for the unknown node and remove it, together with its comments. A
   repeated property and a type annotation other than a param's `(json)` fail
-  the load too, because nothing reads them.
+  the load too, because nothing reads them. Two slots at the same position in
+  one project fail the load, because two slots never share a position.
 - **A file that does not load is not overwritten.** When the file on disk fails
   to parse or to load strictly at a persist, the persist writes nothing and logs
   an error that says the changes are not saved until the file loads again. A
