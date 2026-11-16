@@ -2,5 +2,5 @@ dist/
 /target/
 /Cargo.lock
 /massive-trace-*.json
-/desktop.json
+/desktop.kdl
 
