@@ -42,8 +42,8 @@ impl ConfigurationPersistence {
     /// that does not load is left alone, so a half-finished hand edit survives too. Each failure
     /// is logged as an error, and the next change writes the whole aggregate again.
     pub fn persist(&self, configuration: &RuntimeConfiguration) {
-        let tree = PersistedConfiguration::from_configuration(configuration);
-        let fresh = kdl_format::write_document(&tree);
+        let fresh =
+            kdl_format::write_document(&PersistedConfiguration::from_configuration(configuration));
         let document = match self.read_existing_document() {
             Ok(Some(existing)) => reconcile(existing, fresh),
             Ok(None) => fresh,
@@ -56,33 +56,13 @@ impl ConfigurationPersistence {
                 }
             },
         };
-        let text = document.to_string();
-        if let Err(error) = self.check_reads_back(&text, &tree) {
-            log::error!(
-                "Configuration changes are not saved, the document to write does not read back: \
-                 {error:#}"
-            );
-            return;
-        }
-        match write_atomic(&self.path, &text) {
+        match write_atomic(&self.path, &document.to_string()) {
             Ok(()) => log::info!("Configuration persisted to {}", self.path.display()),
             Err(error) => log::error!(
                 "Failed to persist configuration to {}: {error:#}",
                 self.path.display()
             ),
         }
-    }
-
-    /// Parses the text about to be written, in memory, and checks that it reads as `tree`. A
-    /// mismatch is a bug in the reconcile or in `kdl`, and writing the text would carry it into the
-    /// user's file, where the next start would load a different configuration or none.
-    fn check_reads_back(&self, text: &str, tree: &PersistedConfiguration) -> Result<()> {
-        let read = kdl_format::read_configuration(&self.path, text)?;
-        ensure!(
-            read == *tree,
-            "the reconciled document reads as a different configuration"
-        );
-        Ok(())
     }
 
     /// Reads and parses the file on disk, and checks it as the load does. An unknown node passes

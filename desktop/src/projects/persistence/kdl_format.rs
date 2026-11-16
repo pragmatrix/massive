@@ -26,12 +26,9 @@ use anyhow::{Result, anyhow};
 use kdl::{KdlDocument, KdlEntry, KdlEntryFormat, KdlError, KdlNode, KdlValue};
 use serde_json::{Number, Value};
 
-use massive_applications::AccessScopes;
+use massive_applications::{AccessScopes, McpConfiguration};
 
-use super::persisted::{
-    PersistedConfiguration, PersistedLauncher, PersistedMcp, PersistedProject, PersistedSlot,
-    PersistedSlotContent,
-};
+use super::persisted::{PersistedConfiguration, PersistedSlot};
 use crate::projects::{FullScreenMode, Params};
 
 /// The node that names the launcher the session boots into.
@@ -57,7 +54,9 @@ const REGULAR: &str = "regular";
 const JSON: &str = "json";
 
 /// Reads the typed tree from configuration text. Parse errors and violations of the format fail,
-/// with the file path, line, and column in the message.
+/// with the file path, line, and column in the message. Only tests read text in one step. The load
+/// and the persist parse first, because the persist reconciles into the parsed document.
+#[cfg(test)]
 pub fn read_configuration(path: &Path, text: &str) -> Result<PersistedConfiguration> {
     let document = parse_document(path, text)?;
     read_document(path, text, &document)
@@ -189,24 +188,28 @@ fn read_slot(source: &Source, node: &KdlNode) -> Result<PersistedSlot> {
     let at =
         at.ok_or_else(|| source.error(node, &format!("`{kind}` needs `at=\"column,row\"`")))?;
 
-    let content = if kind == LAUNCHER {
+    if kind == LAUNCHER {
         let params = match node.children() {
             Some(children) => read_params(source, children)?,
             None => Params::new(),
         };
-        PersistedSlotContent::Launcher(PersistedLauncher {
+        return Ok(PersistedSlot::Launcher {
+            at,
             name,
             params,
             full_screen_mode,
-        })
-    } else {
-        PersistedSlotContent::Project(read_project(source, node, name)?)
-    };
-    Ok(PersistedSlot { at, content })
+        });
+    }
+    read_project(source, node, at, name)
 }
 
-/// Reads the children of a `project` node: its `mcp` node and its slots.
-fn read_project(source: &Source, node: &KdlNode, name: String) -> Result<PersistedProject> {
+/// Reads the children of a `project` node, which are its `mcp` node and its slots.
+fn read_project(
+    source: &Source,
+    node: &KdlNode,
+    at: (u32, u32),
+    name: String,
+) -> Result<PersistedSlot> {
     let mut mcp = None;
     let mut slots = Vec::new();
     for child in node.iter_children() {
@@ -229,11 +232,16 @@ fn read_project(source: &Source, node: &KdlNode, name: String) -> Result<Persist
             }
         }
     }
-    Ok(PersistedProject { name, mcp, slots })
+    Ok(PersistedSlot::Project {
+        at,
+        name,
+        mcp,
+        slots,
+    })
 }
 
 /// Reads an `mcp` node, whose arguments are the access scopes.
-fn read_mcp(source: &Source, node: &KdlNode) -> Result<PersistedMcp> {
+fn read_mcp(source: &Source, node: &KdlNode) -> Result<McpConfiguration> {
     let entries = Entries::of(source, node)?;
     entries.refuse_properties(source, node)?;
     refuse_children(source, node)?;
@@ -248,7 +256,7 @@ fn read_mcp(source: &Source, node: &KdlNode) -> Result<PersistedMcp> {
                 .map_err(|error| source.error(node, &error.to_string()))
         })
         .collect::<Result<AccessScopes>>()?;
-    Ok(PersistedMcp { access_scopes })
+    Ok(McpConfiguration { access_scopes })
 }
 
 /// Reads the child nodes of a launcher as its spawn parameters, each named by its key.
@@ -446,45 +454,53 @@ fn location(path: &Path, text: &str, offset: usize) -> String {
 /// Builds the node of a slot. A `launcher` holds its params as children, and a `project` holds its
 /// `mcp` node and its slots.
 fn slot_node(slot: &PersistedSlot) -> KdlNode {
-    let (column, row) = slot.at;
-    let at = KdlEntry::new_prop(AT, format!("{column},{row}"));
-    match &slot.content {
-        PersistedSlotContent::Launcher(launcher) => {
+    match slot {
+        PersistedSlot::Launcher {
+            at,
+            name,
+            params,
+            full_screen_mode,
+        } => {
             let mut node = KdlNode::new(LAUNCHER);
-            node.push(KdlEntry::new(launcher.name.as_str()));
-            node.push(at);
-            if launcher.full_screen_mode == FullScreenMode::FullScreen {
+            node.push(KdlEntry::new(name.as_str()));
+            node.push(at_entry(*at));
+            if *full_screen_mode == FullScreenMode::FullScreen {
                 node.push(KdlEntry::new_prop(FULL_SCREEN_MODE, FULLSCREEN));
             }
-            if !launcher.params.is_empty() {
+            if !params.is_empty() {
                 let children = node.ensure_children().nodes_mut();
-                children.extend(
-                    launcher
-                        .params
-                        .iter()
-                        .map(|(key, value)| param_node(key, value)),
-                );
+                children.extend(params.iter().map(|(key, value)| param_node(key, value)));
             }
             node
         }
-        PersistedSlotContent::Project(project) => {
+        PersistedSlot::Project {
+            at,
+            name,
+            mcp,
+            slots,
+        } => {
             let mut node = KdlNode::new(PROJECT);
-            node.push(KdlEntry::new(project.name.as_str()));
-            node.push(at);
-            if project.mcp.is_some() || !project.slots.is_empty() {
+            node.push(KdlEntry::new(name.as_str()));
+            node.push(at_entry(*at));
+            if mcp.is_some() || !slots.is_empty() {
                 let children = node.ensure_children().nodes_mut();
-                if let Some(mcp) = &project.mcp {
+                if let Some(mcp) = mcp {
                     let mut mcp_node = KdlNode::new(MCP);
                     for scope in &mcp.access_scopes {
                         mcp_node.push(KdlEntry::new(scope.name()));
                     }
                     children.push(mcp_node);
                 }
-                children.extend(project.slots.iter().map(slot_node));
+                children.extend(slots.iter().map(slot_node));
             }
             node
         }
     }
+}
+
+/// The `at` property of a slot at `(column, row)`.
+fn at_entry((column, row): (u32, u32)) -> KdlEntry {
+    KdlEntry::new_prop(AT, format!("{column},{row}"))
 }
 
 /// Writes one param as a node named by its key, with its value as the one argument. An array or an
@@ -678,13 +694,11 @@ mod tests {
         };
         let configuration = PersistedConfiguration {
             startup: Some("/-.5\u{1b}".into()),
-            slots: vec![PersistedSlot {
+            slots: vec![PersistedSlot::Launcher {
                 at: (0, 0),
-                content: PersistedSlotContent::Launcher(PersistedLauncher {
-                    name: "-.5".into(),
-                    params,
-                    full_screen_mode: FullScreenMode::FullScreen,
-                }),
+                name: "-.5".into(),
+                params,
+                full_screen_mode: FullScreenMode::FullScreen,
             }],
         };
         let text = write_document(&configuration).to_string();
@@ -728,11 +742,11 @@ mod tests {
         let mcp: Vec<Option<AccessScopes>> = configuration
             .slots
             .iter()
-            .map(|slot| match &slot.content {
-                PersistedSlotContent::Project(project) => {
-                    project.mcp.as_ref().map(|mcp| mcp.access_scopes.clone())
+            .map(|slot| match slot {
+                PersistedSlot::Project { mcp, .. } => {
+                    mcp.as_ref().map(|mcp| mcp.access_scopes.clone())
                 }
-                PersistedSlotContent::Launcher(_) => unreachable!("the fixture holds projects"),
+                PersistedSlot::Launcher { .. } => unreachable!("the fixture holds projects"),
             })
             .collect();
         assert_eq!(mcp, [Some(AccessScopes::new()), None]);
@@ -745,9 +759,9 @@ mod tests {
 
     fn params_of(text: &str) -> Result<Params> {
         let configuration = read(&format!("launcher shell at=\"0,0\" {{\n{text}\n}}"))?;
-        match &configuration.slots[0].content {
-            PersistedSlotContent::Launcher(launcher) => Ok(launcher.params.clone()),
-            PersistedSlotContent::Project(_) => unreachable!("the fixture is a launcher"),
+        match &configuration.slots[0] {
+            PersistedSlot::Launcher { params, .. } => Ok(params.clone()),
+            PersistedSlot::Project { .. } => unreachable!("the fixture is a launcher"),
         }
     }
 }

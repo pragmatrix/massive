@@ -8,7 +8,7 @@
 //! text.
 
 use log::warn;
-use massive_applications::{AccessScopes, McpConfiguration};
+use massive_applications::McpConfiguration;
 
 use crate::policy::when::{self, LoadingWithoutLauncher};
 use crate::projects::{
@@ -26,45 +26,26 @@ pub struct PersistedConfiguration {
     pub slots: Vec<PersistedSlot>,
 }
 
-/// One assigned slot of a project node: its position plus exactly one content
-/// variant. Only assigned slots are stored.
+/// One assigned slot of a project node, with its position as `(column, row)`. Only assigned slots
+/// are stored. The project variant is the fractal unit of the document. The document root is the
+/// one project without a slot, so it carries no name and the terminal synthesizes
+/// [`ROOT_PROJECT_NAME`] for it.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PersistedSlot {
-    /// The position as `(column, row)`.
-    pub at: (u32, u32),
-    pub content: PersistedSlotContent,
-}
-
-/// What a slot hosts: a launcher or a nested project, never both.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PersistedSlotContent {
-    Launcher(PersistedLauncher),
-    Project(PersistedProject),
-}
-
-/// A launcher's spawnable profile.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PersistedLauncher {
-    pub name: String,
-    pub params: Params,
-    /// The launcher's Full Screen Mode, shared by its primary instances (ADR 0014).
-    pub full_screen_mode: FullScreenMode,
-}
-
-/// A project node: the fractal unit of the document. The name is required — the
-/// document root is the one node without a `project` wrapper, so it carries no
-/// name and the terminal synthesizes [`ROOT_PROJECT_NAME`] for it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PersistedProject {
-    pub name: String,
-    pub mcp: Option<PersistedMcp>,
-    pub slots: Vec<PersistedSlot>,
-}
-
-/// The MCP settings of a project node, present exactly when the project is an MCP root.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PersistedMcp {
-    pub access_scopes: AccessScopes,
+pub enum PersistedSlot {
+    Launcher {
+        at: (u32, u32),
+        name: String,
+        params: Params,
+        /// The launcher's Full Screen Mode, shared by its primary instances (ADR 0014).
+        full_screen_mode: FullScreenMode,
+    },
+    Project {
+        at: (u32, u32),
+        name: String,
+        /// Present exactly when the project is an MCP root (ADR 0036).
+        mcp: Option<McpConfiguration>,
+        slots: Vec<PersistedSlot>,
+    },
 }
 
 impl PersistedConfiguration {
@@ -123,31 +104,36 @@ fn persisted_slots(
 ) -> Vec<Slot> {
     let mut parsed: Vec<Slot> = Vec::new();
     for slot in slots {
-        let position = SlotPosition::from(slot.at);
-        match &slot.content {
-            PersistedSlotContent::Launcher(launcher) => parsed.push(Slot::launcher(
-                position,
-                Launcher::new(launcher.name.clone(), launcher.params.clone())
-                    .with_full_screen_mode(launcher.full_screen_mode),
+        match slot {
+            PersistedSlot::Launcher {
+                at,
+                name,
+                params,
+                full_screen_mode,
+            } => parsed.push(Slot::launcher(
+                SlotPosition::from(*at),
+                Launcher::new(name.clone(), params.clone())
+                    .with_full_screen_mode(*full_screen_mode),
             )),
-            PersistedSlotContent::Project(persisted) => {
-                let mut mcp = persisted.mcp.as_ref().map(|mcp| McpConfiguration {
-                    access_scopes: mcp.access_scopes.clone(),
-                });
+            PersistedSlot::Project {
+                at,
+                name,
+                mcp,
+                slots,
+            } => {
+                let mut mcp = mcp.clone();
                 if mcp_root_above && mcp.is_some() {
                     warn!(
-                        "Project '{}' lies inside another MCP root, ignoring its MCP settings",
-                        persisted.name
+                        "Project '{name}' lies inside another MCP root, ignoring its MCP settings"
                     );
                     mcp = None;
                 }
-                let nested =
-                    persisted_slots(&persisted.slots, mcp_root_above || mcp.is_some(), projects);
-                let mut project = Project::new(persisted.name.clone(), nested);
+                let nested = persisted_slots(slots, mcp_root_above || mcp.is_some(), projects);
+                let mut project = Project::new(name.clone(), nested);
                 project.mcp = mcp;
                 let id = project.id;
                 projects.push(project);
-                parsed.push(Slot::project(position, id));
+                parsed.push(Slot::project(SlotPosition::from(*at), id));
             }
         }
     }
@@ -158,9 +144,9 @@ fn persisted_slots(
 fn slots_depth(slots: &[PersistedSlot]) -> usize {
     slots
         .iter()
-        .map(|slot| match &slot.content {
-            PersistedSlotContent::Launcher(_) => 0,
-            PersistedSlotContent::Project(project) => 1 + slots_depth(&project.slots),
+        .map(|slot| match slot {
+            PersistedSlot::Launcher { .. } => 0,
+            PersistedSlot::Project { slots, .. } => 1 + slots_depth(slots),
         })
         .max()
         .unwrap_or(0)
@@ -209,24 +195,22 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
     configuration[project]
         .slots()
         .iter()
-        .map(|slot| PersistedSlot {
-            at: (slot.position.column, slot.position.row),
-            content: match &slot.content {
-                SlotPayload::Launcher(launcher) => {
-                    PersistedSlotContent::Launcher(PersistedLauncher {
-                        name: launcher.name.clone(),
-                        params: launcher.params.clone(),
-                        full_screen_mode: launcher.full_screen_mode,
-                    })
-                }
-                SlotPayload::Project(child) => PersistedSlotContent::Project(PersistedProject {
+        .map(|slot| {
+            let at = (slot.position.column, slot.position.row);
+            match &slot.content {
+                SlotPayload::Launcher(launcher) => PersistedSlot::Launcher {
+                    at,
+                    name: launcher.name.clone(),
+                    params: launcher.params.clone(),
+                    full_screen_mode: launcher.full_screen_mode,
+                },
+                SlotPayload::Project(child) => PersistedSlot::Project {
+                    at,
                     name: configuration[*child].name.clone(),
-                    mcp: configuration[*child].mcp.as_ref().map(|mcp| PersistedMcp {
-                        access_scopes: mcp.access_scopes.clone(),
-                    }),
+                    mcp: configuration[*child].mcp.clone(),
                     slots: project_slots(configuration, *child),
-                }),
-            },
+                },
+            }
         })
         .collect()
 }
