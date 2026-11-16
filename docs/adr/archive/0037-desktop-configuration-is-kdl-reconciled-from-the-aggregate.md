@@ -63,7 +63,11 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   follows the order of the fresh document, so it reads as exactly the fresh
   document. The fresh document is
   autoformatted and parsed again before the reconcile, so an inserted node
-  already has the indentation of its depth.
+  already has the indentation of its depth. The parser attaches the line break
+  after a `{` to the block's first child, so the reconcile moves it to the block
+  itself first. Removing or reordering the first child then keeps the next one
+  on a line of its own. A block whose last node goes stays as long as a comment
+  remains in it.
 - **The comments at the top of the file stay there.** The parser attaches them
   to the first node, so when a blank line separates them from that node, the
   reconcile moves them to the document itself. They then stay when the first
@@ -97,25 +101,29 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   access scopes is the bare node `mcp`. A project without an `mcp` node is not
   an MCP root.
 - **A spawn parameter is a child node of its launcher, named by its key, with
-  its value as its one argument.** The value is a string, a number, a boolean,
-  or `#null`, as in `command "ssh fs110"`. A param node with no argument,
-  several arguments, a property, or a children block fails the load. The MCP
-  tools refuse a param that is an array or an object. Params are plain values
-  because the only param any application reads is the terminal's `command`, a
-  string. JSON arrays and objects do not map onto KDL nodes without a shape of
-  their own for each case. A one-element array, for example, reads back as its
-  element.
+  its value as its one argument.** A plain value, a string, a number, a boolean,
+  or `#null`, stands for itself, as in `command "ssh fs110"`. An array or an
+  object is its JSON text in a string annotated `(json)`, written as a raw
+  string so its quotes need no backslashes, as in
+  `args (json)#"["--login"]"#`. Every JSON value therefore reads back exactly.
+  KDL has no array or object value, and mapping them onto node shapes needs a
+  rule for each case, such as a one-element array, which would read back as its
+  element. The reader also accepts a `(json)` scalar, such as `size (json)"12"`,
+  and the next persist writes it plainly. A param node with no argument, several
+  arguments, a property, a children block, or another type annotation fails the
+  load.
 - **Every string is written.** `kdl` escapes only quotes, backslashes, and a few
   control characters, and it writes the other characters KDL forbids in its
   text as they are, such as ESC, U+2028, the direction marks, and U+FEFF. It
   then cannot parse its own output. The writer escapes those characters as
   `\u{…}` in names, param keys, and string values, so no name or param a tool
-  accepts makes a persist fail.
+  accepts makes a persist fail. A raw string cannot escape, so a `(json)` value
+  with such a character is written as an escaped string instead.
 - **The load is strict.** An unknown node or property fails the load, with the
   file path, line, and column in the message. Otherwise the reconcile would find
   no match for the unknown node and remove it, together with its comments. A
-  repeated property and a type annotation fail the load too, because nothing
-  reads them.
+  repeated property and a type annotation other than a param's `(json)` fail
+  the load too, because nothing reads them.
 - **A file that does not load is not overwritten.** When the file on disk fails
   to parse or to load strictly at a persist, the persist writes nothing and logs
   an error that says the changes are not saved until the file loads again. A
@@ -123,7 +131,8 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   aggregate again, so no change is lost once the file loads. The persist does
   not fail the transaction, because only an edit outside the desktop breaks the
   file, and a typo in it must not end the session. The persist checks the file
-  with the same check as the load, including the nesting limit.
+  with the same check as the load, including the nesting limit. The desktop
+  policy decides this fallback (`when::persisting_over_unloadable_file`).
 - **The written text is checked before it is written.** The persist parses the
   reconciled text in memory and writes it only when it reads as exactly the
   fresh document. Otherwise it writes nothing and logs an error, because a bug
@@ -136,9 +145,15 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   do not change.
 - The mapping between the document and the aggregate is written by hand, in both
   directions.
-- Params need no nesting limit, so `MAX_PARAMS_DEPTH` and its policy rule go.
-  An application that needs a list or a map in its params gets a design of its
-  own, typed by that application, once one exists.
+- The `kdl` parser recurses once per block and sets no depth limit, where
+  `serde_json` stopped at 128 levels. A crafted file nested a few hundred blocks
+  deep overflows the stack and aborts the desktop. A file the desktop writes
+  nests at most 17 blocks, and a same-user process that writes the file can
+  already end the desktop, so `docs/security.md` lists this as a known gap
+  instead of guarding the parse.
+- Params need no nesting limit of their own, so `MAX_PARAMS_DEPTH` and its
+  policy rule go. The tool protocol's decoder already bounds a param's nesting
+  below the 128 levels `serde_json` reads back.
 - Hand edits to values made while the terminal runs are replaced at the next
   persist, because the aggregate in memory wins. Only comments and formatting
   survive. Reloading the file while the terminal runs is left to
@@ -184,12 +199,14 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   the previous aggregate between persists, and it would find nodes in the file
   by their old paths, which a hand edit invalidates. It can later replace the
   reconcile's pass by name without a change to the format.
-- **Params as any JSON value, with nested objects as nested child nodes.**
-  Rejected after review. Each JSON shape needs a node shape of its own: an
-  array is several arguments, an object a children block, and an empty object
-  `{}`. A one-element array cannot be told apart from its element without one
-  more shape, and an array inside an array needs yet another rule. No
-  application reads any of these.
+- **Arrays and objects as node shapes**, an array as several arguments and an
+  object as a children block. Rejected after review. Each JSON shape needs a
+  node shape of its own, and an empty object needs `{}`. A one-element array
+  cannot be told apart from its element without one more shape, and an array
+  inside an array needs yet another rule.
+- **Plain values only, refusing arrays and objects.** Rejected: the format can
+  carry them as `(json)` strings at little cost, and the tools then need no
+  rule that refuses some JSON values.
 - **Typed params, declared by each application.** Not now: the reader and the
   tools would validate against a schema per application. That pays off once an
   application reads a second param.
