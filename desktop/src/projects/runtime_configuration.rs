@@ -4,6 +4,7 @@
 //! Projects are stored flat and nest by id link (ADR 0011): a project's slots
 //! name the launchers and projects they host, so no recursive type is needed.
 
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter;
 use std::ops::Index;
@@ -1241,7 +1242,7 @@ impl Project {
 /// Puts slots into position order: row first, then column, matching the order the
 /// aggregate's readers rely on.
 fn sort_slots(slots: &mut [Slot]) {
-    slots.sort_by_key(|slot| (slot.position.row, slot.position.column));
+    slots.sort_by_key(|slot| slot.position);
 }
 
 /// One assigned slot of a project's matrix.
@@ -1431,6 +1432,20 @@ impl SlotAssignment {
 pub struct SlotPosition {
     pub column: u32,
     pub row: u32,
+}
+
+/// Positions order in matrix order, row by row and each row by column, the order in which a
+/// project keeps its slots.
+impl Ord for SlotPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.row, self.column).cmp(&(other.row, other.column))
+    }
+}
+
+impl PartialOrd for SlotPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Coordinates in a project's matrix, counted in columns along x and rows along y (ADR 0028).

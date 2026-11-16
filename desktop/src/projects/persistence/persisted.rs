@@ -7,6 +7,8 @@
 //! identifies content by nesting and position alone. [`super::kdl_format`] maps the tree to KDL
 //! text.
 
+use std::collections::BTreeMap;
+
 use log::warn;
 use massive_applications::McpConfiguration;
 
@@ -23,28 +25,30 @@ use crate::projects::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct PersistedConfiguration {
     pub startup: Option<String>,
-    pub slots: Vec<PersistedSlot>,
+    pub slots: PersistedSlots,
 }
 
-/// One assigned slot of a project node, with its position as `(column, row)`. Only assigned slots
-/// are stored. The project variant is the fractal unit of the document. The document root is the
+/// The assigned slots of a project node, keyed by position in matrix order. Two slots never share a
+/// position, and the map cannot hold two. Only assigned slots are stored.
+pub type PersistedSlots = BTreeMap<SlotPosition, PersistedSlot>;
+
+/// What one assigned slot of a project node hosts. The project variant is the fractal unit of the
+/// document. The document root is the
 /// one project without a slot, so it carries no name and the terminal synthesizes
 /// [`ROOT_PROJECT_NAME`] for it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PersistedSlot {
     Launcher {
-        at: (u32, u32),
         name: String,
         params: Params,
         /// The launcher's Full Screen Mode, shared by its primary instances (ADR 0014).
         full_screen_mode: FullScreenMode,
     },
     Project {
-        at: (u32, u32),
         name: String,
         /// Present exactly when the project is an MCP root (ADR 0036).
         mcp: Option<McpConfiguration>,
-        slots: Vec<PersistedSlot>,
+        slots: PersistedSlots,
     },
 }
 
@@ -98,29 +102,23 @@ impl PersistedConfiguration {
 /// may nest MCP roots, which the desktop never allows (ADR 0036), so the
 /// outermost root stays and every root below it loses its `mcp` object.
 fn persisted_slots(
-    slots: &[PersistedSlot],
+    slots: &PersistedSlots,
     mcp_root_above: bool,
     projects: &mut Vec<Project>,
 ) -> Vec<Slot> {
     let mut parsed: Vec<Slot> = Vec::new();
-    for slot in slots {
+    for (&position, slot) in slots {
         match slot {
             PersistedSlot::Launcher {
-                at,
                 name,
                 params,
                 full_screen_mode,
             } => parsed.push(Slot::launcher(
-                SlotPosition::from(*at),
+                position,
                 Launcher::new(name.clone(), params.clone())
                     .with_full_screen_mode(*full_screen_mode),
             )),
-            PersistedSlot::Project {
-                at,
-                name,
-                mcp,
-                slots,
-            } => {
+            PersistedSlot::Project { name, mcp, slots } => {
                 let mut mcp = mcp.clone();
                 if mcp_root_above && mcp.is_some() {
                     warn!(
@@ -133,7 +131,7 @@ fn persisted_slots(
                 project.mcp = mcp;
                 let id = project.id;
                 projects.push(project);
-                parsed.push(Slot::project(SlotPosition::from(*at), id));
+                parsed.push(Slot::project(position, id));
             }
         }
     }
@@ -141,9 +139,9 @@ fn persisted_slots(
 }
 
 /// How many levels of projects the slots bring along, recursing into each nested project.
-fn slots_depth(slots: &[PersistedSlot]) -> usize {
+fn slots_depth(slots: &PersistedSlots) -> usize {
     slots
-        .iter()
+        .values()
         .map(|slot| match slot {
             PersistedSlot::Launcher { .. } => 0,
             PersistedSlot::Project { slots, .. } => 1 + slots_depth(slots),
@@ -191,26 +189,24 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
 /// projects exactly once each. The launcher record rides in the slot payload and
 /// every nested project exists by the id-link invariant, so lookups cannot fail:
 /// a missing one panics through the `Index` impls instead of dropping content.
-fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Vec<PersistedSlot> {
+fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> PersistedSlots {
     configuration[project]
         .slots()
         .iter()
         .map(|slot| {
-            let at = (slot.position.column, slot.position.row);
-            match &slot.content {
+            let persisted = match &slot.content {
                 SlotPayload::Launcher(launcher) => PersistedSlot::Launcher {
-                    at,
                     name: launcher.name.clone(),
                     params: launcher.params.clone(),
                     full_screen_mode: launcher.full_screen_mode,
                 },
                 SlotPayload::Project(child) => PersistedSlot::Project {
-                    at,
                     name: configuration[*child].name.clone(),
                     mcp: configuration[*child].mcp.clone(),
                     slots: project_slots(configuration, *child),
                 },
-            }
+            };
+            (slot.position, persisted)
         })
         .collect()
 }

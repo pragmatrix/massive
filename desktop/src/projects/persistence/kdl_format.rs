@@ -28,8 +28,8 @@ use serde_json::{Number, Value};
 
 use massive_applications::{AccessScopes, McpConfiguration};
 
-use super::persisted::{PersistedConfiguration, PersistedSlot};
-use crate::projects::{FullScreenMode, Params};
+use super::persisted::{PersistedConfiguration, PersistedSlot, PersistedSlots};
+use crate::projects::{FullScreenMode, Params, SlotPosition};
 
 /// The node that names the launcher the session boots into.
 const STARTUP: &str = "startup";
@@ -78,7 +78,7 @@ pub fn read_document(
 ) -> Result<PersistedConfiguration> {
     let source = Source { path, text };
     let mut startup = None;
-    let mut slots = Vec::new();
+    let mut slots = PersistedSlots::new();
     for node in document.nodes() {
         match node.name().value() {
             STARTUP => {
@@ -87,7 +87,7 @@ pub fn read_document(
                 }
                 startup = Some(read_startup(&source, node)?);
             }
-            PROJECT | LAUNCHER => slots.push(read_slot(&source, node)?),
+            PROJECT | LAUNCHER => insert_slot(&source, node, &mut slots)?,
             name => {
                 return Err(source.error(
                     node,
@@ -109,7 +109,12 @@ pub fn write_document(configuration: &PersistedConfiguration) -> KdlDocument {
         node.push(KdlEntry::new(startup.as_str()));
         nodes.push(node);
     }
-    nodes.extend(configuration.slots.iter().map(slot_node));
+    nodes.extend(
+        configuration
+            .slots
+            .iter()
+            .map(|(&position, slot)| slot_node(position, slot)),
+    );
     document.autoformat();
     write_string_reprs(document.nodes_mut());
     KdlDocument::parse(&document.to_string())
@@ -147,8 +152,19 @@ fn read_startup(source: &Source, node: &KdlNode) -> Result<String> {
     }
 }
 
+/// Reads a slot node into `slots`. A second slot at the same position fails, because two slots
+/// never share a position.
+fn insert_slot(source: &Source, node: &KdlNode, slots: &mut PersistedSlots) -> Result<()> {
+    let (position, slot) = read_slot(source, node)?;
+    if slots.insert(position, slot).is_some() {
+        let SlotPosition { column, row } = position;
+        return Err(source.error(node, &format!("a second slot at \"{column},{row}\"")));
+    }
+    Ok(())
+}
+
 /// Reads a `project` or `launcher` node, which holds the slot's position and the content it hosts.
-fn read_slot(source: &Source, node: &KdlNode) -> Result<PersistedSlot> {
+fn read_slot(source: &Source, node: &KdlNode) -> Result<(SlotPosition, PersistedSlot)> {
     let kind = node.name().value();
     let entries = Entries::of(source, node)?;
     let name = match entries.plain_arguments(source, node)?.as_slice() {
@@ -185,33 +201,30 @@ fn read_slot(source: &Source, node: &KdlNode) -> Result<PersistedSlot> {
             }
         }
     }
-    let at =
-        at.ok_or_else(|| source.error(node, &format!("`{kind}` needs `at=\"column,row\"`")))?;
+    let position = SlotPosition::from(
+        at.ok_or_else(|| source.error(node, &format!("`{kind}` needs `at=\"column,row\"`")))?,
+    );
 
-    if kind == LAUNCHER {
+    let slot = if kind == LAUNCHER {
         let params = match node.children() {
             Some(children) => read_params(source, children)?,
             None => Params::new(),
         };
-        return Ok(PersistedSlot::Launcher {
-            at,
+        PersistedSlot::Launcher {
             name,
             params,
             full_screen_mode,
-        });
-    }
-    read_project(source, node, at, name)
+        }
+    } else {
+        read_project(source, node, name)?
+    };
+    Ok((position, slot))
 }
 
 /// Reads the children of a `project` node, which are its `mcp` node and its slots.
-fn read_project(
-    source: &Source,
-    node: &KdlNode,
-    at: (u32, u32),
-    name: String,
-) -> Result<PersistedSlot> {
+fn read_project(source: &Source, node: &KdlNode, name: String) -> Result<PersistedSlot> {
     let mut mcp = None;
-    let mut slots = Vec::new();
+    let mut slots = PersistedSlots::new();
     for child in node.iter_children() {
         match child.name().value() {
             MCP => {
@@ -220,7 +233,7 @@ fn read_project(
                 }
                 mcp = Some(read_mcp(source, child)?);
             }
-            PROJECT | LAUNCHER => slots.push(read_slot(source, child)?),
+            PROJECT | LAUNCHER => insert_slot(source, child, &mut slots)?,
             child_name => {
                 return Err(source.error(
                     child,
@@ -232,12 +245,7 @@ fn read_project(
             }
         }
     }
-    Ok(PersistedSlot::Project {
-        at,
-        name,
-        mcp,
-        slots,
-    })
+    Ok(PersistedSlot::Project { name, mcp, slots })
 }
 
 /// Reads an `mcp` node, whose arguments are the access scopes.
@@ -453,17 +461,16 @@ fn location(path: &Path, text: &str, offset: usize) -> String {
 
 /// Builds the node of a slot. A `launcher` holds its params as children, and a `project` holds its
 /// `mcp` node and its slots.
-fn slot_node(slot: &PersistedSlot) -> KdlNode {
+fn slot_node(position: SlotPosition, slot: &PersistedSlot) -> KdlNode {
     match slot {
         PersistedSlot::Launcher {
-            at,
             name,
             params,
             full_screen_mode,
         } => {
             let mut node = KdlNode::new(LAUNCHER);
             node.push(KdlEntry::new(name.as_str()));
-            node.push(at_entry(*at));
+            node.push(at_entry(position));
             if *full_screen_mode == FullScreenMode::FullScreen {
                 node.push(KdlEntry::new_prop(FULL_SCREEN_MODE, FULLSCREEN));
             }
@@ -473,15 +480,10 @@ fn slot_node(slot: &PersistedSlot) -> KdlNode {
             }
             node
         }
-        PersistedSlot::Project {
-            at,
-            name,
-            mcp,
-            slots,
-        } => {
+        PersistedSlot::Project { name, mcp, slots } => {
             let mut node = KdlNode::new(PROJECT);
             node.push(KdlEntry::new(name.as_str()));
-            node.push(at_entry(*at));
+            node.push(at_entry(position));
             if mcp.is_some() || !slots.is_empty() {
                 let children = node.ensure_children().nodes_mut();
                 if let Some(mcp) = mcp {
@@ -491,15 +493,19 @@ fn slot_node(slot: &PersistedSlot) -> KdlNode {
                     }
                     children.push(mcp_node);
                 }
-                children.extend(slots.iter().map(slot_node));
+                children.extend(
+                    slots
+                        .iter()
+                        .map(|(&position, slot)| slot_node(position, slot)),
+                );
             }
             node
         }
     }
 }
 
-/// The `at` property of a slot at `(column, row)`.
-fn at_entry((column, row): (u32, u32)) -> KdlEntry {
+/// The `at` property of a slot at `position`.
+fn at_entry(SlotPosition { column, row }: SlotPosition) -> KdlEntry {
     KdlEntry::new_prop(AT, format!("{column},{row}"))
 }
 
@@ -628,6 +634,8 @@ fn is_forbidden(character: char) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     const PATH: &str = "desktop.kdl";
@@ -694,12 +702,14 @@ mod tests {
         };
         let configuration = PersistedConfiguration {
             startup: Some("/-.5\u{1b}".into()),
-            slots: vec![PersistedSlot::Launcher {
-                at: (0, 0),
-                name: "-.5".into(),
-                params,
-                full_screen_mode: FullScreenMode::FullScreen,
-            }],
+            slots: BTreeMap::from([(
+                SlotPosition { column: 0, row: 0 },
+                PersistedSlot::Launcher {
+                    name: "-.5".into(),
+                    params,
+                    full_screen_mode: FullScreenMode::FullScreen,
+                },
+            )]),
         };
         let text = write_document(&configuration).to_string();
         assert_eq!(read(&text)?, configuration, "{text}");
@@ -727,6 +737,21 @@ mod tests {
         );
     }
 
+    /// Two slots never share a position, so a file that places two at one fails the load.
+    #[test]
+    fn two_slots_at_one_position_fail() {
+        let error =
+            read("project p at=\"0,0\" {\n    launcher a at=\"1,0\"\n    launcher b at=\"1,0\"\n}")
+                .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("desktop.kdl:3:5: a second slot at \"1,0\""),
+            "{error}"
+        );
+        assert!(read("launcher a at=\"0,0\"\nproject p at=\"0,0\"").is_err());
+    }
+
     /// The parser's own error displays no location, so the message carries one per diagnostic.
     #[test]
     fn a_parse_error_names_its_location() {
@@ -741,7 +766,7 @@ mod tests {
         let configuration = read("project p at=\"0,0\" {\n    mcp\n}\nproject q at=\"1,0\"")?;
         let mcp: Vec<Option<AccessScopes>> = configuration
             .slots
-            .iter()
+            .values()
             .map(|slot| match slot {
                 PersistedSlot::Project { mcp, .. } => {
                     mcp.as_ref().map(|mcp| mcp.access_scopes.clone())
@@ -759,7 +784,12 @@ mod tests {
 
     fn params_of(text: &str) -> Result<Params> {
         let configuration = read(&format!("launcher shell at=\"0,0\" {{\n{text}\n}}"))?;
-        match &configuration.slots[0] {
+        match configuration
+            .slots
+            .values()
+            .next()
+            .expect("the fixture is a launcher")
+        {
             PersistedSlot::Launcher { params, .. } => Ok(params.clone()),
             PersistedSlot::Project { .. } => unreachable!("the fixture is a launcher"),
         }
