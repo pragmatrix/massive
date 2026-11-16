@@ -1,10 +1,10 @@
-//! The KDL format of the desktop configuration file (ADR 0037): the conversion between a
+//! The KDL format of the desktop configuration file (ADR 0037). This module converts between a
 //! [`KdlDocument`] and the typed tree of [`PersistedConfiguration`], in both directions.
 //!
-//! Every format rule lives here: the `at` string, the omitted defaults, the `mcp` node, the spawn
-//! parameter nodes, and the escaping of characters KDL forbids in its text. Reading is strict. An
-//! unknown node or property fails the load with its location, because the reconcile would
-//! otherwise remove it from the file.
+//! Every format rule lives here. That covers the `at` string, the omitted defaults, the `mcp` node,
+//! the spawn parameter nodes, and the escaping of characters KDL forbids in its text. Reading is
+//! strict. An unknown node or property fails the load with its location, because the reconcile
+//! would otherwise remove it from the file.
 //!
 //! ```kdl
 //! startup "/labs/build"
@@ -14,6 +14,7 @@
 //!     mcp observe act
 //!     launcher build at="0,0" full_screen_mode=fullscreen {
 //!         command just
+//!         args (json)#"["--verbose", "build"]"#
 //!     }
 //! }
 //! ```
@@ -51,6 +52,9 @@ const FULLSCREEN: &str = "fullscreen";
 /// The value of [`FULL_SCREEN_MODE`] for the default mode. It is read, so a hand edit may spell
 /// the default out, but never written.
 const REGULAR: &str = "regular";
+/// The type annotation of a param whose string value holds JSON. Arrays and objects are written
+/// this way, because KDL has no value of either kind.
+const JSON: &str = "json";
 
 /// Reads the typed tree from configuration text. Parse errors and violations of the format fail,
 /// with the file path, line, and column in the message.
@@ -108,7 +112,7 @@ pub fn write_document(configuration: &PersistedConfiguration) -> KdlDocument {
     }
     nodes.extend(configuration.slots.iter().map(slot_node));
     document.autoformat();
-    escape_forbidden_characters(document.nodes_mut());
+    write_string_reprs(document.nodes_mut());
     KdlDocument::parse(&document.to_string())
         .expect("An autoformatted configuration document must parse again")
 }
@@ -138,17 +142,17 @@ fn read_startup(source: &Source, node: &KdlNode) -> Result<String> {
     let entries = Entries::of(source, node)?;
     entries.refuse_properties(source, node)?;
     refuse_children(source, node)?;
-    match entries.arguments.as_slice() {
+    match entries.plain_arguments(source, node)?.as_slice() {
         [KdlValue::String(path)] => Ok(path.clone()),
         _ => Err(source.error(node, "`startup` takes the target path as its one argument")),
     }
 }
 
-/// Reads a `project` or `launcher` node: the slot's position and the content it hosts.
+/// Reads a `project` or `launcher` node, which holds the slot's position and the content it hosts.
 fn read_slot(source: &Source, node: &KdlNode) -> Result<PersistedSlot> {
     let kind = node.name().value();
     let entries = Entries::of(source, node)?;
-    let name = match entries.arguments.as_slice() {
+    let name = match entries.plain_arguments(source, node)?.as_slice() {
         [KdlValue::String(name)] => name.clone(),
         _ => {
             return Err(source.error(
@@ -234,8 +238,8 @@ fn read_mcp(source: &Source, node: &KdlNode) -> Result<PersistedMcp> {
     entries.refuse_properties(source, node)?;
     refuse_children(source, node)?;
     let access_scopes = entries
-        .arguments
-        .iter()
+        .plain_arguments(source, node)?
+        .into_iter()
         .map(|value| {
             value
                 .as_string()
@@ -260,17 +264,31 @@ fn read_params(source: &Source, children: &KdlDocument) -> Result<Params> {
     Ok(params)
 }
 
-/// Reads one param node, whose one argument is its plain value. Params hold no arrays or objects,
-/// because no application reads them and KDL would need a shape for each (ADR 0037).
+/// Reads one param node, whose one argument is its value. A plain value stands for itself, and a
+/// string annotated `(json)` holds any JSON value, such as an array or an object (ADR 0037).
 fn read_param(source: &Source, node: &KdlNode) -> Result<Value> {
     let entries = Entries::of(source, node)?;
     entries.refuse_properties(source, node)?;
     refuse_children(source, node)?;
-    match entries.arguments.as_slice() {
-        [value] => read_scalar(value).map_err(|error| source.error(node, &error)),
-        _ => Err(source.error(
+    let [argument] = entries.arguments.as_slice() else {
+        return Err(source.error(
             node,
-            "a param takes one value: a string, a number, a boolean, or #null",
+            "a param takes one value: a string, a number, a boolean, #null, or (json)\"…\"",
+        ));
+    };
+    match argument.ty().map(|ty| ty.value()) {
+        None => read_scalar(argument.value()).map_err(|error| source.error(node, &error)),
+        Some(JSON) => {
+            let text = argument
+                .value()
+                .as_string()
+                .ok_or_else(|| source.error(node, "a (json) value is a string"))?;
+            serde_json::from_str(text)
+                .map_err(|error| source.error(node, &format!("invalid JSON: {error}")))
+        }
+        Some(ty) => Err(source.error(
+            node,
+            &format!("unknown type annotation `({ty})`, only `(json)` is supported"),
         )),
     }
 }
@@ -304,14 +322,15 @@ fn refuse_children(source: &Source, node: &KdlNode) -> Result<()> {
 
 /// A node's entries, split into arguments and properties.
 struct Entries<'a> {
-    arguments: Vec<&'a KdlValue>,
+    /// The arguments with their type annotations, which only a param reads.
+    arguments: Vec<&'a KdlEntry>,
     properties: Vec<(&'a str, &'a KdlValue)>,
 }
 
 impl<'a> Entries<'a> {
-    /// Splits the entries. Type annotations fail, because nothing in the format reads them and a
-    /// persist would keep or drop them at random. A repeated property fails, because KDL lets the
-    /// last one win, which a hand edit rarely means.
+    /// Splits the entries. A type annotation on the node or on a property fails, because nothing
+    /// reads it and a persist would keep or drop it at random. A repeated property fails, because
+    /// KDL lets the last one win, which a hand edit rarely means.
     fn of(source: &Source, node: &'a KdlNode) -> Result<Self> {
         if node.ty().is_some() {
             return Err(source.error(node, "type annotations are not supported"));
@@ -321,11 +340,11 @@ impl<'a> Entries<'a> {
             properties: Vec::new(),
         };
         for entry in node.entries() {
-            if entry.ty().is_some() {
-                return Err(source.error(node, "type annotations are not supported"));
-            }
             match entry.name() {
-                None => entries.arguments.push(entry.value()),
+                None => entries.arguments.push(entry),
+                Some(_) if entry.ty().is_some() => {
+                    return Err(source.error(node, "type annotations are not supported"));
+                }
                 Some(key) => {
                     let key = key.value();
                     if entries.properties.iter().any(|(seen, _)| *seen == key) {
@@ -336,6 +355,22 @@ impl<'a> Entries<'a> {
             }
         }
         Ok(entries)
+    }
+
+    /// The argument values of a node that is not a param, whose arguments take no type annotation.
+    fn plain_arguments(&self, source: &Source, node: &KdlNode) -> Result<Vec<&'a KdlValue>> {
+        if self
+            .arguments
+            .iter()
+            .any(|argument| argument.ty().is_some())
+        {
+            return Err(source.error(node, "type annotations are not supported"));
+        }
+        Ok(self
+            .arguments
+            .iter()
+            .map(|argument| argument.value())
+            .collect())
     }
 
     /// Fails for a node that takes no properties but has one.
@@ -408,8 +443,8 @@ fn location(path: &Path, text: &str, offset: usize) -> String {
 
 // Writing
 
-/// Builds the node of a slot: a `launcher` with its params as children, or a `project` with its
-/// `mcp` node and its slots as children.
+/// Builds the node of a slot. A `launcher` holds its params as children, and a `project` holds its
+/// `mcp` node and its slots.
 fn slot_node(slot: &PersistedSlot) -> KdlNode {
     let (column, row) = slot.at;
     let at = KdlEntry::new_prop(AT, format!("{column},{row}"));
@@ -427,7 +462,7 @@ fn slot_node(slot: &PersistedSlot) -> KdlNode {
                     launcher
                         .params
                         .iter()
-                        .map(|(key, value)| param_node(&launcher.name, key, value)),
+                        .map(|(key, value)| param_node(key, value)),
                 );
             }
             node
@@ -452,16 +487,13 @@ fn slot_node(slot: &PersistedSlot) -> KdlNode {
     }
 }
 
-/// Writes one param as a node named by its key, with its value as the one argument.
-///
-/// # Panics
-///
-/// When the value is an array or an object. The tools refuse such params and the file cannot
-/// express them, so the aggregate never holds one (ADR 0037).
-fn param_node(launcher: &str, key: &str, value: &Value) -> KdlNode {
-    let value = match value {
-        Value::String(text) => KdlValue::String(text.clone()),
-        Value::Number(number) => match (number.as_i64(), number.as_u64()) {
+/// Writes one param as a node named by its key, with its value as the one argument. An array or an
+/// object becomes its JSON text, annotated `(json)`, and [`write_string_reprs`] gives that text
+/// its raw form.
+fn param_node(key: &str, value: &Value) -> KdlNode {
+    let entry = match value {
+        Value::String(text) => KdlEntry::new(text.as_str()),
+        Value::Number(number) => KdlEntry::new(match (number.as_i64(), number.as_u64()) {
             (Some(integer), _) => KdlValue::Integer(integer.into()),
             (None, Some(integer)) => KdlValue::Integer(integer.into()),
             (None, None) => KdlValue::Float(
@@ -469,39 +501,64 @@ fn param_node(launcher: &str, key: &str, value: &Value) -> KdlNode {
                     .as_f64()
                     .expect("A JSON number is an integer or a float"),
             ),
-        },
-        Value::Bool(boolean) => KdlValue::Bool(*boolean),
-        Value::Null => KdlValue::Null,
+        }),
+        Value::Bool(boolean) => KdlEntry::new(*boolean),
+        Value::Null => KdlEntry::new(KdlValue::Null),
         Value::Array(_) | Value::Object(_) => {
-            panic!("Launcher '{launcher}' holds the param '{key}' that is not a plain value")
+            let mut entry = KdlEntry::new(value.to_string());
+            entry.set_ty(JSON);
+            entry
         }
     };
     let mut node = KdlNode::new(key);
-    node.push(KdlEntry::new(value));
+    node.push(entry);
     node
 }
 
-/// Gives every node name and string value that holds a character KDL forbids in its text an
-/// escaped form of its own. `kdl` escapes only quotes, backslashes, and a few control characters.
-/// It writes the others as they are, and then cannot parse its own output.
-fn escape_forbidden_characters(nodes: &mut [KdlNode]) {
+/// Writes the strings that `kdl` would write wrongly or hard to read, after the autoformat, which
+/// resets every written form.
+///
+/// A name or string value that holds a character KDL forbids in its text gets an escaped form.
+/// `kdl` escapes only quotes, backslashes, and a few control characters. It writes the others as
+/// they are, and then cannot parse its own output. A `(json)` value gets a raw string, so its
+/// quotes need no backslashes.
+fn write_string_reprs(nodes: &mut [KdlNode]) {
     for node in nodes {
         if let Some(repr) = escaped(node.name().value()) {
             node.name_mut().set_repr(repr);
         }
         for entry in node.entries_mut() {
-            if let Some(repr) = entry.value().as_string().and_then(escaped) {
-                entry.set_format(KdlEntryFormat {
-                    value_repr: repr,
-                    leading: " ".into(),
-                    ..Default::default()
-                });
-            }
+            let Some(text) = entry.value().as_string() else {
+                continue;
+            };
+            let is_json = entry.ty().is_some_and(|ty| ty.value() == JSON);
+            let repr = match escaped(text) {
+                Some(repr) => repr,
+                None if is_json => raw(text),
+                None => continue,
+            };
+            entry.set_format(KdlEntryFormat {
+                value_repr: repr,
+                leading: " ".into(),
+                ..Default::default()
+            });
         }
         if let Some(children) = node.children_mut() {
-            escape_forbidden_characters(children.nodes_mut());
+            write_string_reprs(children.nodes_mut());
         }
     }
+}
+
+/// The raw string of `text`, such as `#"["a"]"#`, with one `#` more than the longest run of `#`
+/// that follows a quote inside it, so no quote in it ends the string.
+fn raw(text: &str) -> String {
+    let longest = text
+        .match_indices('"')
+        .map(|(index, _)| text[index + 1..].chars().take_while(|&c| c == '#').count())
+        .max()
+        .unwrap_or(0);
+    let hashes = "#".repeat(longest + 1);
+    format!("{hashes}\"{text}\"{hashes}")
 }
 
 /// The quoted text of `text` with every forbidden character escaped as `\u{…}`, or `None` when it
@@ -548,23 +605,48 @@ mod tests {
 
     const PATH: &str = "desktop.kdl";
 
-    /// A param is one plain value (ADR 0037). Every other shape fails the load, because an array
-    /// with one element would read back as its element.
+    /// A param is one value (ADR 0037). A plain value stands for itself, and a `(json)` string
+    /// holds any JSON value. Every other shape fails the load, because KDL would need a rule for
+    /// each, and a one-element array would read back as its element.
     #[test]
-    fn a_param_node_holds_exactly_one_value() -> Result<()> {
-        let params = params_of("text \"a\"\nnumber 2.5\nflag #true\nnothing #null")?;
+    fn a_param_node_holds_one_plain_or_json_value() -> Result<()> {
+        let params = params_of(
+            r##"
+            text "a"
+            number 2.5
+            nothing #null
+            args (json)#"["--login"]"#
+            env (json)"{\"PATH\": \"/bin\"}"
+            size (json)"12"
+            "##,
+        )?;
         assert_eq!(
             Value::Object(params),
-            serde_json::json!({ "text": "a", "number": 2.5, "flag": true, "nothing": null })
+            serde_json::json!({
+                "text": "a",
+                "number": 2.5,
+                "nothing": null,
+                "args": ["--login"],
+                "env": { "PATH": "/bin" },
+                "size": 12,
+            })
         );
-        for shape in ["none", "several 1 2", "prop key=1", "object { inner 2 }"] {
+        for shape in [
+            "none",
+            "several 1 2",
+            "prop key=1",
+            "object { inner 2 }",
+            "broken (json)\"[1,\"",
+            "other (u8)1",
+        ] {
             assert!(params_of(shape).is_err(), "`{shape}` should fail");
         }
         Ok(())
     }
 
-    /// A param written and read back keeps its value. A string with a character KDL forbids in its
-    /// text is escaped, because `kdl` writes it as it is and then cannot parse it.
+    /// A param written and read back keeps its value, an array with one element included. A string
+    /// with a character KDL forbids in its text is escaped, because `kdl` writes it as it is and
+    /// then cannot parse it. JSON text with `"#` in it needs a raw string with more `#`.
     #[test]
     fn params_round_trip_through_the_document() -> Result<()> {
         let params = serde_json::json!({
@@ -574,6 +656,10 @@ mod tests {
             "flag": false,
             "nothing": null,
             "key with spaces and \u{1b}": "x",
+            "one": ["--login"],
+            "nested": { "env": { "PATH": "/bin" }, "list": [[1], {}, []] },
+            "hashes": ["\"#", "\"##"],
+            "forbidden in json": ["\u{2028}"],
         });
         let Value::Object(params) = params else {
             unreachable!("the params are an object")

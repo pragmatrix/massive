@@ -11,8 +11,8 @@ use super::persisted::PersistedConfiguration;
 use super::reconcile::reconcile;
 use super::{kdl_format, write_atomic};
 use crate::policy::constants;
-use crate::policy::when::{self, NestingProjects};
-use crate::projects::{ProjectId, RuntimeConfiguration, SlotContent};
+use crate::policy::when::{self, NestingProjects, PersistingOverUnloadableFile};
+use crate::projects::RuntimeConfiguration;
 
 /// The file view of the desktop configuration: the path the KDL document, derived from the
 /// aggregate, is written to atomically.
@@ -49,14 +49,16 @@ impl ConfigurationPersistence {
         let tree = PersistedConfiguration::from_configuration(configuration);
         let fresh = kdl_format::write_document(&tree);
         let document = match self.read_existing_document() {
-            Ok(Some(existing)) => reconcile(existing, &fresh),
+            Ok(Some(existing)) => reconcile(existing, fresh),
             Ok(None) => fresh,
-            Err(error) => {
-                log::error!(
-                    "Configuration changes are not saved until the file loads again: {error:#}"
-                );
-                return;
-            }
+            Err(error) => match when::persisting_over_unloadable_file() {
+                PersistingOverUnloadableFile::KeepFile => {
+                    log::error!(
+                        "Configuration changes are not saved until the file loads again: {error:#}"
+                    );
+                    return;
+                }
+            },
         };
         let text = document.to_string();
         if let Err(error) = self.check_reads_back(&text, &tree) {
@@ -98,7 +100,7 @@ impl ConfigurationPersistence {
             }
         };
         let document = kdl_format::parse_document(&self.path, &text)?;
-        configuration_from_document(&self.path, &text, &document)?;
+        read_checked(&self.path, &text, &document)?;
         Ok(Some(document))
     }
 }
@@ -111,27 +113,21 @@ impl ConfigurationPersistence {
 /// there, and the user fixes the file.
 pub fn parse_configuration(path: &Path, text: &str) -> Result<RuntimeConfiguration> {
     let document = kdl_format::parse_document(path, text)?;
-    configuration_from_document(path, text, &document)
+    Ok(read_checked(path, text, &document)?.into_configuration())
 }
 
-/// Derives the aggregate from a document parsed from `text` and checks the nesting limit. The load
+/// Reads the typed tree from a document parsed from `text` and checks the nesting limit. The load
 /// and the persist share it, so a persist leaves alone exactly the files the load refuses.
-fn configuration_from_document(
-    path: &Path,
-    text: &str,
-    document: &KdlDocument,
-) -> Result<RuntimeConfiguration> {
-    let configuration = kdl_format::read_document(path, text, document)?.into_configuration();
-
-    // The root project counts as one level of its own nesting height.
-    let deepest_project = configuration.nesting_height(SlotContent::Project(ProjectId::ROOT)) - 1;
+fn read_checked(path: &Path, text: &str, document: &KdlDocument) -> Result<PersistedConfiguration> {
+    let tree = kdl_format::read_document(path, text, document)?;
+    let deepest_project = tree.project_depth();
     ensure!(
         when::nesting_projects(Some(deepest_project)) == NestingProjects::Allow,
         "{} nests projects {deepest_project} levels deep, at most {} are allowed",
         path.display(),
         constants::configuration::MAX_PROJECT_DEPTH
     );
-    Ok(configuration)
+    Ok(tree)
 }
 
 /// Writes the built-in default configuration to the file, for callers that decide

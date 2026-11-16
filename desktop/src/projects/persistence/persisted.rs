@@ -91,6 +91,13 @@ impl PersistedConfiguration {
         configuration
     }
 
+    /// How many levels of projects nest below the root project: 0 without projects, 1 for projects
+    /// in the root's slots, and one more for each level below. The load checks it against the
+    /// limit without building the aggregate.
+    pub fn project_depth(&self) -> usize {
+        slots_depth(&self.slots)
+    }
+
     /// Builds the document from the aggregate: a walk from the root through the
     /// slot links, rebuilding the tree. The aggregate keeps every project's
     /// slots in position order, so the output is deterministic. The walk reads
@@ -145,6 +152,18 @@ fn persisted_slots(
         }
     }
     parsed
+}
+
+/// How many levels of projects the slots bring along, recursing into each nested project.
+fn slots_depth(slots: &[PersistedSlot]) -> usize {
+    slots
+        .iter()
+        .map(|slot| match &slot.content {
+            PersistedSlotContent::Launcher(_) => 0,
+            PersistedSlotContent::Project(project) => 1 + slots_depth(&project.slots),
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// Gives a configuration that defines no launcher one in the root project, so

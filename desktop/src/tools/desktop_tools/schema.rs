@@ -161,11 +161,11 @@ impl TryFrom<String> for TargetName {
     }
 }
 
-/// The params of a launcher that a tool creates. Decoding refuses a param that is an array or an
-/// object, because the configuration file holds only plain values (ADR 0037), and the schema
-/// states the value types.
+/// The params of a launcher that a tool creates. Any JSON value fits, because the configuration
+/// file writes arrays and objects as JSON text (ADR 0037). The tool protocol's decoder bounds their
+/// nesting, so the file reads them back with the same JSON parser.
 #[derive(Debug, Deserialize, Into)]
-#[serde(try_from = "Params")]
+#[serde(transparent)]
 pub struct LauncherParams(Params);
 
 impl JsonSchema for LauncherParams {
@@ -182,7 +182,6 @@ impl JsonSchema for LauncherParams {
             "type": "object",
             "description": "Passed to the application when an instance starts, such as a command \
                             to run.",
-            "additionalProperties": { "type": ["string", "number", "boolean", "null"] },
         })
     }
 }
@@ -190,24 +189,6 @@ impl JsonSchema for LauncherParams {
 impl LauncherParams {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-}
-
-impl TryFrom<Params> for LauncherParams {
-    type Error = String;
-
-    fn try_from(params: Params) -> Result<Self, Self::Error> {
-        if let Some((key, _)) = params.iter().find(|(_, value)| {
-            matches!(
-                value,
-                serde_json::Value::Array(_) | serde_json::Value::Object(_)
-            )
-        }) {
-            return Err(format!(
-                "the param `{key}` is not a string, number, boolean, or null"
-            ));
-        }
-        Ok(Self(params))
     }
 }
 
@@ -388,21 +369,5 @@ mod tests {
         let error = decode_arguments::<AssignSlotParams>(&arguments(longest + "n")).unwrap_err();
         assert_eq!(error.code, ToolErrorCode::INVALID_ARGUMENT);
         assert!(decode_arguments::<AssignSlotParams>(&arguments(String::new())).is_err());
-    }
-
-    /// The configuration file holds only plain values, so a tool cannot create a param that is an
-    /// array or an object (ADR 0037).
-    #[test]
-    fn decoding_refuses_params_that_are_not_plain_values() {
-        let decode = |params: serde_json::Value| {
-            let serde_json::Value::Object(params) = params else {
-                unreachable!("the params are an object")
-            };
-            LauncherParams::try_from(params)
-        };
-
-        assert!(decode(serde_json::json!({ "command": "just", "count": 1, "flag": true })).is_ok());
-        assert!(decode(serde_json::json!({ "args": ["--login"] })).is_err());
-        assert!(decode(serde_json::json!({ "env": { "PATH": "/bin" } })).is_err());
     }
 }

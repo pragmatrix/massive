@@ -183,6 +183,19 @@ pub fn loading_without_launcher() -> LoadingWithoutLauncher {
     LoadingWithoutLauncher::AddDefaultLauncher
 }
 
+/// What a persist does when the configuration file on disk does not load (ADR 0037).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistingOverUnloadableFile {
+    /// A file that does not load is a hand edit in progress, which a write would destroy. The
+    /// changes stay unsaved until the file loads again, and the next persist then writes them all.
+    KeepFile,
+}
+
+#[must_use]
+pub fn persisting_over_unloadable_file() -> PersistingOverUnloadableFile {
+    PersistingOverUnloadableFile::KeepFile
+}
+
 /// Which launcher the session boots into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Booting {

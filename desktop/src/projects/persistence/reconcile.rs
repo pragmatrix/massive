@@ -1,4 +1,4 @@
-//! The reconcile of ADR 0037: it carries the comments and formatting of the file on disk over to
+//! The reconcile of ADR 0037. It carries the comments and formatting of the file on disk over to
 //! the fresh document derived from the aggregate.
 //!
 //! The result reads as exactly the fresh document, so the aggregate in memory decides every value.
@@ -16,8 +16,10 @@ use super::kdl_format::{slot_name, slot_position};
 
 /// Reconciles `fresh`, the document derived from the aggregate, into `existing`, the document parsed
 /// from the file. The returned document follows the order of `fresh`.
-pub fn reconcile(mut existing: KdlDocument, fresh: &KdlDocument) -> KdlDocument {
+pub fn reconcile(mut existing: KdlDocument, mut fresh: KdlDocument) -> KdlDocument {
     keep_file_header(&mut existing);
+    lift_block_line_breaks(existing.nodes_mut());
+    lift_block_line_breaks(fresh.nodes_mut());
     reconcile_nodes(existing.nodes_mut(), fresh.nodes());
     existing
 }
@@ -51,8 +53,34 @@ fn keep_file_header(document: &mut KdlDocument) {
         .push_str(&header);
 }
 
+/// Moves the line break after each `{` from the first child's leading text into the block's own.
+/// The parser attaches it to the first child, so removing or reordering that child would otherwise
+/// put the next child on the line of the brace.
+fn lift_block_line_breaks(nodes: &mut [KdlNode]) {
+    for node in nodes {
+        let Some(children) = node.children_mut() else {
+            continue;
+        };
+        if let Some(first) = children.nodes_mut().first_mut() {
+            let leading = &mut first
+                .format_mut()
+                .expect("A parsed node has a format")
+                .leading;
+            if leading.starts_with('\n') {
+                leading.remove(0);
+                children
+                    .format_mut()
+                    .expect("A parsed document has a format")
+                    .leading
+                    .push('\n');
+            }
+        }
+        lift_block_line_breaks(children.nodes_mut());
+    }
+}
+
 /// Reconciles the children of one node, or the top-level nodes, and recurses into every matched
-/// pair, so the same rules apply to slots, spawn parameters, and nested param objects.
+/// pair, so the same rules apply to slots and spawn parameters.
 fn reconcile_nodes(existing: &mut Vec<KdlNode>, fresh: &[KdlNode]) {
     let pairs = pair_nodes(existing, fresh);
     let mut existing_nodes: Vec<Option<KdlNode>> =
@@ -77,31 +105,69 @@ fn reconcile_nodes(existing: &mut Vec<KdlNode>, fresh: &[KdlNode]) {
 /// Pairs each fresh node with at most one existing node, as the index of the existing node.
 ///
 /// A node without a position, such as `startup`, `mcp`, or a spawn parameter, pairs by its node
-/// name alone in the first pass. Slot nodes pair in three passes: by kind, position, and name, then by
-/// kind and name, then by kind and position. A moved slot, even one swapped with another, so keeps
-/// its comments and, for a project, its subtree, and a slot renamed in place keeps them too. Nodes
-/// with equal keys pair in document order.
+/// name alone in the first pass. Slot nodes pair in three passes: by kind, position, and name, then
+/// by kind and name, then by kind and position. A moved slot, even one swapped with another, so
+/// keeps its comments and, for a project, its subtree, and a slot renamed in place keeps them too.
+/// Nodes with equal keys pair in document order.
 fn pair_nodes(existing: &[KdlNode], fresh: &[KdlNode]) -> Vec<Option<usize>> {
+    let existing: Vec<NodeKey> = existing.iter().map(NodeKey::of).collect();
+    let fresh: Vec<NodeKey> = fresh.iter().map(NodeKey::of).collect();
     let mut pairs = vec![None; fresh.len()];
     let mut paired = vec![false; existing.len()];
     pair_by(
-        existing,
-        fresh,
-        |node| Some(full_key(node)),
+        &existing,
+        &fresh,
+        |key| Some((key.kind, key.position, key.name)),
         &mut pairs,
         &mut paired,
     );
-    pair_by(existing, fresh, name_key, &mut pairs, &mut paired);
-    pair_by(existing, fresh, position_key, &mut pairs, &mut paired);
+    pair_by(
+        &existing,
+        &fresh,
+        |key| Some((key.kind, key.name?)),
+        &mut pairs,
+        &mut paired,
+    );
+    pair_by(
+        &existing,
+        &fresh,
+        |key| Some((key.kind, key.position?)),
+        &mut pairs,
+        &mut paired,
+    );
     pairs
+}
+
+/// What identifies a node among its siblings, derived once per node for all passes of
+/// [`pair_nodes`].
+#[derive(Debug, Clone, Copy)]
+struct NodeKey<'a> {
+    /// The node name: the kind of a slot node, or the key of a spawn parameter.
+    kind: &'a str,
+    /// The slot position, `None` for a node that is not a slot.
+    position: Option<(u32, u32)>,
+    /// The slot name, `None` for a node that is not a slot. A param's argument is its value, which
+    /// may change, so it identifies nothing.
+    name: Option<&'a str>,
+}
+
+impl<'a> NodeKey<'a> {
+    fn of(node: &'a KdlNode) -> Self {
+        let position = slot_position(node);
+        Self {
+            kind: node.name().value(),
+            position,
+            name: position.and(slot_name(node)),
+        }
+    }
 }
 
 /// One pass of [`pair_nodes`]: pairs the fresh nodes not yet paired with the existing nodes not yet
 /// paired that have the same key. A node whose key is `None` takes no part in the pass.
 fn pair_by<'a, K: Eq + Hash>(
-    existing: &'a [KdlNode],
-    fresh: &'a [KdlNode],
-    key: impl Fn(&'a KdlNode) -> Option<K>,
+    existing: &[NodeKey<'a>],
+    fresh: &[NodeKey<'a>],
+    key: impl Fn(&NodeKey<'a>) -> Option<K>,
     pairs: &mut [Option<usize>],
     paired: &mut [bool],
 ) {
@@ -125,25 +191,6 @@ fn pair_by<'a, K: Eq + Hash>(
             paired[index] = true;
         }
     }
-}
-
-/// The kind, position, and name of a slot node, or the node name alone of any other node. The name of
-/// a node without a position stays out, because a param's argument is its value, which may change.
-fn full_key(node: &KdlNode) -> (&str, Option<(u32, u32)>, Option<&str>) {
-    let position = slot_position(node);
-    (node.name().value(), position, position.and(slot_name(node)))
-}
-
-/// The kind and name of a slot node. A node without a position is not a slot, so it takes no part
-/// in this pass.
-fn name_key(node: &KdlNode) -> Option<(&str, &str)> {
-    slot_position(node)?;
-    Some((node.name().value(), slot_name(node)?))
-}
-
-/// The kind and position of a slot node.
-fn position_key(node: &KdlNode) -> Option<(&str, (u32, u32))> {
-    Some((node.name().value(), slot_position(node)?))
 }
 
 /// Gives a matched existing node the values and children of its fresh counterpart, and keeps its
@@ -170,7 +217,13 @@ fn reconcile_node(existing: &mut KdlNode, fresh: &KdlNode) {
                 .before_children = before_children;
             existing.set_children(fresh_children.clone());
         }
-        (Some(_), None) => existing.clear_children(),
+        (Some(existing_children), None) => {
+            // A block that keeps a comment or a commented-out node stays, now without nodes.
+            reconcile_nodes(existing_children.nodes_mut(), &[]);
+            if existing_children.to_string().trim().is_empty() {
+                existing.clear_children();
+            }
+        }
         (None, None) => {}
     }
 }
@@ -334,6 +387,27 @@ launcher shell at=\"1,0\" {
         assert_eq!(reconciled(existing, fresh), "launcher build at=\"1,0\"\n");
     }
 
+    /// Removing the first slot of a project leaves the next one on a line of its own.
+    #[test]
+    fn removing_the_first_child_keeps_the_block_layout() {
+        let existing =
+            "project p at=\"0,0\" {\n    launcher a at=\"0,0\"\n    launcher b at=\"1,0\"\n}\n";
+        let fresh = "project p at=\"0,0\" {\n    launcher b at=\"1,0\"\n}\n";
+        assert_eq!(reconciled(existing, fresh), fresh);
+    }
+
+    /// A launcher whose last param goes keeps its block while a comment remains in it.
+    #[test]
+    fn a_block_with_comments_stays_when_its_last_param_goes() {
+        let existing =
+            "launcher shell at=\"0,0\" {\n    command zsh\n    // Try: command \"zsh -l\"\n}\n";
+        let fresh = "launcher shell at=\"0,0\"\n";
+        assert_eq!(
+            reconciled(existing, fresh),
+            "launcher shell at=\"0,0\" {\n    // Try: command \"zsh -l\"\n}\n"
+        );
+    }
+
     /// The comments at the top of the file stay there, even when the node below them goes away.
     #[test]
     fn the_file_header_stays_when_the_first_node_goes() {
@@ -368,10 +442,11 @@ launcher build at=\"1,0\"
         let existing = kdl_format::parse_document(path, existing).unwrap();
         let fresh =
             kdl_format::write_document(&kdl_format::read_configuration(path, fresh).unwrap());
-        let text = reconcile(existing, &fresh).to_string();
+        let fresh_tree = kdl_format::read_document(path, &fresh.to_string(), &fresh).unwrap();
+        let text = reconcile(existing, fresh).to_string();
         assert_eq!(
             kdl_format::read_configuration(path, &text).unwrap(),
-            kdl_format::read_document(path, &fresh.to_string(), &fresh).unwrap(),
+            fresh_tree,
             "{text}"
         );
         text
