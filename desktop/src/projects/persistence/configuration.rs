@@ -143,7 +143,7 @@ const DEFAULT_CONFIG: &str = r#"// The desktop configuration: projects, launcher
 // The terminal writes its changes to this file and keeps comments and formatting.
 //
 // `at` is a slot's position as "column,row". The child nodes of a launcher are its spawn
-// parameters, for example `command "ssh home"`.
+// parameters, for example `command "just test"`.
 
 startup "/Primary / Local/Primary / Local"
 

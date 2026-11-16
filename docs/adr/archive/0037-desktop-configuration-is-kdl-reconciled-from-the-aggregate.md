@@ -81,12 +81,12 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   values are omitted: `full_screen_mode` is written only for `fullscreen`.
 
   ```kdl
-  startup "/ffm + ber/fs110"
+  startup "/labs/shell"
 
-  project "ffm + ber" at="0,2" {
-      // The frontend servers.
-      launcher fs110 at="0,0" {
-          command "ssh fs110"
+  project labs at="0,2" {
+      // The build tools.
+      launcher shell at="0,0" {
+          command "just test"
       }
       launcher build at="1,0" full_screen_mode=fullscreen
   }
@@ -102,7 +102,7 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   an MCP root.
 - **A spawn parameter is a child node of its launcher, named by its key, with
   its value as its one argument.** A plain value, a string, a number, a boolean,
-  or `#null`, stands for itself, as in `command "ssh fs110"`. An array or an
+  or `#null`, stands for itself, as in `command "just test"`. An array or an
   object is its JSON text in a string annotated `(json)`, written as a raw
   string so its quotes need no backslashes, as in
   `args (json)#"["--login"]"#`. Every JSON value therefore reads back exactly.
@@ -160,7 +160,7 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
   `docs/desktop-configuration-file-observer-plan.md`.
 - A node whose values changed loses the formatting of its values, such as quotes.
   `kdl` 6 writes KDL v2, which leaves plain strings unquoted, for example
-  `launcher fs110`.
+  `launcher shell`.
 - Node identity tags (ADR 0010) do not return. Duplicate names stay legal, because
   a node is identified by its slot position first. The pass that matches by name
   sees only the nodes that position could not pair.
@@ -183,7 +183,7 @@ The desktop configuration is stored as KDL in `~/.massive/desktop.kdl`.
 - **RON or JSON5.** Rejected: no Rust crate found writes either format back with its
   comments, so every persist would drop them.
 - **Surgical edits per change, as in ADR 0006.** Rejected, for ADR 0013's reasons.
-- **The slot position as two numbers after the name (`launcher fs110 0 0`).**
+- **The slot position as two numbers after the name (`launcher shell 0 0`).**
   Rejected: it is the shortest form, but the numbers' meaning comes only from their
   place.
 - **The slot position as `column=0 row=0`, as before.** Rejected: it explains
