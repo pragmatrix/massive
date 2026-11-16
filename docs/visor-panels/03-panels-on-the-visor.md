@@ -80,8 +80,11 @@ views.
   the offsets stay valid.
 - **Each panel has a title bar.** It shows the title of the panel's remembered view
   ([ADR 0019](../adr/archive/0019-instance-title-bar-is-part-of-the-instance-extent.md) applies per panel).
-  The title bar is a node of the stage tree under its panel. A click on it still selects its
-  target.
+  The title bar is a node of the stage tree under its panel.
+- **A title bar is a part of the panel's remembered view.** A click on it selects that view, as a
+  part selects the target it belongs to today. The view is already centered in its panel, so the
+  click slides nothing, and the arc centers on the panel. When the panel's remembered view changes,
+  the title bar's target changes with it.
 
 ### Scale
 

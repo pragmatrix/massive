@@ -237,6 +237,9 @@ the arc, and only the desktop knows the arc.
 - The visor stage keeps the center visor view. It reports that view on its parent side, so that the
   desktop core can focus it when the user re-enters the launcher.
 - A collapsed visor shows the primary view of the instance that holds the center visor view.
+- Each panel has a title bar that shows the title of the panel's remembered view. The title bar is a
+  part of that view, so a click on it selects the view. Today's title bar is a part of its instance,
+  which no longer identifies one bar once an instance has several panels.
 - The camera frames a launcher by the placements of the visor stage's children, which are panels.
   The visor-specific framing in
   [zoom_geometry.rs](../../desktop/src/desktop_system/navigation/zoom_geometry.rs) already reads

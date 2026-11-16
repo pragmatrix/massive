@@ -87,7 +87,8 @@ lane counts it receives.
   and its place on the arc, scaled by its instance's instance scale
   ([03](03-panels-on-the-visor.md)).
 - **A title bar per panel**, placed as a node of the stage tree under its panel. It shows the title
-  of the panel's remembered view.
+  of the panel's remembered view, and its target is a part of that view
+  ([03](03-panels-on-the-visor.md)).
 - **Positions** for all views, relative to their panels.
 - **The panel structure**, reported to the parent side for the connector stage. It is the order of
   the panels, the stack of views in each, the connectors, and the port rects, without sizes. A
