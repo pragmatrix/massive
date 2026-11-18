@@ -46,9 +46,11 @@ scheduler. Changes are not effects, because a change carries data and is not ide
 "move the selected slots left" changes are not the same as one.
 
 `ChangeSurface` and the hand-written tail of `transact` are gone. A change tells the effects of its
-transaction only by marking effects. When it affects how other effects run, as setting the
-selection or resizing the window does, it marks an effect that adjusts the transaction context
-(feature 13).
+transaction only by marking effects. When it affects how other effects run, as resizing the window
+does, it marks an effect that adjusts the transaction context (feature 13). The selection is not an
+effect. A change that moves the focus, changes the zoom level, or moves slots under the selection
+sets the default selection, which collapses it, and a selection that a later change sets replaces
+it.
 
 ## Features of the effect scheduler
 
@@ -167,12 +169,12 @@ would run against results that are not final yet, without any error.
 After handling an effect of kind `A`, the scheduler marks every effect kind that has no subject and
 declares that it reads `A`.
 
-Why: `SynchronizeCamera` and `UpdateHover` read many kinds, among them the placements, the
-selection, and the desired camera. If every handler of those kinds had to mark them, a forgotten
-mark would leave a stale hover outline or camera without any error. Marking them only when
-something they read was handled means that a transaction that touches none of their inputs does not
-run them at all. Kinds with a subject cannot be marked this way, because the scheduler cannot know
-which subject is affected.
+Why: `SynchronizeCamera` and `UpdateHover` read several kinds, among them the placements and the
+desired camera. If every handler of those kinds had to mark them, a forgotten mark would leave a
+stale hover outline or camera without any error. Marking them only when something they read was
+handled means that a transaction that touches none of their inputs does not run them at all. Kinds
+with a subject cannot be marked this way, because the scheduler cannot know which subject is
+affected.
 
 Automatic marks cover only inputs that effects produce. An input that no effect produces is marked
 where it changes. The presented camera is such an input: a gesture freezes it behind its desired
@@ -191,10 +193,8 @@ access to a task-local fail loudly, so a borrow held during handling would panic
 
 Handling receives a context that holds the transaction's effects mode and what the transaction's
 changes told its effects through marks. `transact` creates it from the effects mode. The handling
-of `SnapPresentation`, which a window resize marks, makes the layout and the camera snap. The
-handling of `KeepSelection`, which setting the selection marks, keeps `CollapseSelection` from
-collapsing the selection. Whether layout animates and the camera presentation mode follow from the
-context.
+of `SnapPresentation`, which a window resize marks, makes the layout and the camera snap. Whether
+layout animates and the camera presentation mode follow from the context.
 
 Why: `ApplyLayout` animates only when the transaction permits it, `SynchronizeCamera` needs the
 camera presentation mode, and persisting the configuration is skipped in setup transactions. A kind
@@ -241,8 +241,8 @@ moves into `massive-util` when a second user appears.
 - **Ordering by declared marks, or by a hand-maintained phase enum.** Both miss reads that no mark
   expresses, as with `Reparent` (feature 6).
 - **Asking whether an effect is pending.** Handling would then depend on whether another effect was
-  already handled, which ties the outcome to the order. A kind such as `CollapseSelection` reads
-  `KeepSelection` instead, which the reads order before it (feature 13).
+  already handled, which ties the outcome to the order. The changes set the selection themselves
+  instead, in the order they were planned.
 - **Comparing the zoom level and focus before and after the transaction.** That reacts only to the
   net change, but it is a second mechanism next to marking. The places that set the focus and the
   zoom level mark instead.
@@ -268,9 +268,11 @@ moves into `massive-util` when a second user appears.
   last resize, which can arrive after the window changed.
 - The desired camera is resolved again after every rank batch of `Measure` or `Place`, including
   measures that only other effects marked, such as a refreshed column count.
-- That the transaction set the selection or resized the window lives in the transaction context
-  for as long as the transaction runs, not in the desktop state and not in `Selection`. `Selection`
-  is compared with its default to tell whether it is extended, so a flag inside it would break
-  that comparison.
+- That the transaction resized the window lives in the transaction context for as long as the
+  transaction runs, not in the desktop state.
+- Whether a selection survives its transaction depends on the order of the changes. Only a selection
+  set after the last change that moves the focus or the slots under it remains, so the planners set
+  the selection last. Every change of the selection goes through one method, which marks the
+  desired camera and the hover outline.
 - `SetWindowFullScreen` asks for the opposite of the recorded live fullscreen state when it is
   handled, after all changes of its transaction, so it carries no requested state of its own.

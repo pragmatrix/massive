@@ -275,10 +275,12 @@ async fn the_outline_reads_a_slot_added_in_the_same_transaction() -> Result<()> 
             FocusableTarget::Launcher(a),
         )?;
 
-        let mut changes = system.plan(DesktopCommand::ExtendSelection(Direction::Right))?;
-        changes += system.plan(DesktopCommand::ConfigureSelection(
+        // The selection comes after the added launcher, because the launcher takes the focus and
+        // so collapses a selection set before it.
+        let mut changes = system.plan(DesktopCommand::ConfigureSelection(
             SelectionOperation::AddLauncher,
         ))?;
+        changes += system.plan(DesktopCommand::ExtendSelection(Direction::Right))?;
         system.transact(
             changes,
             &mut instance_manager,

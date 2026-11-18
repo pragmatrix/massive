@@ -24,10 +24,6 @@ impl DesktopSystem {
             DesktopEffect::RefreshMcpIndicators(project) => {
                 self.refresh_mcp_indicators_effect(project)
             }
-            DesktopEffect::KeepSelection => context.keep_selection = true,
-            DesktopEffect::CollapseSelection => {
-                self.collapse_selection_unless_kept(context.keep_selection)
-            }
             DesktopEffect::ShowZoomLevel => self.show_zoom_level_effect(context.effects_mode),
             DesktopEffect::Measure(target) => self.layout_pass().measure(target),
             DesktopEffect::Place(root) => self.layout_pass().place(root),
@@ -77,15 +73,6 @@ impl DesktopSystem {
             && let Some((zoom_level, project_depth)) = self.zoom_navigation().focused_zoom_level()
         {
             self.zoom_level_indicator.show(zoom_level, project_depth);
-        }
-    }
-
-    /// A focus or zoom change, and a configuration change the selection does not survive, collapse
-    /// the selection, unless the transaction set it and so marked `KeepSelection`, because then the
-    /// operation that set it planned these changes (ADR 0025, ADR 0033).
-    fn collapse_selection_unless_kept(&mut self, keep_selection: bool) {
-        if !keep_selection {
-            self.selection.collapse();
         }
     }
 

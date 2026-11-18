@@ -22,13 +22,6 @@ pub enum DesktopEffect {
     /// Refreshes the MCP indicators of the project and everything below it, after configuration
     /// changes may have changed them (ADR 0036).
     RefreshMcpIndicators(ProjectId),
-    /// Keeps the selection from collapsing in this transaction, because a change set it and the
-    /// operation that set it planned the transaction's other changes (ADR 0025, ADR 0033).
-    KeepSelection,
-    /// Collapses the selection unless the transaction set it. Changing the focus or the zoom level
-    /// marks it, and so does a configuration change that moves slots under the selection
-    /// (ADR 0025, ADR 0033).
-    CollapseSelection,
     /// Shows the zoom level indicator for the focused target, except in setup transactions
     /// (ADR 0018).
     ShowZoomLevel,
@@ -68,10 +61,7 @@ impl EffectKind for DesktopEffectKind {
     fn reads(self) -> &'static [Self] {
         use DesktopEffectKind::*;
         match self {
-            RefreshColumnCount | RefreshMcpIndicators | KeepSelection | ShowZoomLevel
-            | SnapPresentation => &[],
-            // The transaction context tells whether a change set the selection.
-            CollapseSelection => &[KeepSelection],
+            RefreshColumnCount | RefreshMcpIndicators | ShowZoomLevel | SnapPresentation => &[],
             // A matrix lays out its column count, and a header measures its MCP indicator text.
             // A target is measured from the sizes of its children.
             Measure => &[RefreshColumnCount, RefreshMcpIndicators, Measure],
@@ -81,13 +71,15 @@ impl EffectKind for DesktopEffectKind {
             Reparent => &[Place],
             // The transaction context tells whether the layout animates.
             ApplyLayout => &[Place, Reparent, SnapPresentation],
-            // The camera frames the placed focus and keeps the selection in view (ADR 0032).
-            UpdateDesiredCamera => &[Measure, Place, CollapseSelection],
+            // The camera frames the placed focus. Setting the selection marks it, because the camera
+            // keeps the selection in view (ADR 0032).
+            UpdateDesiredCamera => &[Measure, Place],
             // The transaction context tells the camera presentation mode.
             SynchronizeCamera => &[UpdateDesiredCamera, SnapPresentation],
             LayoutZoomLevelIndicator => &[ShowZoomLevel],
-            // The hover outline marks a placement, the selection, or the keyboard focus.
-            UpdateHover => &[Place, CollapseSelection],
+            // The hover outline marks a placement, the selection, or the keyboard focus. Changes of the
+            // selection and the focus mark it directly.
+            UpdateHover => &[Place],
             SetWindowFullScreen | AnnounceMcpRoot | PersistConfiguration => &[],
         }
     }
@@ -103,8 +95,6 @@ impl Effect for DesktopEffect {
     fn without_subject(kind: DesktopEffectKind) -> Option<Self> {
         use DesktopEffectKind::*;
         match kind {
-            KeepSelection => Some(Self::KeepSelection),
-            CollapseSelection => Some(Self::CollapseSelection),
             SnapPresentation => Some(Self::SnapPresentation),
             ShowZoomLevel => Some(Self::ShowZoomLevel),
             UpdateDesiredCamera => Some(Self::UpdateDesiredCamera),

@@ -6,6 +6,7 @@
 use euclid::{Vector2D, vec2};
 
 use super::change::{Changes, DesktopChange, set_focus};
+use super::effects::DesktopEffect;
 use super::topology::DesktopTopology;
 use super::{DesktopSystem, Direction, FocusableTarget, KeyboardFocusReason, LayoutContext};
 use crate::projects::{
@@ -29,6 +30,18 @@ impl DesktopSystem {
         let focused = self.keyboard_focus.focused()?;
         let (_, project, _) = self.selection_context().focused_slot(focused)?;
         Some(project)
+    }
+
+    /// Replaces the selection. Every change of the selection goes through here. A focus or zoom
+    /// change, and a configuration change that moves slots under the selection, set the default
+    /// selection, which collapses it. A selection that a plan sets after such a change replaces the
+    /// collapsed one, because changes run in the order they were planned (ADR 0025, ADR 0033).
+    pub(super) fn set_selection(&mut self, selection: Selection) {
+        self.selection = selection;
+        // The camera keeps an extended selection in view (ADR 0032), and the hover outline
+        // surrounds it.
+        DesktopEffect::UpdateDesiredCamera.mark();
+        DesktopEffect::UpdateHover.mark();
     }
 }
 
@@ -60,17 +73,6 @@ impl Selection {
     /// Whether the selection reaches beyond the focused slot.
     pub fn is_extended(&self) -> bool {
         *self != Self::default()
-    }
-
-    /// Replaces the selection. The change that calls it marks `KeepSelection`, so the selection
-    /// survives the focus and configuration changes planned together with it.
-    pub fn set(&mut self, selection: Selection) {
-        *self = selection;
-    }
-
-    /// Collapses the selection to the focused slot.
-    pub fn collapse(&mut self) {
-        *self = Self::default();
     }
 
     /// Plans extending the selection by one slot in `direction` (Shift+Cmd+arrow), starting from

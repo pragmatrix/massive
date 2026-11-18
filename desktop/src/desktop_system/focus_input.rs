@@ -7,6 +7,7 @@ use massive_renderer::RenderGeometry;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::effects::DesktopEffect;
 use super::keyboard_focus::WindowFocusRequest;
+use super::selection::Selection;
 use super::{
     DesktopSystem, DesktopTarget, FocusableTarget, KeyInput, KeyboardFocusReason, LayoutInputs,
     ZoomLevel,
@@ -110,7 +111,7 @@ impl DesktopSystem {
             for target in [change.from, change.to].into_iter().flatten() {
                 DesktopEffect::Measure(target.into()).mark();
             }
-            DesktopEffect::CollapseSelection.mark();
+            self.set_selection(Selection::default());
             DesktopEffect::ShowZoomLevel.mark();
         }
         if let Some(change) = focus_change {

@@ -160,8 +160,6 @@ struct TransactionContext {
     /// Set by `SnapPresentation`, which a window resize marks. Read through `camera_mode` and
     /// `animate_layout`.
     snap_presentation: bool,
-    /// Set by `KeepSelection`, which setting the selection marks. Read by `CollapseSelection`.
-    keep_selection: bool,
 }
 
 impl TransactionContext {
@@ -169,7 +167,6 @@ impl TransactionContext {
         Self {
             effects_mode,
             snap_presentation: false,
-            keep_selection: false,
         }
     }
 

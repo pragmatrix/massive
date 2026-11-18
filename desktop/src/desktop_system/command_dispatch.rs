@@ -419,14 +419,7 @@ impl DesktopSystem {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
-            DesktopChange::SetSelection(selection) => {
-                self.selection.set(selection);
-                DesktopEffect::KeepSelection.mark();
-                // The camera keeps an extended selection in view (ADR 0032), and the hover outline
-                // surrounds it.
-                DesktopEffect::UpdateDesiredCamera.mark();
-                DesktopEffect::UpdateHover.mark();
-            }
+            DesktopChange::SetSelection(selection) => self.set_selection(selection),
             DesktopChange::SetInputFocus(input_focus) => {
                 self.keyboard_focus.set_input_focus(input_focus);
                 // The hover outline marks the keyboard focus only while the input focus is at a
@@ -439,7 +432,7 @@ impl DesktopSystem {
                     if let Some(focused) = self.focused_target() {
                         DesktopEffect::Measure(focused).mark();
                     }
-                    DesktopEffect::CollapseSelection.mark();
+                    self.set_selection(Selection::default());
                     DesktopEffect::ShowZoomLevel.mark();
                 }
             }
@@ -558,7 +551,7 @@ impl DesktopSystem {
                             || ungrouped == Some(SlotContent::Project(holding))
                     });
                 if under_selection {
-                    DesktopEffect::CollapseSelection.mark();
+                    self.set_selection(Selection::default());
                 }
                 DesktopEffect::PersistConfiguration.mark();
                 return self.apply_project_change(project_change);
