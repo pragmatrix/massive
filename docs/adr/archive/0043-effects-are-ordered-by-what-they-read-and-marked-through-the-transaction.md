@@ -45,9 +45,10 @@ Then `transact` drops the pending effects of targets that a later change removed
 scheduler. Changes are not effects, because a change carries data and is not idempotent: two
 "move the selected slots left" changes are not the same as one.
 
-`ChangeSurface` and the hand-written tail of `transact` are gone. Facts that a change records for
-the effects of the same transaction, such as "this transaction set the selection", live in the
-desktop state and are reset when the transaction ends.
+`ChangeSurface` and the hand-written tail of `transact` are gone. A change tells the effects of its
+transaction only by marking effects. When it affects how other effects run, as setting the
+selection or resizing the window does, it marks an effect that adjusts the transaction context
+(feature 13).
 
 ## Features of the effect scheduler
 
@@ -186,13 +187,20 @@ task-local before it handles the batch.
 Why: the handling marks further effects through the same task-local. ADR 0008 makes re-entrant
 access to a task-local fail loudly, so a borrow held during handling would panic on the first mark.
 
-### 13. A read-only transaction context
+### 13. A transaction context that effects adjust
 
-Handling receives a read-only context that holds the transaction's effects mode, whether layout
-animates, and the camera presentation mode.
+Handling receives a context that holds the transaction's effects mode and what the transaction's
+changes told its effects through marks. `transact` creates it from the effects mode. The handling
+of `SnapPresentation`, which a window resize marks, makes the layout and the camera snap. The
+handling of `KeepSelection`, which setting the selection marks, keeps `CollapseSelection` from
+collapsing the selection. Whether layout animates and the camera presentation mode follow from the
+context.
 
 Why: `ApplyLayout` animates only when the transaction permits it, `SynchronizeCamera` needs the
-camera presentation mode, and persisting the configuration is skipped in setup transactions.
+camera presentation mode, and persisting the configuration is skipped in setup transactions. A kind
+that reads the context declares the effects that adjust it as read, so the reads order every
+adjustment before the handling that depends on it (features 6 and 7). A change then needs no
+channel to the effects besides marking, and nothing about a transaction outlives it.
 
 ### 14. An outbox for system effects
 
@@ -233,8 +241,8 @@ moves into `massive-util` when a second user appears.
 - **Ordering by declared marks, or by a hand-maintained phase enum.** Both miss reads that no mark
   expresses, as with `Reparent` (feature 6).
 - **Asking whether an effect is pending.** Handling would then depend on whether another effect was
-  already handled, which ties the outcome to the order. Facts such as "this transaction set the
-  selection" live in the desktop state instead.
+  already handled, which ties the outcome to the order. A kind such as `CollapseSelection` reads
+  `KeepSelection` instead, which the reads order before it (feature 13).
 - **Comparing the zoom level and focus before and after the transaction.** That reacts only to the
   net change, but it is a second mechanism next to marking. The places that set the focus and the
   zoom level mark instead.
@@ -260,7 +268,9 @@ moves into `massive-util` when a second user appears.
   last resize, which can arrive after the window changed.
 - The desired camera is resolved again after every rank batch of `Measure` or `Place`, including
   measures that only other effects marked, such as a refreshed column count.
-- The facts a change records for the effects of its transaction (the selection was set, the window
-  was resized, the requested fullscreen state) live together in one record of the desktop system,
-  not in `Selection`. `Selection` is compared with its default to tell whether it is extended, so a
-  flag inside it would break that comparison.
+- That the transaction set the selection or resized the window lives in the transaction context
+  for as long as the transaction runs, not in the desktop state and not in `Selection`. `Selection`
+  is compared with its default to tell whether it is extended, so a flag inside it would break
+  that comparison.
+- `SetWindowFullScreen` asks for the opposite of the recorded live fullscreen state when it is
+  handled, after all changes of its transaction, so it carries no requested state of its own.

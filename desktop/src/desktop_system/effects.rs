@@ -22,6 +22,9 @@ pub enum DesktopEffect {
     /// Refreshes the MCP indicators of the project and everything below it, after configuration
     /// changes may have changed them (ADR 0036).
     RefreshMcpIndicators(ProjectId),
+    /// Keeps the selection from collapsing in this transaction, because a change set it and the
+    /// operation that set it planned the transaction's other changes (ADR 0025, ADR 0033).
+    KeepSelection,
     /// Collapses the selection unless the transaction set it. Changing the focus or the zoom level
     /// marks it, and so does a configuration change that moves slots under the selection
     /// (ADR 0025, ADR 0033).
@@ -29,6 +32,9 @@ pub enum DesktopEffect {
     /// Shows the zoom level indicator for the focused target, except in setup transactions
     /// (ADR 0018).
     ShowZoomLevel,
+    /// Snaps the layout and, in a normal transaction, the camera instead of animating them,
+    /// because the window was resized.
+    SnapPresentation,
     Measure(DesktopTarget),
     Place(DesktopTarget),
     /// Converts the on-screen position of a target that moved to a new parent into that parent's
@@ -43,7 +49,7 @@ pub enum DesktopEffect {
     LayoutZoomLevelIndicator,
     /// Moves the hover outline to the pointer focus, or to the keyboard focus or selection.
     UpdateHover,
-    /// Asks the host to set the window's fullscreen state the transaction requested.
+    /// Asks the host to set the opposite of the window's recorded fullscreen state.
     SetWindowFullScreen,
     /// Asks the host to close the tool connections bound to the MCP root (ADR 0036).
     AnnounceMcpRoot(ProjectId),
@@ -62,7 +68,10 @@ impl EffectKind for DesktopEffectKind {
     fn reads(self) -> &'static [Self] {
         use DesktopEffectKind::*;
         match self {
-            RefreshColumnCount | RefreshMcpIndicators | CollapseSelection | ShowZoomLevel => &[],
+            RefreshColumnCount | RefreshMcpIndicators | KeepSelection | ShowZoomLevel
+            | SnapPresentation => &[],
+            // The transaction context tells whether a change set the selection.
+            CollapseSelection => &[KeepSelection],
             // A matrix lays out its column count, and a header measures its MCP indicator text.
             // A target is measured from the sizes of its children.
             Measure => &[RefreshColumnCount, RefreshMcpIndicators, Measure],
@@ -70,10 +79,12 @@ impl EffectKind for DesktopEffectKind {
             Place => &[Measure, Place],
             // The new parent's placement must be final.
             Reparent => &[Place],
-            ApplyLayout => &[Place, Reparent],
+            // The transaction context tells whether the layout animates.
+            ApplyLayout => &[Place, Reparent, SnapPresentation],
             // The camera frames the placed focus and keeps the selection in view (ADR 0032).
             UpdateDesiredCamera => &[Measure, Place, CollapseSelection],
-            SynchronizeCamera => &[UpdateDesiredCamera],
+            // The transaction context tells the camera presentation mode.
+            SynchronizeCamera => &[UpdateDesiredCamera, SnapPresentation],
             LayoutZoomLevelIndicator => &[ShowZoomLevel],
             // The hover outline marks a placement, the selection, or the keyboard focus.
             UpdateHover => &[Place, CollapseSelection],
@@ -92,7 +103,9 @@ impl Effect for DesktopEffect {
     fn without_subject(kind: DesktopEffectKind) -> Option<Self> {
         use DesktopEffectKind::*;
         match kind {
+            KeepSelection => Some(Self::KeepSelection),
             CollapseSelection => Some(Self::CollapseSelection),
+            SnapPresentation => Some(Self::SnapPresentation),
             ShowZoomLevel => Some(Self::ShowZoomLevel),
             UpdateDesiredCamera => Some(Self::UpdateDesiredCamera),
             SynchronizeCamera => Some(Self::SynchronizeCamera),

@@ -151,27 +151,44 @@ impl ZoomLevel {
     }
 }
 
-/// Facts that the changes of the current transaction record for its effects (ADR 0043).
-/// `transact` resets them when the transaction ends.
-#[derive(Debug, Default)]
-struct TransactionRecord {
-    /// A change set the selection, so the focus and configuration changes planned together with it
-    /// keep it (ADR 0025, ADR 0033).
-    selection_set: bool,
-    /// The window was resized, which snaps layout and camera.
-    window_resized: bool,
-    /// The window fullscreen state the transaction asks the host for; `None` when it asks for
-    /// none.
-    window_full_screen: Option<bool>,
-}
-
-/// What the effects of a transaction read about the transaction itself.
-#[derive(Debug, Clone, Copy)]
+/// What the effects of a transaction read about the transaction itself. `transact` sets it up from
+/// the effects mode. Effects that the changes marked adjust it before the effects that read it
+/// run, because those effects declare the adjusting effects as read (ADR 0043).
+#[derive(Debug)]
 struct TransactionContext {
     effects_mode: TransactionEffectsMode,
-    camera_mode: CameraPresentationMode,
-    /// Whether layout changes animate.
-    animate_layout: bool,
+    /// Set by `SnapPresentation`, which a window resize marks. Read through `camera_mode` and
+    /// `animate_layout`.
+    snap_presentation: bool,
+    /// Set by `KeepSelection`, which setting the selection marks. Read by `CollapseSelection`.
+    keep_selection: bool,
+}
+
+impl TransactionContext {
+    fn new(effects_mode: TransactionEffectsMode) -> Self {
+        Self {
+            effects_mode,
+            snap_presentation: false,
+            keep_selection: false,
+        }
+    }
+
+    /// How the camera presents a changed desired view. A resize snaps it in a normal transaction,
+    /// because fullscreen transitions expose intermediate sizes, and animating toward them makes
+    /// the camera visibly leave the focused content.
+    fn camera_mode(&self) -> CameraPresentationMode {
+        if self.snap_presentation && self.effects_mode == TransactionEffectsMode::Normal {
+            CameraPresentationMode::Snap
+        } else {
+            self.effects_mode.camera_presentation_mode()
+        }
+    }
+
+    /// Whether layout changes animate. A resize snaps the layout, because each resize step would
+    /// otherwise restart an animation toward a size the next step already replaces.
+    fn animate_layout(&self) -> bool {
+        self.effects_mode.permit_animations() && !self.snap_presentation
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,7 +289,6 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
     reparenting: Reparenting,
-    transaction: TransactionRecord,
 
     zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -357,7 +373,6 @@ impl DesktopSystem {
             layout_focus: None,
             layout_state,
             reparenting: Reparenting::default(),
-            transaction: TransactionRecord::default(),
 
             zoom_level_indicator,
             desktop_presenter,
@@ -395,10 +410,7 @@ impl DesktopSystem {
             .unwrap_or_else(|| self.live_effects_mode());
 
         effects::scope(|| {
-            let output =
-                self.apply_changes_and_handle_effects(changes, instance_manager, effects_mode);
-            self.transaction = TransactionRecord::default();
-            output
+            self.apply_changes_and_handle_effects(changes, instance_manager, effects_mode)
         })
     }
 
@@ -423,20 +435,11 @@ impl DesktopSystem {
             }
         }
 
-        let window_resized = self.transaction.window_resized;
-        // Fullscreen transitions expose intermediate sizes; animating here makes the camera visibly leave the focused content.
-        let camera_mode = if window_resized && effects_mode == TransactionEffectsMode::Normal {
-            CameraPresentationMode::Snap
-        } else {
-            effects_mode.camera_presentation_mode()
-        };
-        let context = TransactionContext {
-            effects_mode,
-            camera_mode,
-            // A resize snaps the layout, because each resize step would otherwise restart an
-            // animation toward a size the next step already replaces.
-            animate_layout: effects_mode.permit_animations() && !window_resized,
-        };
+        let mut context = TransactionContext::new(effects_mode);
+        // No effect has run yet, so the camera mode here does not include a resize's
+        // `SnapPresentation`. That does not change the outcome. A snapped camera may move as well,
+        // and a resize marks `SynchronizeCamera` through `UpdateDesiredCamera` anyway.
+        let camera_mode = context.camera_mode();
         // When the camera may not move, large visual changes such as a visor that expands or
         // re-centers are held back as well. So layout catches up with the focus only here
         // (ADR 0002).
@@ -460,7 +463,7 @@ impl DesktopSystem {
 
         let mut system_effects = Vec::new();
         effects::run(|effect| {
-            self.handle_effect(effect, &context, instance_manager, &mut system_effects)
+            self.handle_effect(effect, &mut context, instance_manager, &mut system_effects)
         })?;
 
         Ok(TransactionOutput {

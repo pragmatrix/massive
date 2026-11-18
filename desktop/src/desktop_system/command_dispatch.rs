@@ -421,7 +421,7 @@ impl DesktopSystem {
             }
             DesktopChange::SetSelection(selection) => {
                 self.selection.set(selection);
-                self.transaction.selection_set = true;
+                DesktopEffect::KeepSelection.mark();
                 // The camera keeps an extended selection in view (ADR 0032), and the hover outline
                 // surrounds it.
                 DesktopEffect::UpdateDesiredCamera.mark();
@@ -495,14 +495,14 @@ impl DesktopSystem {
                 {
                     DesktopEffect::Measure(view).mark();
                 }
-                self.transaction.window_resized = true;
+                DesktopEffect::SnapPresentation.mark();
                 DesktopEffect::UpdateDesiredCamera.mark();
                 DesktopEffect::LayoutZoomLevelIndicator.mark();
             }
             DesktopChange::ToggleWindowFullScreen => {
-                // The window reports its new state only after the host set it, so a second toggle
-                // in the same transaction asks for the same state.
-                self.transaction.window_full_screen = Some(!self.window_state.is_fullscreen);
+                // The handling decides the requested state from the recorded live state. The window
+                // reports its new state only after the host set it, so a second toggle in the same
+                // transaction marks the same effect and asks for the same state.
                 DesktopEffect::SetWindowFullScreen.mark();
             }
             DesktopChange::ResizeAll(size_px) => {

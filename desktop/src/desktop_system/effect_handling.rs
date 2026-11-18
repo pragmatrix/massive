@@ -15,7 +15,7 @@ impl DesktopSystem {
     pub(super) fn handle_effect(
         &mut self,
         effect: DesktopEffect,
-        context: &TransactionContext,
+        context: &mut TransactionContext,
         instance_manager: &InstanceManager,
         system_effects: &mut Vec<DesktopSystemEffect>,
     ) -> Result<()> {
@@ -24,33 +24,35 @@ impl DesktopSystem {
             DesktopEffect::RefreshMcpIndicators(project) => {
                 self.refresh_mcp_indicators_effect(project)
             }
-            DesktopEffect::CollapseSelection => self.collapse_selection_unless_set(),
+            DesktopEffect::KeepSelection => context.keep_selection = true,
+            DesktopEffect::CollapseSelection => {
+                self.collapse_selection_unless_kept(context.keep_selection)
+            }
             DesktopEffect::ShowZoomLevel => self.show_zoom_level_effect(context.effects_mode),
             DesktopEffect::Measure(target) => self.layout_pass().measure(target),
             DesktopEffect::Place(root) => self.layout_pass().place(root),
             DesktopEffect::Reparent(target) => self.layout_pass().reparent(target),
             DesktopEffect::ApplyLayout(target) => {
                 self.layout_pass()
-                    .apply(target, context.animate_layout, instance_manager)?
+                    .apply(target, context.animate_layout(), instance_manager)?
             }
             DesktopEffect::UpdateDesiredCamera => {
                 let desired = self.camera_framing().desired_camera();
                 self.camera.set_desired(desired);
             }
-            DesktopEffect::SynchronizeCamera => self.camera.synchronize(context.camera_mode),
+            DesktopEffect::SynchronizeCamera => self.camera.synchronize(context.camera_mode()),
             DesktopEffect::LayoutZoomLevelIndicator => self
                 .zoom_level_indicator
                 .sync_layout(self.window_state.inner_size),
             DesktopEffect::UpdateHover => self
                 .desktop_presenter
                 .set_hover_placement(self.hover_placement()),
-            DesktopEffect::SetWindowFullScreen => {
-                let full_screen = self
-                    .transaction
-                    .window_full_screen
-                    .expect("the change that marks SetWindowFullScreen records the state");
-                system_effects.push(DesktopSystemEffect::SetWindowFullScreen(full_screen));
-            }
+            DesktopEffect::SnapPresentation => context.snap_presentation = true,
+            // The host records the live state before every event, and the window changes it only
+            // after the transaction, so handling this twice asks for the same state.
+            DesktopEffect::SetWindowFullScreen => system_effects.push(
+                DesktopSystemEffect::SetWindowFullScreen(!self.window_state.is_fullscreen),
+            ),
             // The roots of one transaction reach the host as one set, so that it closes their
             // connections together.
             DesktopEffect::AnnounceMcpRoot(project) => match system_effects.last_mut() {
@@ -79,10 +81,10 @@ impl DesktopSystem {
     }
 
     /// A focus or zoom change, and a configuration change the selection does not survive, collapse
-    /// the selection, unless the transaction set it, because then the operation that set it
-    /// planned these changes (ADR 0025, ADR 0033).
-    fn collapse_selection_unless_set(&mut self) {
-        if !self.transaction.selection_set {
+    /// the selection, unless the transaction set it and so marked `KeepSelection`, because then the
+    /// operation that set it planned these changes (ADR 0025, ADR 0033).
+    fn collapse_selection_unless_kept(&mut self, keep_selection: bool) {
+        if !keep_selection {
             self.selection.collapse();
         }
     }
