@@ -47,10 +47,7 @@ scheduler. Changes are not effects, because a change carries data and is not ide
 
 `ChangeSurface` and the hand-written tail of `transact` are gone. A change tells the effects of its
 transaction only by marking effects. When it affects how other effects run, as resizing the window
-does, it marks an effect that adjusts the transaction context (feature 13). The selection is not an
-effect. A change that moves the focus, changes the zoom level, or moves slots under the selection
-sets the default selection, which collapses it, and a selection that a later change sets replaces
-it.
+does, it marks an effect that adjusts the transaction context (feature 13).
 
 ## Features of the effect scheduler
 
@@ -241,8 +238,7 @@ moves into `massive-util` when a second user appears.
 - **Ordering by declared marks, or by a hand-maintained phase enum.** Both miss reads that no mark
   expresses, as with `Reparent` (feature 6).
 - **Asking whether an effect is pending.** Handling would then depend on whether another effect was
-  already handled, which ties the outcome to the order. The changes set the selection themselves
-  instead, in the order they were planned.
+  already handled, which ties the outcome to the order.
 - **Comparing the zoom level and focus before and after the transaction.** That reacts only to the
   net change, but it is a second mechanism next to marking. The places that set the focus and the
   zoom level mark instead.
@@ -264,15 +260,7 @@ moves into `massive-util` when a second user appears.
   something they read was handled or a change marked them. A transaction that only carries an
   instance's scene changes or a view's title or cursor leaves both alone.
 - The host records the window's live fullscreen state before it handles each event. The fullscreen
-  policy and the requested fullscreen state then decide from that state, not from the state of the
-  last resize, which can arrive after the window changed.
+  policy and `SetWindowFullScreen` then decide from that state, not from the state of the last
+  resize, which can arrive after the window changed.
 - The desired camera is resolved again after every rank batch of `Measure` or `Place`, including
   measures that only other effects marked, such as a refreshed column count.
-- That the transaction resized the window lives in the transaction context for as long as the
-  transaction runs, not in the desktop state.
-- Whether a selection survives its transaction depends on the order of the changes. Only a selection
-  set after the last change that moves the focus or the slots under it remains, so the planners set
-  the selection last. Every change of the selection goes through one method, which marks the
-  desired camera and the hover outline.
-- `SetWindowFullScreen` asks for the opposite of the recorded live fullscreen state when it is
-  handled, after all changes of its transaction, so it carries no requested state of its own.
