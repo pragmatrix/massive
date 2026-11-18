@@ -230,6 +230,16 @@ impl<T> Iterator for CollectingVecIntoIter<T> {
     }
 }
 
+impl<T> DoubleEndedIterator for CollectingVecIntoIter<T> {
+    fn next_back(&mut self) -> Option<T> {
+        match self {
+            CollectingVecIntoIter::Empty => None,
+            CollectingVecIntoIter::One(value) => value.take(),
+            CollectingVecIntoIter::Many(iter) => iter.next_back(),
+        }
+    }
+}
+
 impl<T> ExactSizeIterator for CollectingVecIntoIter<T> {}
 
 pub enum CollectingVecIter<'a, T> {

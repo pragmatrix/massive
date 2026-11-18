@@ -420,14 +420,10 @@ impl DesktopSystem {
     ) -> Result<TransactionOutput> {
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
         while let Some(change) = changes.pop_front() {
-            let output = self.apply_change(change, instance_manager)?; // TODO: I think Changes should support a DoubleEndedIterator.
-            for new_change in output
-                .changes
-                .into_iter()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-            {
+            let output = self.apply_change(change, instance_manager)?;
+            // Pushing the follow-up changes to the front in reverse keeps their order and runs
+            // them before the remaining changes.
+            for new_change in output.changes.into_iter().rev() {
                 changes.push_front(new_change);
             }
         }
