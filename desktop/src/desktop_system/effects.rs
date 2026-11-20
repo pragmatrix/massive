@@ -31,7 +31,7 @@ pub enum DesktopEffect {
     Measure(DesktopTarget),
     Place(DesktopTarget),
     /// Converts the on-screen position of a target that moved to a new parent into that parent's
-    /// coordinates, so that it slides from where it was instead of jumping.
+    /// coordinates, so that it animates from where it was instead of jumping.
     Reparent(DesktopTarget),
     ApplyLayout(DesktopTarget),
     /// Resolves the camera's desired view, once all placements are final.

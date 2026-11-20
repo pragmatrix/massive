@@ -22,7 +22,7 @@ use crate::projects::{
 /// The changes run in this order, because each one needs what the one before it creates. The
 /// `Group` change creates the project and its presenter. The topology change adds the project's
 /// nodes under the parent's matrix. The re-parents then move each slot's node and presenter under
-/// the new project's matrix, which keeps its running instances and lets it slide into place.
+/// the new project's matrix, which keeps its running instances and lets it animate into place.
 pub fn plan(
     parent: ProjectId,
     selected_slots: Vec<SlotPosition>,
@@ -63,7 +63,7 @@ pub fn plan(
 ///    project.
 /// 2. Slots of the parent that are in the way are pushed aside.
 /// 3. Each of the project's slots is re-parented under the parent's matrix. This happens while the
-///    project is still placed, so the slots slide from where they are.
+///    project is still placed, so the slots animate from where they are.
 /// 4. The project's topology node is removed. Its slots are no longer below it.
 /// 5. The `Ungroup` change moves the slots into the parent's configuration and removes the
 ///    project there.

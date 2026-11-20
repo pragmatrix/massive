@@ -1,5 +1,5 @@
 //! The animated layout of slot content. Launchers and nested projects share it, so that both
-//! appear, slide, and follow a re-parent in the same way.
+//! appear, animate, and follow a re-parent in the same way.
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress};
 use massive_geometry::{SizedTransform, Transform};
@@ -61,7 +61,7 @@ mod tests {
     use super::*;
 
     /// Re-parented content keeps its on-screen position, also when the new parent is a scaled
-    /// nested matrix. Its slide therefore starts where the content was.
+    /// nested matrix. Its animation therefore starts where the content was.
     #[test]
     fn rebase_keeps_the_drawn_world_transform() {
         let previous_parent = Transform::from_translation((100.0, 0.0, 0.0));

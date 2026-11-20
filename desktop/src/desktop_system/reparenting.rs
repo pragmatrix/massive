@@ -1,5 +1,5 @@
 //! Re-parenting moves slot content into the matrix of another project. The content keeps
-//! everything below it, its running instances, and the keyboard focus. On screen, it slides from
+//! everything below it, its running instances, and the keyboard focus. On screen, it animates from
 //! its old place to its new one.
 //!
 //! A re-parent happens in three steps, at three different times, and this module provides each

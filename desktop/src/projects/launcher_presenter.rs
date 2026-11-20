@@ -225,7 +225,7 @@ impl LauncherPresenter {
 
     /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
     /// coordinates into the current parent's. Nothing is animated here. The next layout then
-    /// slides from the converted position.
+    /// animates from the converted position.
     pub fn rebase(&self, previous_to_current: Transform) {
         self.movement.modify(move |movement, _context| {
             movement.layout.rebase(previous_to_current);

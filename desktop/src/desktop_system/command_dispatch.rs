@@ -81,7 +81,7 @@ impl DesktopSystem {
                     kind,
                     focus,
                 } = *start;
-                // An instance an agent starts does not appear next to, or slide out of, the
+                // An instance an agent starts does not appear next to, or animate out of, the
                 // instance the user works in, which may lie outside the agent's MCP root.
                 let originator_instance = match focus {
                     FocusIntent::Follow => self.focused_path().instance(),
