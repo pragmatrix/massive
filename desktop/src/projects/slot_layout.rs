@@ -6,11 +6,13 @@ use massive_geometry::{SizedTransform, Transform};
 
 use crate::policy::constants::structural_animation;
 
-/// The layout is `None` until the first one arrives. The first layout is taken without an
-/// animation, so new content appears directly in its slot. Animating it would make the content
-/// grow out of the matrix's origin.
+/// The animated layout of one slot's content, relative to its matrix.
+///
+/// The first layout is shown without an animation, because there is no earlier layout to start
+/// from, and the content would grow out of the matrix's origin.
 #[derive(Debug, Default)]
 pub struct SlotLayout {
+    /// `None` until the first layout arrives.
     layout: Option<Animated<SizedTransform>>,
 }
 
