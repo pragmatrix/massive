@@ -1,22 +1,31 @@
-//! The animated layout of slot content. Launchers and nested projects share it, so that both
-//! appear, animate, and follow a re-parent in the same way.
+//! The animated layout of slot content. Launchers, nested projects, and project matrices share it,
+//! so that all of them appear, animate, and follow a re-parent in the same way.
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress};
 use massive_geometry::{SizedTransform, Transform};
 
 use crate::policy::constants::structural_animation;
 
-/// The animated layout of one slot's content, relative to its matrix.
+/// The animated layout of one slot's content relative to its matrix, or of a matrix relative to
+/// its project.
 ///
 /// The first layout is shown without an animation, because there is no earlier layout to start
 /// from, and the content would grow out of the matrix's origin.
 #[derive(Debug, Default)]
 pub struct SlotLayout {
-    /// `None` until the first layout arrives.
+    /// `None` until the first layout arrives, unless the layout was started at another layout.
     layout: Option<Animated<SizedTransform>>,
 }
 
 impl SlotLayout {
+    /// A layout shown at `layout` before its first layout arrives, so that the first layout
+    /// animates from there.
+    pub fn starting_at(layout: SizedTransform) -> Self {
+        Self {
+            layout: Some(layout.into()),
+        }
+    }
+
     pub fn set(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
         match &mut self.layout {
             Some(animated) => animated.animate_if_changed_with(

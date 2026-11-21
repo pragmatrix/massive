@@ -61,8 +61,7 @@ An effect consists of its kind and, for most kinds, a subject. It carries no oth
 Why: two pending effects that are equal can only be merged when neither carries data that the other
 lacks. Merging them is what keeps a transaction from measuring the same matrix once per change.
 Data that the handling of an effect needs from the change that caused it lives in the desktop state
-under the same identity. `Reparent(target)` works this way: the change stores the target's old
-on-screen position in `Reparenting`, and the handling takes it from there.
+under the same identity.
 
 ### 2. Handling an effect recomputes from the current state
 
@@ -113,10 +112,11 @@ Each effect kind declares the effect kinds whose results its handling reads. The
 only source of the order in which kinds are handled.
 
 Why: many effects read what others produced. `Place` reads the sizes that `Measure` produced, and
-`ApplyLayout` reads the placements that `Place` produced. `Reparent` needs the final placement of
-the target's new parent, even though no `Place` marks it. An order derived only from which kinds
-mark which would miss that case. A kind marks another kind only because the other kind reads its
-results, so a separate list of marks would add no information and could drift from the reads.
+`ApplyLayout` reads the placements that `Place` produced. `ApplyLayout` also reads whether
+`SnapPresentation` asked to snap, even though `SnapPresentation` marks no `ApplyLayout`. An order
+derived only from which kinds mark which would miss that case. A kind marks another kind only
+because the other kind reads its results, so a separate list of marks would add no information
+and could drift from the reads.
 
 ### 7. Ranks come from the topological order of the reads
 
@@ -236,7 +236,7 @@ moves into `massive-util` when a second user appears.
   second kind of queue that keeps duplicates and their order. Running all changes first also lets
   `transact` drop effects whose target a later change removed.
 - **Ordering by declared marks, or by a hand-maintained phase enum.** Both miss reads that no mark
-  expresses, as with `Reparent` (feature 6).
+  expresses, as with `SnapPresentation` (feature 6).
 - **Asking whether an effect is pending.** Handling would then depend on whether another effect was
   already handled, which ties the outcome to the order.
 - **Comparing the zoom level and focus before and after the transaction.** That reacts only to the

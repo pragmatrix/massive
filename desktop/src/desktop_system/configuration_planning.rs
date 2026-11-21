@@ -13,7 +13,7 @@ use massive_applications::{Direction, McpConfiguration, SlotShift};
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::grouping;
 use super::navigation::{FocusTargets, MatrixNavigation};
-use super::reparenting::Reparenting;
+use super::reparenting;
 use super::topology::DesktopTopology;
 use super::{
     ConfigurationCommand, DesktopSystem, DesktopTarget, FocusIntent, FocusableTarget,
@@ -271,7 +271,7 @@ impl ConfigurationPlanning<'_> {
                 return Refusal::MoveIntoOwnSubtree.into();
             }
             None => {
-                changes += Reparenting::plan(source, dest, configuration);
+                changes += reparenting::plan(source, dest.0, configuration);
                 changes <<= ConfigurationChange::MoveSlot { source, dest };
             }
         }

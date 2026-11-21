@@ -14,7 +14,7 @@ use super::selection::Selection;
 use super::{
     ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
     FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation,
-    StartInstance, ZoomLevel, view_size,
+    StartInstance, ZoomLevel, grouping, reparenting, view_size,
 };
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
@@ -591,8 +591,7 @@ impl DesktopSystem {
                 DesktopEffect::Measure(under).mark();
             }
             TopologyChange::Reparent { what, under } => {
-                self.reparenting
-                    .apply(what, under, &mut self.aggregates, &self.layout_state)?;
+                reparenting::apply(what, under, &mut self.aggregates, &self.layout_state)?;
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -670,10 +669,19 @@ impl DesktopSystem {
                 project,
                 name,
             } => {
+                // The grouped slots leave the parent's configuration below, so their bounds are
+                // read first.
+                let bounds = grouping::slot_bounds(
+                    parent,
+                    &slots,
+                    &self.aggregates.configuration,
+                    &self.layout_state,
+                );
                 self.aggregates
                     .configuration
                     .group_slots(parent, &slots, project, &name);
-                self.insert_slot_presenter(Some(parent), SlotContent::Project(project))?;
+                self.insert_slot_presenter(Some(parent), project.into())?;
+                self.aggregates.projects[&project].animate_in_from(bounds);
             }
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);

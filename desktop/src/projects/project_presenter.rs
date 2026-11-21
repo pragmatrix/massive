@@ -42,8 +42,7 @@ impl ProjectPresenter {
         mcp_activation: McpActivation,
         parent_location: Id<Location>,
     ) -> Self {
-        let (mut scene_transform, location) =
-            identity_location().relative_to(parent_location).submit();
+        let (scene_transform, location) = identity_location().relative_to(parent_location).submit();
         let mut header = TitleBarPresenter::new(
             TitleBarStyle {
                 background_color: mcp_activation.project_header_background(),
@@ -54,16 +53,10 @@ impl ProjectPresenter {
         );
         header.set_text(header_text);
         let matrix = ProjectMatrixPresenter::new(location.id());
-        let movement = movement(SlotLayout::default(), move |layout, progress| {
-            if let Some(layout) = layout.proceed_with(progress) {
-                scene_transform.update_if_changed(layout.pivoted_at_origin());
-            }
-        })
-        .mount();
 
         Self {
             id,
-            movement,
+            movement: transform_movement(scene_transform),
             location,
             header,
             matrix,
@@ -78,25 +71,27 @@ impl ProjectPresenter {
             .set_background_color(mcp_activation.project_header_background());
     }
 
-    pub fn set_parent_location(&mut self, parent: Id<Location>) {
-        self.location.set_parent(parent);
-    }
-
-    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
-        self.movement.modify(move |slot_layout, context| {
-            slot_layout.set(context, layout);
-        });
-        if !animate {
-            self.movement.snap();
-        }
-    }
-
-    /// Converts the on-screen layout into the current parent's coordinates. See
-    /// [`SlotLayout::rebase`].
-    pub fn rebase(&self, previous_to_current: Transform) {
+    /// Attaches the project to the matrix at `location` and converts its shown layout with
+    /// `previous_to_current`, so that it stays where it is on screen. See [`SlotLayout::rebase`].
+    pub fn reparent(&mut self, location: Id<Location>, previous_to_current: Transform) {
+        self.location.set_parent(location);
         self.movement.modify(move |slot_layout, _context| {
             slot_layout.rebase(previous_to_current);
         });
+    }
+
+    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
+        set_layout(&self.movement, layout, animate);
+    }
+
+    /// Shows a new group at `bounds`, the bounds of its slots, so that it animates from there once
+    /// it is placed in its own slot (ADR 0026).
+    ///
+    /// Until then, the matrix is shown where the parent's matrix is, so the slots stay in place.
+    pub fn animate_in_from(&self, bounds: SizedTransform) {
+        animate_in_from(&self.movement, bounds);
+        animate_in_from(&self.matrix.movement, matrix_start(bounds));
+        self.header.fade_in();
     }
 }
 
@@ -220,15 +215,16 @@ impl TargetLayout for ProjectPresenter {
         match part {
             ProjectPart::Project => self.set_layout(layout, animate),
             ProjectPart::Header => self.header.set_layout(layout, animate),
-            ProjectPart::Matrix => self.matrix.set_layout(layout),
+            ProjectPart::Matrix => set_layout(&self.matrix.movement, layout, animate),
         }
         Ok(AppliedLayout::Applied)
     }
 }
 
+/// The matrix below the project's header. Its slots' presenters hang under its location.
 #[derive(Debug)]
 pub struct ProjectMatrixPresenter {
-    scene_transform: Handle<Transform>,
+    movement: Movement<SlotLayout>,
     location: Handle<Location>,
 }
 
@@ -237,7 +233,7 @@ impl ProjectMatrixPresenter {
         let (scene_transform, location) = identity_location().relative_to(parent_location).submit();
 
         Self {
-            scene_transform,
+            movement: transform_movement(scene_transform),
             location,
         }
     }
@@ -245,9 +241,61 @@ impl ProjectMatrixPresenter {
     pub fn location(&self) -> Id<Location> {
         self.location.id()
     }
+}
 
-    pub fn set_layout(&mut self, layout: SizedTransform) {
-        let scene_transform = layout.pivoted_at_origin();
-        self.scene_transform.update_if_changed(scene_transform);
+/// The mounted movement that animates `scene_transform` to each placement set on it.
+fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<SlotLayout> {
+    movement(SlotLayout::default(), move |layout, progress| {
+        if let Some(layout) = layout.proceed_with(progress) {
+            scene_transform.update_if_changed(layout.pivoted_at_origin());
+        }
+    })
+    .mount()
+}
+
+fn set_layout(movement: &Movement<SlotLayout>, layout: SizedTransform, animate: bool) {
+    movement.modify(move |slot_layout, context| {
+        slot_layout.set(context, layout);
+    });
+    if !animate {
+        movement.snap();
+    }
+}
+
+/// Shows `movement` at `from`, so that it animates from there once its target is placed.
+fn animate_in_from(movement: &Movement<SlotLayout>, from: SizedTransform) {
+    movement.modify(move |slot_layout, _context| {
+        *slot_layout = SlotLayout::starting_at(from);
+    });
+}
+
+/// The matrix's start for a project that starts at `project`: the inverse of the project's
+/// transform, so that the matrix starts exactly where the parent's matrix is.
+fn matrix_start(project: SizedTransform) -> SizedTransform {
+    let origin = project.pivoted_at_origin().inverse();
+    SizedTransform::new(project.size, origin.pivoted_at(project.rect().center()))
+}
+
+#[cfg(test)]
+mod tests {
+    use massive_geometry::Size;
+
+    use super::*;
+
+    /// Content that grouping moves into a new project keeps its on-screen position without a
+    /// conversion, because the new matrix starts where the parent's matrix is.
+    #[test]
+    fn a_started_matrix_starts_at_the_parents_matrix() {
+        let project = SizedTransform::new(
+            Size::new(400.0, 300.0),
+            Transform::from_translation((250.0, 180.0, 0.0)),
+        );
+
+        let matrix = matrix_start(project);
+
+        assert_eq!(
+            project.pivoted_at_origin() * matrix.pivoted_at_origin(),
+            Transform::IDENTITY
+        );
     }
 }

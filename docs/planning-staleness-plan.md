@@ -23,7 +23,7 @@ the options to remove it, and recommends a combination.
   return follow-up changes. The transaction applies them next, before the changes that were already
   waiting.
 - *Effects* are the layout steps a transaction runs after it applied all changes. They are
-  `Measure`, `Place`, `Reparent`, and `ApplyLayout` in `effects.rs`. The camera is resolved after
+  `Measure`, `Place`, and `ApplyLayout` in `effects.rs`. The camera is resolved after
   the effects.
 
 ## Current situation
@@ -61,11 +61,12 @@ that the window, the layout, and the camera stay out of its reach. Most other pl
 
 A search of the planners finds no read of effect-derived state. `plan_zoom` and `plan_escape` use
 only the topology queries of `ZoomGeometry` in `navigation/zoom_geometry.rs`. Placements are read to
-resolve the camera after the effects, and once during applying.
+resolve the camera after the effects, and twice during applying.
 
-The read during applying is step 2 of a re-parent, `Reparenting::apply` in `reparenting.rs`. It
-captures the previous parent's placement before the effects run. It wants the placement from before
-the transaction, because the content is still shown there.
+The reads during applying belong to re-parenting and grouping. `reparenting::apply` in
+`reparenting.rs` reads the placements of the previous and the new parent.
+`grouping::slot_bounds` in `grouping.rs` reads the placements of the grouped slots' contents.
+Both want the placements from before the transaction, because the content is still shown there.
 
 The convention is unprotected, though. `ZoomGeometry` offers topology queries and placement queries
 side by side, so a plan can start reading stale placements without anyone noticing.

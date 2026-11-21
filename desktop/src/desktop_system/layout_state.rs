@@ -296,6 +296,14 @@ impl DesktopLayoutState {
             .measured
     }
 
+    /// Whether `target` was placed. A target that a change of the running transaction added is
+    /// not placed until the transaction's effects run.
+    pub fn is_placed(&self, target: &DesktopTarget) -> bool {
+        self.entries
+            .get(target)
+            .is_some_and(|entry| entry.placement.is_some())
+    }
+
     pub fn local_placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
         self.entries
             .get(target)
