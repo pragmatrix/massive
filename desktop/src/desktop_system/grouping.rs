@@ -6,6 +6,7 @@
 
 use euclid::{point2, vec2};
 use massive_geometry::{Rect, SizedTransform, Transform, Vector3};
+use massive_layout::Placement;
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::configuration_planning::plan_add_project_topology;
@@ -57,6 +58,9 @@ pub fn plan(
 
 /// The bounds of the contents of `slots` of `parent`, in the coordinates of the parent's matrix, as
 /// they are placed before the transaction's effects run.
+///
+/// A content that still animates is not shown at its placement yet, so these bounds are where the
+/// contents are heading, not where they are on screen.
 pub fn slot_bounds(
     parent: ProjectId,
     slots: &[SlotPosition],
@@ -69,17 +73,7 @@ pub fn slot_bounds(
             let content = configuration
                 .content_at(parent, slot)
                 .expect("a grouped slot has content");
-            let placement = layout_state.local_placement(&content.target());
-            let origin = DesktopLayoutState::origin_transform(&placement);
-            let size = placement.rect.size;
-            let start = origin.transform_point(Vector3::new(0.0, 0.0, 0.0));
-            let end = origin.transform_point(Vector3::new(size[0] as f64, size[1] as f64, 0.0));
-            Rect {
-                left: start.x,
-                top: start.y,
-                right: end.x,
-                bottom: end.y,
-            }
+            placed_rect(&layout_state.local_placement(&content.target()))
         })
         .reduce(|bounds, rect| bounds.joined(rect))
         .expect("grouping takes at least one slot");
@@ -197,6 +191,20 @@ fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selec
         let offset = opposite.to_i32() - corner.to_i32();
         (corner.into(), Selection::from_diagonal(offset))
     })
+}
+
+/// The rectangle that `placement` covers in its parent's coordinates.
+fn placed_rect(placement: &Placement<Transform, 2>) -> Rect {
+    let origin = DesktopLayoutState::origin_transform(placement);
+    let size = placement.rect.size;
+    let start = origin.transform_point(Vector3::new(0.0, 0.0, 0.0));
+    let end = origin.transform_point(Vector3::new(size[0] as f64, size[1] as f64, 0.0));
+    Rect {
+        left: start.x,
+        top: start.y,
+        right: end.x,
+        bottom: end.y,
+    }
 }
 
 #[cfg(test)]

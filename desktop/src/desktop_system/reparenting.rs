@@ -36,13 +36,14 @@ pub fn plan(
     .into()
 }
 
-/// Moves `what` under the matrix `under` in the hierarchy and attaches its presenter's scene
-/// location to that matrix. The presenter's layout transform is relative to its matrix, so the
-/// presenter has to hang under the matrix it now belongs to. Instances and nested slots hang under
-/// the presenter and follow it.
+/// Moves `what` into the matrix `under`, in the hierarchy and in the scene, and keeps it where it
+/// is on screen.
 ///
-/// The presenter's on-screen layout is converted into the new matrix's coordinates, so that its
-/// next layout animates from where it is on screen.
+/// The presenter's layout transform is relative to its matrix, so the presenter hangs under the
+/// matrix it now belongs to. Instances and nested slots hang under the presenter and follow it.
+///
+/// The presenter's shown layout is converted into the new matrix's coordinates, so that its next
+/// layout animates from where it is on screen.
 pub fn apply(
     what: DesktopTarget,
     under: DesktopTarget,
@@ -81,8 +82,7 @@ pub fn apply(
     }
 
     DesktopEffect::Measure(under).mark();
-    // The content's placement in the new matrix may equal its placement in the previous one, and
-    // placing it would then not apply its layout again.
+    // Rebasing moved the shown layout off its target, and placing applies only changed placements.
     DesktopEffect::ApplyLayout(what).mark();
     Ok(())
 }

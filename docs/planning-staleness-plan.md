@@ -66,7 +66,8 @@ resolve the camera after the effects, and twice during applying.
 The reads during applying belong to re-parenting and grouping. `reparenting::apply` in
 `reparenting.rs` reads the placements of the previous and the new parent.
 `grouping::slot_bounds` in `grouping.rs` reads the placements of the grouped slots' contents.
-Both want the placements from before the transaction, because the content is still shown there.
+Both want the placements from before the transaction, because the content is shown there or
+animates toward them.
 
 The convention is unprotected, though. `ZoomGeometry` offers topology queries and placement queries
 side by side, so a plan can start reading stale placements without anyone noticing.

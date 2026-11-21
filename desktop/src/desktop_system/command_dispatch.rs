@@ -723,8 +723,7 @@ impl DesktopSystem {
     ) -> Result<()> {
         match content {
             SlotContent::Launcher(id) => {
-                let parent =
-                    parent.context(format!("a launcher is hosted by a project: {id:?}"))?;
+                let parent = parent.expect("a launcher sits in the slot of a project");
                 let name = self.aggregates.configuration[id].name.clone();
                 self.insert_launcher_presenter(parent, id, name)
             }

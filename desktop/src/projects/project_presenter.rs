@@ -253,6 +253,7 @@ fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<SlotLa
     .mount()
 }
 
+/// Sets the placement that `movement` animates to, and snaps it when the change does not animate.
 fn set_layout(movement: &Movement<SlotLayout>, layout: SizedTransform, animate: bool) {
     movement.modify(move |slot_layout, context| {
         slot_layout.set(context, layout);
@@ -269,8 +270,8 @@ fn animate_in_from(movement: &Movement<SlotLayout>, from: SizedTransform) {
     });
 }
 
-/// The matrix's start for a project that starts at `project`: the inverse of the project's
-/// transform, so that the matrix starts exactly where the parent's matrix is.
+/// The matrix's start for a project that starts at `project`. It is the inverse of the project's
+/// transform, so that the matrix starts where the parent's matrix is.
 fn matrix_start(project: SizedTransform) -> SizedTransform {
     let origin = project.pivoted_at_origin().inverse();
     SizedTransform::new(project.size, origin.pivoted_at(project.rect().center()))
