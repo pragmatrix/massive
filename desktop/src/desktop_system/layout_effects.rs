@@ -1,5 +1,5 @@
-//! The layout effects: measuring targets bottom-up, placing their children top-down, re-basing
-//! re-parented targets, and applying placements to the presenters (ADR 0043).
+//! The layout effects: measuring targets bottom-up, placing their children top-down, and applying
+//! the placements to the presenters (ADR 0043).
 
 use anyhow::Result;
 use derive_more::Debug;
@@ -11,7 +11,6 @@ use massive_layout::LayoutTopology;
 
 use super::effects::DesktopEffect;
 use super::layout_state::PlacementUpdate;
-use super::reparenting::Reparenting;
 use super::{
     Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopLayoutState, DesktopSystem,
     DesktopTarget, InstancePart, LayoutContext, LayoutInputs, TargetLayout,
@@ -27,7 +26,6 @@ impl DesktopSystem {
             layout_state: &mut self.layout_state,
             aggregates: &mut self.aggregates,
             desktop_presenter: &mut self.desktop_presenter,
-            reparenting: &mut self.reparenting,
             inputs,
         }
     }
@@ -53,7 +51,6 @@ pub struct LayoutPass<'a> {
     layout_state: &'a mut DesktopLayoutState,
     aggregates: &'a mut Aggregates,
     desktop_presenter: &'a mut DesktopPresenter,
-    reparenting: &'a mut Reparenting,
     inputs: LayoutInputs,
 }
 
@@ -133,18 +130,6 @@ impl LayoutPass<'_> {
                 }
             }
         }
-    }
-
-    /// Converts the on-screen position of a re-parented target into its new parent's coordinates,
-    /// then marks the target's layout. The layout then animates from where the target is on
-    /// screen. Placement may also mark `ApplyLayout` for the same target, and the scheduler merges
-    /// the two.
-    pub fn reparent(&mut self, target: DesktopTarget) {
-        self.reparenting
-            .take_rebase(&target)
-            .expect("a reparent effect follows a re-parent")
-            .apply(self.aggregates, self.layout_state);
-        DesktopEffect::ApplyLayout(target).mark();
     }
 
     /// Applies one target's local placement to the renderer.

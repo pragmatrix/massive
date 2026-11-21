@@ -30,9 +30,6 @@ pub enum DesktopEffect {
     SnapPresentation,
     Measure(DesktopTarget),
     Place(DesktopTarget),
-    /// Converts the on-screen position of a target that moved to a new parent into that parent's
-    /// coordinates, so that it animates from where it was instead of jumping.
-    Reparent(DesktopTarget),
     ApplyLayout(DesktopTarget),
     /// Resolves the camera's desired view, once all placements are final.
     UpdateDesiredCamera,
@@ -67,10 +64,8 @@ impl EffectKind for DesktopEffectKind {
             Measure => &[RefreshColumnCount, RefreshMcpIndicators, Measure],
             // A child is placed within the placement of its parent.
             Place => &[Measure, Place],
-            // The new parent's placement must be final.
-            Reparent => &[Place],
             // The transaction context tells whether the layout animates.
-            ApplyLayout => &[Place, Reparent, SnapPresentation],
+            ApplyLayout => &[Place, SnapPresentation],
             // The camera frames the placed focus. Setting the selection marks it, because the camera
             // keeps the selection in view (ADR 0032).
             UpdateDesiredCamera => &[Measure, Place],
@@ -103,8 +98,8 @@ impl Effect for DesktopEffect {
             UpdateHover => Some(Self::UpdateHover),
             SetWindowFullScreen => Some(Self::SetWindowFullScreen),
             PersistConfiguration => Some(Self::PersistConfiguration),
-            RefreshColumnCount | RefreshMcpIndicators | Measure | Place | Reparent
-            | ApplyLayout | AnnounceMcpRoot => None,
+            RefreshColumnCount | RefreshMcpIndicators | Measure | Place | ApplyLayout
+            | AnnounceMcpRoot => None,
         }
     }
 }
@@ -119,10 +114,7 @@ impl DesktopEffect {
     /// transaction may have removed it.
     pub fn target(&self) -> Option<&DesktopTarget> {
         match self {
-            Self::Measure(target)
-            | Self::Place(target)
-            | Self::Reparent(target)
-            | Self::ApplyLayout(target) => Some(target),
+            Self::Measure(target) | Self::Place(target) | Self::ApplyLayout(target) => Some(target),
             _ => None,
         }
     }

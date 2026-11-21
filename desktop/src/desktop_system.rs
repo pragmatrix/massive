@@ -64,7 +64,6 @@ use keyboard_focus::KeyboardFocus;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
-use reparenting::Reparenting;
 use selection::Selection;
 use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
@@ -285,7 +284,6 @@ pub struct DesktopSystem {
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
-    reparenting: Reparenting,
 
     zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -369,7 +367,6 @@ impl DesktopSystem {
             navigation_control: NavigationControl::default(),
             layout_focus: None,
             layout_state,
-            reparenting: Reparenting::default(),
 
             zoom_level_indicator,
             desktop_presenter,

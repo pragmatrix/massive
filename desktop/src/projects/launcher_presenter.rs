@@ -223,19 +223,13 @@ impl LauncherPresenter {
         self.location.id()
     }
 
-    /// Converts the on-screen layout with `previous_to_current`, which maps the previous parent's
-    /// coordinates into the current parent's. Nothing is animated here. The next layout then
-    /// animates from the converted position.
-    pub fn rebase(&self, previous_to_current: Transform) {
+    /// Attaches the launcher to the matrix at `location` and converts its shown layout with
+    /// `previous_to_current`, so that it stays where it is on screen. See [`SlotLayout::rebase`].
+    pub fn reparent(&mut self, location: Id<Location>, previous_to_current: Transform) {
+        self.location.set_parent(location);
         self.movement.modify(move |movement, _context| {
             movement.layout.rebase(previous_to_current);
         });
-    }
-
-    /// Attaches the launcher's scene location to another parent location. This is used when the
-    /// launcher's slot moves to the matrix of another project.
-    pub fn set_parent_location(&mut self, parent: Id<Location>) {
-        self.location.set_parent(parent);
     }
 
     /// Shows a changed MCP activation (ADR 0036).

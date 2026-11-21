@@ -14,7 +14,7 @@ use super::selection::Selection;
 use super::{
     ConfigurationCommand, DesktopCommand, DesktopSystem, DesktopTarget, FocusIntent,
     FocusableTarget, KeyboardFocusReason, Planned, RunningInstances, SelectionOperation,
-    StartInstance, ZoomLevel, view_size,
+    StartInstance, ZoomLevel, grouping, reparenting, view_size,
 };
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
@@ -591,8 +591,7 @@ impl DesktopSystem {
                 DesktopEffect::Measure(under).mark();
             }
             TopologyChange::Reparent { what, under } => {
-                self.reparenting
-                    .apply(what, under, &mut self.aggregates, &self.layout_state)?;
+                reparenting::apply(what, under, &mut self.aggregates, &self.layout_state)?;
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -628,14 +627,14 @@ impl DesktopSystem {
             } => {
                 let target = assignment.content();
                 // The presenter is built from what the aggregate stored, not what
-                // the payload claimed: the host comes back from the mutation, the
+                // the payload claimed: the parent comes back from the mutation, the
                 // stored name is read from the aggregate (it may have been
                 // re-indexed to stay unique).
-                let host = self
+                let parent = self
                     .aggregates
                     .configuration
                     .assign_slot(parent, slot, assignment);
-                self.insert_slot_presenter(target, host)?;
+                self.insert_slot_presenter(parent, target)?;
             }
             ConfigurationChange::ClearSlot { parent, slot } => {
                 // A cleared project takes its whole subtree along, so every presenter below it
@@ -670,10 +669,19 @@ impl DesktopSystem {
                 project,
                 name,
             } => {
+                // The grouped slots leave the parent's configuration below, so their bounds are
+                // read first.
+                let bounds = grouping::slot_bounds(
+                    parent,
+                    &slots,
+                    &self.aggregates.configuration,
+                    &self.layout_state,
+                );
                 self.aggregates
                     .configuration
                     .group_slots(parent, &slots, project, &name);
-                self.insert_slot_presenter(SlotContent::Project(project), Some(parent))?;
+                self.insert_slot_presenter(Some(parent), project.into())?;
+                self.aggregates.projects[&project].animate_in_from(bounds);
             }
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
@@ -706,26 +714,20 @@ impl DesktopSystem {
         Ok(ChangeOutput::default())
     }
 
-    /// Builds the presenter for newly assigned slot content. The host is the
-    /// one `assign_slot` returned — no re-search over the aggregate. The stored
-    /// name is read back from the aggregate, so the builder sees what was
-    /// actually stored rather than what the change payload claimed.
-    ///
-    /// A launcher always has a hosting project (`None` is an invariant
-    /// violation); the root project is hosted by the desktop itself and takes
-    /// the desktop location instead of a matrix's.
+    /// Builds and inserts the presenter of `content` under the matrix of `parent`, or under the
+    /// desktop's location for the root project, which has no parent.
     fn insert_slot_presenter(
         &mut self,
+        parent: Option<ProjectId>,
         content: SlotContent,
-        host: Option<ProjectId>,
     ) -> Result<()> {
         match content {
             SlotContent::Launcher(id) => {
-                let parent = host.context(format!("a launcher is hosted by a project: {id:?}"))?;
+                let parent = parent.expect("a launcher sits in the slot of a project");
                 let name = self.aggregates.configuration[id].name.clone();
                 self.insert_launcher_presenter(parent, id, name)
             }
-            SlotContent::Project(id) => self.insert_project_presenter(host, id),
+            SlotContent::Project(id) => self.insert_project_presenter(parent, id),
         }
     }
 
@@ -734,11 +736,11 @@ impl DesktopSystem {
     /// `AssignSlot`, and every nested project arrives via `AssignSlot` with a
     /// fresh id — so an existing presenter is an invariant violation and fails
     /// loudly here.
-    fn insert_project_presenter(&mut self, host: Option<ProjectId>, id: ProjectId) -> Result<()> {
+    fn insert_project_presenter(&mut self, parent: Option<ProjectId>, id: ProjectId) -> Result<()> {
         // A nested project's scene node hangs under the matrix that hosts its slot:
         // its layout transform is relative to that matrix. The root project — with
-        // no host — is placed in the desktop's own space.
-        let location = match host.map(|parent| self.aggregates.project_matrix_location(parent)) {
+        // no parent — is placed in the desktop's own space.
+        let location = match parent.map(|parent| self.aggregates.project_matrix_location(parent)) {
             Some(location) => location,
             None => self.desktop_presenter.location.id(),
         };

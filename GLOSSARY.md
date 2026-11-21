@@ -169,11 +169,11 @@ A single running application session, owned by a launcher in the desktop or run 
 _Avoid_: session, tab, process
 
 **Draw target**:
-Where an application's instances draw their content: into views, which their host shows, or into windows of their own. Only the shell runs an application whose instances draw into their own windows.
+Where an application's instances draw their content: into views, which the desktop shows, or into windows of their own. Only the shell runs an application whose instances draw into their own windows.
 _Avoid_: rendering, presentation, presentation mode
 
 **Shell**:
-The host that owns the native event loop and runs exactly one instance: the desktop, or an application on its own in a window of its view's size.
+The part of massive that owns the native event loop and runs exactly one instance: the desktop, or an application on its own in a window of its view's size.
 _Avoid_: shell application, application context
 
 **Full Screen Mode**:
@@ -280,6 +280,10 @@ _Avoid_: control client, agent (any process can connect), MCP client
 The part of the desktop that serves tool connections. It decodes and checks everything that arrives on them, so it is the MCP security boundary (ADR 0036).
 _Avoid_: control host, tool server, MCP server
 
+**Host**:
+Not a term on its own, because it names different roles. Name the role instead: the shell that runs an instance, the tool host that serves tool connections, or the parent project whose matrix holds a slot. As a verb, a slot hosts its content.
+_Avoid_: host (alone), hosting project
+
 **Tool connection**:
 The connection between a tool client and the desktop over the desktop socket. It is bound to the MCP root that covers its target for its whole life and speaks the tool protocol (ADR 0036).
 _Avoid_: control connection, session (collides with the desktop session), MCP connection
@@ -313,7 +317,7 @@ Work that a desktop transaction's changes make necessary, such as measuring a ta
 _Avoid_: reaction, derivation, follow-up
 
 **System effect**:
-What the desktop asks its host to do after a transaction, such as persisting the configuration or setting the window's fullscreen state (ADR 0043).
+What the desktop asks the application that runs it to do after a transaction, such as persisting the configuration or setting the window's fullscreen state (ADR 0043).
 _Avoid_: host effect
 
 **Mark**:

@@ -5,10 +5,13 @@
 //! starting at the project's own slot, removes the project, and selects the ungrouped slots.
 
 use euclid::{point2, vec2};
+use massive_geometry::{Rect, SizedTransform, Transform, Vector3};
+use massive_layout::Placement;
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::configuration_planning::plan_add_project_topology;
-use super::reparenting::Reparenting;
+use super::layout_state::DesktopLayoutState;
+use super::reparenting;
 use super::selection::Selection;
 use super::{DesktopTarget, FocusIntent, FocusableTarget, KeyboardFocusReason, ProjectPart};
 use crate::policy::when::UngroupingFocus;
@@ -41,8 +44,8 @@ pub fn plan(
         name,
     };
     changes += plan_add_project_topology(project, DesktopTarget::matrix(parent));
-    for (outer, inner) in landings {
-        changes += Reparenting::plan((parent, outer), (project, inner), configuration);
+    for (outer, _) in landings {
+        changes += reparenting::plan((parent, outer), project, configuration);
     }
     if focus == FocusIntent::Follow {
         changes += set_focus(
@@ -51,6 +54,32 @@ pub fn plan(
         );
     }
     changes
+}
+
+/// The bounds of the contents of `slots` of `parent`, in the coordinates of the parent's matrix, as
+/// they are placed before the transaction's effects run.
+///
+/// A content that still animates is not shown at its placement yet, so these bounds are where the
+/// contents are heading, not where they are on screen.
+pub fn slot_bounds(
+    parent: ProjectId,
+    slots: &[SlotPosition],
+    configuration: &RuntimeConfiguration,
+    layout_state: &DesktopLayoutState,
+) -> SizedTransform {
+    let bounds = slots
+        .iter()
+        .map(|&slot| {
+            let content = configuration
+                .content_at(parent, slot)
+                .expect("a grouped slot has content");
+            placed_rect(&layout_state.local_placement(&content.target()))
+        })
+        .reduce(|bounds, rect| bounds.joined(rect))
+        .expect("grouping takes at least one slot");
+    let size = bounds.size();
+    let origin = Transform::from_translation(bounds.origin().with_z(0.0));
+    SizedTransform::new(size, origin.pivoted_at(size.center()))
 }
 
 /// Plans ungrouping the non-empty `project`, and selecting its ungrouped slots when the focus moves
@@ -99,8 +128,8 @@ pub fn plan_ungroup(
             dest: (parent, to),
         };
     }
-    for (inner, landing) in landings {
-        changes += Reparenting::plan((project, inner), (parent, landing), configuration);
+    for (inner, _) in landings {
+        changes += reparenting::plan((project, inner), parent, configuration);
     }
     changes <<= TopologyChange::Remove(DesktopTarget::Project(project, ProjectPart::Project));
     changes <<= ConfigurationChange::Ungroup { parent, slot };
@@ -162,6 +191,20 @@ fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selec
         let offset = opposite.to_i32() - corner.to_i32();
         (corner.into(), Selection::from_diagonal(offset))
     })
+}
+
+/// The rectangle that `placement` covers in its parent's coordinates.
+fn placed_rect(placement: &Placement<Transform, 2>) -> Rect {
+    let origin = DesktopLayoutState::origin_transform(placement);
+    let size = placement.rect.size;
+    let start = origin.transform_point(Vector3::new(0.0, 0.0, 0.0));
+    let end = origin.transform_point(Vector3::new(size[0] as f64, size[1] as f64, 0.0));
+    Rect {
+        left: start.x,
+        top: start.y,
+        right: end.x,
+        bottom: end.y,
+    }
 }
 
 #[cfg(test)]

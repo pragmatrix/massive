@@ -139,15 +139,14 @@ impl RuntimeConfiguration {
         }
     }
 
-    /// Assigns `content` to `parent`'s slot at `position`, returning the host
-    /// the content was assigned into — `None` when the assignment created a
-    /// hostless project (the root).
+    /// Assigns `content` to `parent`'s slot at `position`, and returns the parent project the
+    /// content was assigned into. It returns `None` when the assignment created the root project.
     ///
-    /// Assigning a project that does not exist creates it — there is no separate
-    /// "add project" operation. A `None` parent creates the root the same way:
-    /// the root is hosted by the `Desktop` target, not a matrix, so nothing is
-    /// slotted. Replacing content is a clear plus an assign, so the caller clears
-    /// the slot first.
+    /// Assigning a project that does not exist creates it, because there is no separate
+    /// "add project" operation. A `None` parent creates the root the same way. The root hangs under
+    /// the `Desktop` target and not under a matrix, so it takes no slot.
+    ///
+    /// Replacing content is a clear plus an assign, so the caller clears the slot first.
     pub fn assign_slot(
         &mut self,
         parent: Option<ProjectId>,
