@@ -10,7 +10,6 @@ use massive_geometry::Transform;
 
 use super::change::{Changes, DesktopChange, TopologyChange};
 use super::effects::DesktopEffect;
-use super::layout_state::DesktopLayoutState;
 use super::{Aggregates, DesktopTarget, ProjectPart};
 use crate::projects::{ProjectId, RuntimeConfiguration, SlotContent, SlotPosition};
 
@@ -44,22 +43,17 @@ pub fn plan(
 ///
 /// The presenter's shown layout is converted into the new matrix's coordinates, so that its next
 /// layout animates from where it is on screen.
-pub fn apply(
-    what: DesktopTarget,
-    under: DesktopTarget,
-    aggregates: &mut Aggregates,
-    layout_state: &DesktopLayoutState,
-) -> Result<()> {
+pub fn apply(what: DesktopTarget, under: DesktopTarget, aggregates: &mut Aggregates) -> Result<()> {
     let DesktopTarget::Project(parent, ProjectPart::Matrix) = under else {
         panic!("slot content is re-parented under a matrix: {under:?}");
     };
-    let previous = aggregates
-        .hierarchy
-        .parent(&what)
-        .cloned()
-        .expect("a re-parented target has a parent");
-    let previous_to_current =
-        previous_parent_to_matrix(&previous, parent, aggregates, layout_state);
+    let Some(&DesktopTarget::Project(previous, ProjectPart::Matrix)) =
+        aggregates.hierarchy.parent(&what)
+    else {
+        panic!("slot content hangs under a matrix: {what:?}");
+    };
+    let previous_to_current = presented_matrix_transform(parent, aggregates).inverse()
+        * presented_matrix_transform(previous, aggregates);
 
     aggregates.hierarchy.reparent(&what, under.clone())?;
 
@@ -87,29 +81,21 @@ pub fn apply(
     Ok(())
 }
 
-/// The transform from the coordinates of the `previous` parent into those of `parent`'s matrix, as
-/// both are shown before the transaction's effects run.
-fn previous_parent_to_matrix(
-    previous: &DesktopTarget,
-    parent: ProjectId,
-    aggregates: &Aggregates,
-    layout_state: &DesktopLayoutState,
-) -> Transform {
-    let matrix_target = DesktopTarget::matrix(parent);
-    if !layout_state.is_placed(&matrix_target) {
-        // Only grouping moves content into a matrix that is not placed yet. The new project's
-        // matrix starts where `previous` is (`ProjectPresenter::animate_in_from`).
-        assert_eq!(
-            aggregates.hierarchy.parent(&parent.into()),
-            Some(previous),
-            "an unplaced matrix receives content only from its project's parent matrix"
-        );
-        return Transform::IDENTITY;
-    }
-    let hierarchy = &aggregates.hierarchy;
-    let current_origin = layout_state.absolute_origin_transform(&matrix_target, hierarchy);
-    let previous_origin = layout_state.absolute_origin_transform(previous, hierarchy);
-    current_origin.inverse() * previous_origin
+/// The transform from the coordinates of `project`'s matrix into the desktop's, as it is presented
+/// now. A parent that still animates is not at its placement yet, so the presented transforms are
+/// composed. A matrix that was never presented, such as one grouping just created, presents its
+/// parent's coordinates (`ProjectPresenter::animate_in_from`).
+fn presented_matrix_transform(project: ProjectId, aggregates: &Aggregates) -> Transform {
+    let presenter = &aggregates.projects[&project];
+    let parent = match aggregates.hierarchy.parent(&project.into()) {
+        Some(&DesktopTarget::Project(parent, ProjectPart::Matrix)) => {
+            presented_matrix_transform(parent, aggregates)
+        }
+        // The root project hangs under the desktop's location, which every matrix shares, so it
+        // cancels out of every conversion between two matrices.
+        _ => Transform::IDENTITY,
+    };
+    parent * presenter.presented_transform() * presenter.matrix.presented_transform()
 }
 
 fn slot_content(target: &DesktopTarget) -> SlotContent {

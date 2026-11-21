@@ -262,17 +262,6 @@ impl DesktopLayoutState {
         Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(visible)
     }
 
-    /// The transform from `target`'s local coordinates into the coordinates of the layout root.
-    /// The local coordinates are relative to the origin of the target's rectangle, not to its
-    /// center. A presenter positions its scene children in these coordinates.
-    pub fn absolute_origin_transform(
-        &self,
-        target: &DesktopTarget,
-        topology: &impl LayoutTopology<DesktopTarget>,
-    ) -> Transform {
-        Self::origin_transform(&self.absolute_placement(target, topology))
-    }
-
     /// The transform of `placement` for coordinates relative to the origin of its rectangle,
     /// instead of its center.
     pub fn origin_transform(placement: &Placement<Transform, 2>) -> Transform {
@@ -294,14 +283,6 @@ impl DesktopLayoutState {
             .get(target)
             .unwrap_or_else(|| panic!("Internal error: missing layout entry for target {target:?}"))
             .measured
-    }
-
-    /// Whether `target` was placed. A target that a change of the running transaction added is
-    /// not placed until the transaction's effects run.
-    pub fn is_placed(&self, target: &DesktopTarget) -> bool {
-        self.entries
-            .get(target)
-            .is_some_and(|entry| entry.placement.is_some())
     }
 
     pub fn local_placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {

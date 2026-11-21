@@ -65,6 +65,11 @@ impl SlotLayout {
         layout.snap(SizedTransform::new(drawn.size, transform));
     }
 
+    /// The layout shown now. It is `None` before the first layout arrived.
+    pub fn presented(&self) -> Option<SizedTransform> {
+        self.layout.as_ref().map(|layout| *layout.latest())
+    }
+
     /// Returns the layout to show at `progress`. It is `None` before the first layout arrived.
     pub fn proceed_with(&mut self, progress: AnimationProgress) -> Option<SizedTransform> {
         self.layout

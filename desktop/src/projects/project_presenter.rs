@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use massive_animation::Movement;
 use massive_applications::prelude::*;
+use massive_applications::task_context;
 use massive_geometry::{SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset};
 use massive_scene::Id;
@@ -82,6 +83,12 @@ impl ProjectPresenter {
 
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
         set_layout(&self.movement, layout, animate);
+    }
+
+    /// The transform from the project's coordinates into its parent matrix's, as it is presented
+    /// now.
+    pub fn presented_transform(&self) -> Transform {
+        presented_transform(&self.movement)
     }
 
     /// Shows a new group at `bounds`, the bounds of its slots, so that it animates from there once
@@ -241,6 +248,11 @@ impl ProjectMatrixPresenter {
     pub fn location(&self) -> Id<Location> {
         self.location.id()
     }
+
+    /// The transform from the matrix's coordinates into its project's, as it is presented now.
+    pub fn presented_transform(&self) -> Transform {
+        presented_transform(&self.movement)
+    }
 }
 
 /// The mounted movement that animates `scene_transform` to each placement set on it.
@@ -251,6 +263,19 @@ fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<SlotLa
         }
     })
     .mount()
+}
+
+/// The transform the scene location of `movement` presents now, which re-parenting converts with,
+/// because a parent that still animates is not at its placement yet. It is the identity before the
+/// first layout is presented, like the location itself.
+fn presented_transform(movement: &Movement<SlotLayout>) -> Transform {
+    task_context::with_animation_and_movement(|_, runtime| {
+        runtime.inspect(movement, |layout| {
+            layout
+                .presented()
+                .map_or(Transform::IDENTITY, SizedTransform::pivoted_at_origin)
+        })
+    })
 }
 
 /// Sets the placement that `movement` animates to, and snaps it when the change does not animate.

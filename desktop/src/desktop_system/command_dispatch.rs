@@ -591,7 +591,7 @@ impl DesktopSystem {
                 DesktopEffect::Measure(under).mark();
             }
             TopologyChange::Reparent { what, under } => {
-                reparenting::apply(what, under, &mut self.aggregates, &self.layout_state)?;
+                reparenting::apply(what, under, &mut self.aggregates)?;
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer

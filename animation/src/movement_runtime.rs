@@ -99,6 +99,17 @@ impl MovementRuntime {
         reference
     }
 
+    /// Reads the value of `movement` as it was last applied, which is the value the scene shows.
+    /// Queued modifies are applied later, so they do not show in it yet.
+    pub fn inspect<T: Any, R>(&self, movement: &Movement<T>, inspect: impl FnOnce(&T) -> R) -> R {
+        let value = self.movements[&movement.instance]
+            .movement
+            .as_any()
+            .downcast_ref::<T>()
+            .expect("movement reference has the wrong value type");
+        inspect(value)
+    }
+
     /// Drain the action inbox and apply each queued action to its movement.
     ///
     /// Call this once per cycle, after animations have been applied, so that actions queued by
@@ -263,6 +274,8 @@ impl MovementReference {
 }
 
 trait AnimatableMovement: Any + Send + Sync {
+    fn as_any(&self) -> &(dyn Any + Send);
+
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
     fn apply_animations(&mut self, progress: AnimationProgress);
@@ -303,6 +316,10 @@ where
     T: Any + Send + Sync,
     F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
 {
+    fn as_any(&self) -> &(dyn Any + Send) {
+        &self.value
+    }
+
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
     }
