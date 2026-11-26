@@ -27,9 +27,9 @@ impl DesktopSystem {
             DesktopEffect::ShowZoomLevel => self.show_zoom_level_effect(context.effects_mode),
             DesktopEffect::Measure(target) => self.layout_pass().measure(target),
             DesktopEffect::Place(root) => self.layout_pass().place(root),
-            DesktopEffect::ApplyLayout(target) => {
+            DesktopEffect::ApplyPlacement(target) => {
                 self.layout_pass()
-                    .apply(target, context.animate_layout(), instance_manager)?
+                    .apply(target, context.animates_placements(), instance_manager)?
             }
             DesktopEffect::UpdateDesiredCamera => {
                 let desired = self.camera_framing().desired_camera();

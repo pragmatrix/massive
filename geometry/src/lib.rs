@@ -17,8 +17,8 @@ mod ray;
 mod rect;
 mod size;
 mod size3;
-mod sized_transform;
 mod transform;
+mod transformed_rect;
 mod unit_interval;
 
 pub use bounds::*;
@@ -35,8 +35,8 @@ pub use ray::*;
 pub use rect::*;
 pub use size::*;
 pub use size3::*;
-pub use sized_transform::*;
 pub use transform::*;
+pub use transformed_rect::*;
 pub use unit_interval::*;
 
 pub trait Centered {

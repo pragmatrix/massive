@@ -6,7 +6,7 @@
 //! content and converts its on-screen position into the new matrix's coordinates.
 
 use anyhow::Result;
-use massive_geometry::{SizedTransform, Transform};
+use massive_geometry::{Transform, TransformedRect};
 
 use super::change::{Changes, DesktopChange, TopologyChange};
 use super::effects::DesktopEffect;
@@ -39,11 +39,11 @@ pub fn plan(
 /// Moves `what` into the matrix `under`, in the hierarchy and in the scene, and keeps it where it
 /// is on screen.
 ///
-/// The presenter's layout transform is relative to its matrix, so the presenter hangs under the
+/// The presenter's placement transform is relative to its matrix, so the presenter hangs under the
 /// matrix it now belongs to. Instances and nested slots hang under the presenter and follow it.
 ///
-/// The presenter's shown layout is converted into the new matrix's coordinates, so that its next
-/// layout animates from where it is on screen.
+/// The presenter's shown placement is converted into the new matrix's coordinates, so that its next
+/// placement animates from where it is on screen.
 pub fn apply(
     what: DesktopTarget,
     under: DesktopTarget,
@@ -96,40 +96,42 @@ pub fn apply(
     }
 
     DesktopEffect::Measure(under).mark();
-    // Rebasing moved the shown layout off its target, and placing applies only changed placements.
-    DesktopEffect::ApplyLayout(what).mark();
+    // Rebasing moved the shown placement off its target, and placing applies only changed
+    // placements.
+    DesktopEffect::ApplyPlacement(what).mark();
     Ok(())
 }
 
-/// The layout `target` shows now, relative to its parent. A target whose first layout is not shown
-/// yet reads as its placement, because its first layout jumps there. `None` for a target that is
-/// neither shown nor placed, such as a project that grouping created in this transaction.
+/// The placement `target` shows now, relative to its parent. A target whose first placement is not
+/// shown yet returns its placement from layout, because its first placement is shown without an
+/// animation. `None` for a target that is neither shown nor placed, such as a project that
+/// grouping created in this transaction.
 ///
-/// Slot content, a project, and a project's matrix show layouts.
-pub fn shown_layout(
+/// Slot content, a project, and a project's matrix show placements.
+pub fn shown_placement(
     target: &DesktopTarget,
     aggregates: &Aggregates,
     layout_state: &DesktopLayoutState,
-) -> Option<SizedTransform> {
+) -> Option<TransformedRect> {
     let presented = match *target {
-        DesktopTarget::Launcher(launcher) => aggregates.launchers[&launcher].presented_layout(),
+        DesktopTarget::Launcher(launcher) => aggregates.launchers[&launcher].presented_placement(),
         DesktopTarget::Project(project, ProjectPart::Project) => {
-            aggregates.projects[&project].presented_layout()
+            aggregates.projects[&project].presented_placement()
         }
         DesktopTarget::Project(project, ProjectPart::Matrix) => {
-            aggregates.projects[&project].matrix.presented_layout()
+            aggregates.projects[&project].matrix.presented_placement()
         }
-        _ => panic!("only slot content and matrices show a slot layout: {target:?}"),
+        _ => panic!("only slot content and matrices show an animated placement: {target:?}"),
     };
     presented.or_else(|| {
         layout_state
             .is_placed(target)
-            .then(|| DesktopLayoutState::placed_layout(&layout_state.local_placement(target)))
+            .then(|| DesktopLayoutState::transformed_rect(&layout_state.local_placement(target)))
     })
 }
 
 /// The transform from the coordinates of `project`'s matrix into the desktop's, as it is shown
-/// now. A parent that still animates is not at its placement yet, so the shown layouts are
+/// now. A parent that still animates is not at its placement yet, so the shown placements are
 /// composed. `None` when a project on the way is neither shown nor placed.
 fn shown_matrix_transform(
     project: ProjectId,
@@ -145,9 +147,10 @@ fn shown_matrix_transform(
         Some(DesktopTarget::Desktop) => Transform::IDENTITY,
         other => panic!("a project hangs under a matrix or the desktop: {other:?}"),
     };
-    let project_layout = shown_layout(&project.into(), aggregates, layout_state)?;
-    let matrix_layout = shown_layout(&DesktopTarget::matrix(project), aggregates, layout_state)?;
-    Some(parent * project_layout.pivoted_at_origin() * matrix_layout.pivoted_at_origin())
+    let project_placement = shown_placement(&project.into(), aggregates, layout_state)?;
+    let matrix_placement =
+        shown_placement(&DesktopTarget::matrix(project), aggregates, layout_state)?;
+    Some(parent * project_placement.pivoted_at_origin() * matrix_placement.pivoted_at_origin())
 }
 
 fn slot_content(target: &DesktopTarget) -> SlotContent {

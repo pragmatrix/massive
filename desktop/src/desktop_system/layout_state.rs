@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Point, SizePx, SizedTransform, Transform};
+use massive_geometry::{Point, SizePx, Transform, TransformedRect};
 use massive_layout::{
     ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
     Rect as LayoutRect, Size as LayoutSize,
@@ -270,13 +270,13 @@ impl DesktopLayoutState {
             .pivoted_at_origin(Self::layout_local_center(placement.rect.size))
     }
 
-    /// The layout a presenter shows for `placement`.
-    pub fn placed_layout(placement: &Placement<Transform, 2>) -> SizedTransform {
+    /// The size and transform a presenter receives for `placement`.
+    pub fn transformed_rect(placement: &Placement<Transform, 2>) -> TransformedRect {
         let size = placement.rect.size;
-        SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform)
+        TransformedRect::new(placement.transform, SizePx::new(size[0], size[1]))
     }
 
-    /// The center of a rectangle of `size`, which is the pivot of every layout placement's
+    /// The center of a rectangle of `size`, which is the pivot of every placement's
     /// transform.
     pub fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)

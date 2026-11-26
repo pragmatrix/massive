@@ -7,7 +7,7 @@ use winit::event::MouseButton;
 use massive_animation::{Animated, AnimationProgress, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent, task_context};
-use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, TransformedRect, Vector3};
 use massive_input::EventManager;
 use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
@@ -17,11 +17,11 @@ use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
-use super::slot_layout::SlotLayout;
+use super::animated_placement::AnimatedPlacement;
 use super::visor_layout;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, Commands, DesktopCommand, FocusIntent, KeyContext, KeyHandler, KeyInput,
+    AppliedPlacement, Commands, DesktopCommand, FocusIntent, KeyContext, KeyHandler, KeyInput,
     KeyOutcome, LayoutContext, McpActivation, SelectionOperation, Shortcut, StartInstance,
     TargetLayout, place_container_children,
 };
@@ -62,7 +62,7 @@ pub struct LauncherPresenter {
 
 #[derive(Debug)]
 struct LauncherMovement {
-    layout: SlotLayout,
+    placement: AnimatedPlacement,
     // Alpha fading of name / background.
     fader: Animated<f32>,
     /// Lives in the movement, because the movement redraws the background on every step.
@@ -210,33 +210,25 @@ impl LauncherPresenter {
         .into()
     }
 
-    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
-        self.movement.modify(move |movement, context| {
-            movement.layout.set(context, layout);
-        });
-        if !animate {
-            self.movement.snap();
-        }
-    }
-
     pub fn location(&self) -> Id<Location> {
         self.location.id()
     }
 
-    /// The layout the launcher shows now, relative to its matrix. `None` before its first layout is
-    /// shown.
-    pub fn presented_layout(&self) -> Option<SizedTransform> {
+    /// The placement the launcher shows now, relative to its matrix. `None` before its first
+    /// placement is shown.
+    pub fn presented_placement(&self) -> Option<TransformedRect> {
         task_context::with_animation_and_movement(|_, runtime| {
-            runtime.inspect(&self.movement, |movement| movement.layout.presented())
+            runtime.inspect(&self.movement, |movement| movement.placement.presented())
         })
     }
 
-    /// Attaches the launcher to the matrix at `location` and converts its shown layout with
-    /// `previous_to_current`, so that it stays where it is on screen. See [`SlotLayout::rebase`].
+    /// Attaches the launcher to the matrix at `location` and converts its shown placement with
+    /// `previous_to_current`, so that it stays where it is on screen. See
+    /// [`AnimatedPlacement::rebase`].
     pub fn reparent(&mut self, location: Id<Location>, previous_to_current: Transform) {
         self.location.set_parent(location);
         self.movement.modify(move |movement, _context| {
-            movement.layout.rebase(previous_to_current);
+            movement.placement.rebase(previous_to_current);
         });
     }
 
@@ -357,22 +349,27 @@ impl TargetLayout for LauncherPresenter {
         context.hierarchy.launcher_instances(self.id).count() > 1
     }
 
-    fn apply_layout(
+    fn set_placement(
         &mut self,
         (): (),
-        layout: SizedTransform,
+        placement: TransformedRect,
         _visible: bool,
         animate: bool,
-    ) -> Result<AppliedLayout> {
-        self.set_layout(layout, animate);
-        Ok(AppliedLayout::Applied)
+    ) -> Result<AppliedPlacement> {
+        self.movement.modify(move |movement, context| {
+            movement.placement.set(context, placement);
+        });
+        if !animate {
+            self.movement.snap();
+        }
+        Ok(AppliedPlacement::Applied)
     }
 }
 
 impl LauncherMovement {
     fn new(background_color: Color) -> Self {
         Self {
-            layout: SlotLayout::default(),
+            placement: AnimatedPlacement::default(),
             fader: 1.0.into(),
             background_color: background_color.into(),
         }
@@ -389,14 +386,14 @@ impl LauncherMovement {
         let background_color = *self.background_color.proceed_with(progress);
         fade_location.set_alpha(alpha);
 
-        let Some(layout) = self.layout.proceed_with(progress) else {
+        let Some(placement) = self.placement.proceed_with(progress) else {
             return;
         };
-        scene_transform_handle.update_if_changed(layout.pivoted_at_origin());
+        scene_transform_handle.update_if_changed(placement.pivoted_at_origin());
 
         // Performance: How can we not call this if `self.size` is not animating. `is_animating()`
         // is perhaps not reliable.
-        background.set_shapes([background_shape(layout.rect(), background_color)].into());
+        background.set_shapes([background_shape(placement.rect(), background_color)].into());
     }
 }
 

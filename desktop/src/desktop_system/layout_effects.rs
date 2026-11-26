@@ -6,13 +6,13 @@ use derive_more::Debug;
 use log::warn;
 
 use massive_applications::ViewEvent;
-use massive_geometry::SizedTransform;
+use massive_geometry::TransformedRect;
 use massive_layout::LayoutTopology;
 
 use super::effects::DesktopEffect;
 use super::layout_state::PlacementUpdate;
 use super::{
-    Aggregates, AppliedLayout, DesktopLayoutAlgorithm, DesktopLayoutState, DesktopSystem,
+    Aggregates, AppliedPlacement, DesktopLayoutAlgorithm, DesktopLayoutState, DesktopSystem,
     DesktopTarget, InstancePart, LayoutContext, LayoutInputs, TargetLayout,
 };
 use crate::desktop_presenter::DesktopPresenter;
@@ -90,7 +90,7 @@ impl LayoutPass<'_> {
     /// Places direct children under `root` and marks render-facing updates.
     ///
     /// This consumes measured child sizes from layout state, computes child placements, and
-    /// updates the local placement cache. It marks `ApplyLayout` only for targets whose local
+    /// updates the local placement cache. It marks `ApplyPlacement` only for targets whose local
     /// placement changed. The camera and the hover outline read placements, so they follow
     /// automatically (ADR 0043).
     ///
@@ -111,22 +111,22 @@ impl LayoutPass<'_> {
             .layout_state
             .place_children_of(&root, children, &algorithm);
 
-        // `Place(root)` computes each child's local placement here, so `ApplyLayout(child)` is what
-        // pushes that placement to the renderer. `Place(child)` only re-places the child's own
+        // `Place(root)` computes each child's local placement here, so `ApplyPlacement(child)` is
+        // what pushes that placement to the renderer. `Place(child)` only re-places the child's own
         // descendants and never applies the child's own placement, so it cannot stand in for
-        // `ApplyLayout(child)`.
+        // `ApplyPlacement(child)`.
         for (child, &outcome) in children.iter().zip(placement_outcomes) {
             match outcome {
                 PlacementUpdate::Unchanged => {}
                 PlacementUpdate::ChangedSizeUnchanged => {
                     // Placement changed but size did not, so descendants stay valid; apply only.
-                    DesktopEffect::ApplyLayout(child.clone()).mark();
+                    DesktopEffect::ApplyPlacement(child.clone()).mark();
                 }
                 PlacementUpdate::ChangedSizeChanged => {
                     // Size changed, so re-place descendants against the new size, then apply the
                     // child's own newly computed placement.
                     DesktopEffect::Place(child.clone()).mark();
-                    DesktopEffect::ApplyLayout(child.clone()).mark();
+                    DesktopEffect::ApplyPlacement(child.clone()).mark();
                 }
             }
         }
@@ -140,25 +140,31 @@ impl LayoutPass<'_> {
         animate: bool,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        let placement = self.layout_state.local_placement(&target);
-        let layout = DesktopLayoutState::placed_layout(&placement);
-        self.apply_layout(target, layout, placement.visible, animate, instance_manager)
+        let layout_placement = self.layout_state.local_placement(&target);
+        let placement = DesktopLayoutState::transformed_rect(&layout_placement);
+        self.apply_placement(
+            target,
+            placement,
+            layout_placement.visible,
+            animate,
+            instance_manager,
+        )
     }
 
-    fn apply_layout(
+    fn apply_placement(
         &mut self,
         target: DesktopTarget,
-        layout: SizedTransform,
+        placement: TransformedRect,
         visible: bool,
         animate: bool,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         match target {
             DesktopTarget::Desktop => {
-                let applied = self
-                    .desktop_presenter
-                    .apply_layout((), layout, visible, animate)?;
-                assert_eq!(applied, AppliedLayout::Applied);
+                let applied =
+                    self.desktop_presenter
+                        .set_placement((), placement, visible, animate)?;
+                assert_eq!(applied, AppliedPlacement::Applied);
             }
             DesktopTarget::Instance(instance_id, part) => {
                 // An instance can end while the layout loop still re-places its view;
@@ -167,8 +173,8 @@ impl LayoutPass<'_> {
                     assert!(matches!(part, InstancePart::View(_)), "Instance missing");
                     return Ok(());
                 };
-                if let AppliedLayout::ViewResized { view, size } =
-                    instance.apply_layout(part, layout, visible, animate)?
+                if let AppliedPlacement::ViewResized { view, size } =
+                    instance.set_placement(part, placement, visible, animate)?
                     && let Err(e) = instance_manager
                         .send_view_event((instance_id, view), ViewEvent::Resized(size))
                 {
@@ -181,8 +187,8 @@ impl LayoutPass<'_> {
                     .projects
                     .get_mut(&project_id)
                     .expect("Missing project")
-                    .apply_layout(part, layout, visible, animate)?;
-                assert_eq!(applied, AppliedLayout::Applied);
+                    .set_placement(part, placement, visible, animate)?;
+                assert_eq!(applied, AppliedPlacement::Applied);
             }
             DesktopTarget::Launcher(launcher_id) => {
                 let applied = self
@@ -190,8 +196,8 @@ impl LayoutPass<'_> {
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .apply_layout((), layout, visible, animate)?;
-                assert_eq!(applied, AppliedLayout::Applied);
+                    .set_placement((), placement, visible, animate)?;
+                assert_eq!(applied, AppliedPlacement::Applied);
             }
         }
         Ok(())

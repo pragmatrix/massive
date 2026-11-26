@@ -9,7 +9,7 @@ use winit::window::CursorIcon;
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Quaternion, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_geometry::{Quaternion, Rect, SizePx, Transform, TransformedRect, Vector3};
 use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize,
 };
@@ -21,7 +21,7 @@ use massive_shapes::{self as shapes, Shape};
 use crate::desktop_system::McpActivation;
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, DesktopCommand, FocusIntent, InstancePart, KeyContext, KeyHandler, KeyInput,
+    AppliedPlacement, DesktopCommand, FocusIntent, InstancePart, KeyContext, KeyHandler, KeyInput,
     KeyOutcome, LayoutContext, Shortcut, StartInstance, TargetLayout, fullscreen_scale,
     place_container_children, view_size,
 };
@@ -75,11 +75,11 @@ pub enum InstanceFullScreen {
 
 #[derive(Debug)]
 pub struct InstanceRoot {
-    // The layout location positions the instance in its parent. The presenter writes both handles
-    // once at construction, then hands them to its movement, which stays their only writer
+    // The placement location positions the instance in its parent. The presenter writes both
+    // handles once at construction, then hands them to its movement, which stays their only writer
     // (ADR 0040).
-    layout_transform: Handle<Transform>,
-    layout_location: Handle<Location>,
+    placement_transform: Handle<Transform>,
+    placement_location: Handle<Location>,
 
     locations: InstanceLocations,
 }
@@ -89,7 +89,7 @@ pub struct InstanceRoot {
 #[derive(Debug)]
 struct InstanceLocations {
     // The content origin: The top-left corner of the instance's extent (ADR 0019). The title bar
-    // and the view are placed relative to it, with the same coordinates the layout uses.
+    // and the view are placed relative to it, with the same coordinates layout uses.
     content_transform: Handle<Transform>,
     content_location: Handle<Location>,
 
@@ -109,9 +109,10 @@ impl InstanceRoot {
     /// The instance owns the view location from then on (ADR 0040). The root keeps the transform
     /// that places it.
     pub fn new() -> (Self, Handle<Location>) {
-        let (layout_transform, layout_location) = identity_location().submit();
-        let (content_transform, content_location) =
-            identity_location().relative_to(&layout_location).submit();
+        let (placement_transform, placement_location) = identity_location().submit();
+        let (content_transform, content_location) = identity_location()
+            .relative_to(&placement_location)
+            .submit();
 
         let (view_transform, view_location) =
             identity_location().relative_to(&content_location).submit();
@@ -121,8 +122,8 @@ impl InstanceRoot {
             .submit();
 
         let root = Self {
-            layout_transform,
-            layout_location,
+            placement_transform,
+            placement_location,
             locations: InstanceLocations {
                 content_transform,
                 content_location,
@@ -146,12 +147,12 @@ pub struct InstancePresenter {
     /// The instance's Full Screen presentation (ADR 0014).
     full_screen: InstanceFullScreen,
     movement: Movement<InstanceMovement>,
-    /// These hang under the layout location that the movement animates. Background and view move
+    /// These hang under the placement location that the movement animates. Background and view move
     /// with that one location, so they cannot drift apart during an animation.
     locations: InstanceLocations,
     /// Cached because hover placement needs the synchronous target while movement updates are queued.
     target_transform: Transform,
-    has_applied_layout: bool,
+    has_applied_placement: bool,
     pub pacing: RenderPacing,
     background: InstanceBackground,
     /// ADR 0019: Exists from construction on, so the instance's extent includes it from its first
@@ -179,8 +180,8 @@ enum InstancePresenterState {
 
 #[derive(Debug)]
 struct InstanceMovement {
-    /// The instance layout transform stores the panel center translation and yaw rotation.
-    layout_transform: Animated<Transform>,
+    /// The instance placement transform stores the panel center translation and yaw rotation.
+    placement_transform: Animated<Transform>,
     visibility_alpha: Animated<f32>,
     view_alpha: Animated<f32>,
 }
@@ -207,17 +208,18 @@ impl InstancePresenter {
         title_bar_metrics: InstanceTitleBarMetrics,
     ) -> Self {
         let InstanceRoot {
-            mut layout_transform,
-            mut layout_location,
+            mut placement_transform,
+            mut placement_location,
             locations,
         } = root;
 
-        layout_location.set_parent(parent);
+        placement_location.set_parent(parent);
 
         let has_initial_center_translation = initial_center_translation.is_some();
         let initial_center_translation = initial_center_translation.unwrap_or_default();
-        layout_transform.update_if_changed(Transform::from_translation(initial_center_translation));
-        layout_location.set_alpha(0.0);
+        placement_transform
+            .update_if_changed(Transform::from_translation(initial_center_translation));
+        placement_location.set_alpha(0.0);
 
         let background = InstanceBackground {
             visual: InstanceBackground::shapes(Rect::ZERO)
@@ -229,7 +231,11 @@ impl InstancePresenter {
         let movement = movement(
             InstanceMovement::new(initial_center_translation),
             move |movement, context| {
-                movement.apply_animations(context, &mut layout_transform, &mut layout_location);
+                movement.apply_animations(
+                    context,
+                    &mut placement_transform,
+                    &mut placement_location,
+                );
             },
         )
         .mount();
@@ -255,7 +261,7 @@ impl InstancePresenter {
             movement,
             locations,
             target_transform: Transform::from_translation(initial_center_translation),
-            has_applied_layout: has_initial_center_translation,
+            has_applied_placement: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
             title_bar,
@@ -301,10 +307,10 @@ impl InstancePresenter {
         self.full_screen = InstanceFullScreen::Assistant(mode.toggled());
     }
 
-    /// The layout transform the instance is moving to, or rests at.
+    /// The placement transform the instance is moving to, or rests at.
     ///
     /// The movement owns the transform it draws, so the presenter answers with its target. Both
-    /// differ only while a layout animation runs (ADR 0040).
+    /// differ only while a placement animation runs (ADR 0040).
     pub fn target_transform(&self) -> Transform {
         self.target_transform
     }
@@ -323,8 +329,8 @@ impl InstancePresenter {
 
         // Blend in.
         self.movement.modify(move |movement, context| {
-            // Architecture: Snapping and animating the layout location's alpha here looks weird, may
-            // be nest another location below it?
+            // Architecture: Snapping and animating the placement location's alpha here looks weird,
+            // maybe nest another location below it?
             movement.view_alpha.snap(0.0);
             movement.view_alpha.animate_with(
                 context,
@@ -407,60 +413,65 @@ impl InstancePresenter {
         Some(view)
     }
 
-    pub fn set_view_layout(
+    pub fn set_view_placement(
         &mut self,
         view_id: ViewId,
-        layout: SizedTransform,
+        placement: TransformedRect,
     ) -> Result<Option<SizePx>> {
         let view = self.presented_view_mut(view_id).context(NOT_PRESENTING)?;
-        let new_size = SizePx::new(layout.size.width as u32, layout.size.height as u32);
+        let new_size = SizePx::new(placement.size.width as u32, placement.size.height as u32);
         let resize = (view.view_size != new_size).then_some(new_size);
         view.view_size = new_size;
 
         self.locations
             .view_transform
-            .update_if_changed(layout.transform);
+            .update_if_changed(placement.transform);
 
-        self.background.update_rect(layout.rect());
+        self.background.update_rect(placement.rect());
 
         Ok(resize)
     }
 
-    pub fn set_title_bar_layout(&mut self, layout: SizedTransform, animate: bool) {
-        self.title_bar.set_layout(layout, animate);
+    pub fn set_title_bar_placement(&mut self, placement: TransformedRect, animate: bool) {
+        self.title_bar.set_placement(placement, animate);
     }
 
-    pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
-        let snap_layout = !self.has_applied_layout || !animate;
+    pub fn set_instance_placement(
+        &mut self,
+        placement: TransformedRect,
+        visible: bool,
+        animate: bool,
+    ) {
+        let snap_placement = !self.has_applied_placement || !animate;
 
-        self.retarget_layout(layout, visible);
-        if snap_layout {
+        self.retarget_placement(placement, visible);
+        if snap_placement {
             self.movement.snap();
         }
-        self.has_applied_layout = true;
+        self.has_applied_placement = true;
     }
 
-    fn retarget_layout(&mut self, layout: SizedTransform, visible: bool) {
-        // The content origin is the top-left corner of the extent, while the layout transform is
+    fn retarget_placement(&mut self, placement: TransformedRect, visible: bool) {
+        // The content origin is the top-left corner of the extent, while the placement transform is
         // centered on it.
         self.locations
             .content_transform
             .update_if_changed(Transform::from_translation(Vector3::new(
-                -layout.size.width * 0.5,
-                -layout.size.height * 0.5,
+                -placement.size.width * 0.5,
+                -placement.size.height * 0.5,
                 0.0,
             )));
 
-        let (target_visibility_alpha, layout_transform) = if visible {
-            (1.0, layout.transform)
+        let (target_visibility_alpha, placement_transform) = if visible {
+            (1.0, placement.transform)
         } else {
             // Keep panel x/y pose but pull hidden instances back to baseline depth.
-            (0.0, layout.transform.with_z(0.0))
+            (0.0, placement.transform.with_z(0.0))
         };
-        self.target_transform = layout_transform;
+        self.target_transform = placement_transform;
 
         self.movement.modify(move |movement, context| {
-            movement.set_layout(context, layout_transform, target_visibility_alpha);
+            movement.set_placement(context, placement_transform, target_visibility_alpha);
         });
     }
 
@@ -543,24 +554,24 @@ impl TargetLayout for InstancePresenter {
         }
     }
 
-    fn apply_layout(
+    fn set_placement(
         &mut self,
         part: InstancePart,
-        layout: SizedTransform,
+        placement: TransformedRect,
         visible: bool,
         animate: bool,
-    ) -> Result<AppliedLayout> {
+    ) -> Result<AppliedPlacement> {
         match part {
-            InstancePart::Instance => self.set_layout(layout, visible, animate),
-            InstancePart::TitleBar => self.set_title_bar_layout(layout, animate),
+            InstancePart::Instance => self.set_instance_placement(placement, visible, animate),
+            InstancePart::TitleBar => self.set_title_bar_placement(placement, animate),
             InstancePart::View(view) => {
-                return Ok(match self.set_view_layout(view, layout)? {
-                    Some(size) => AppliedLayout::ViewResized { view, size },
-                    None => AppliedLayout::Applied,
+                return Ok(match self.set_view_placement(view, placement)? {
+                    Some(size) => AppliedPlacement::ViewResized { view, size },
+                    None => AppliedPlacement::Applied,
                 });
             }
         }
-        Ok(AppliedLayout::Applied)
+        Ok(AppliedPlacement::Applied)
     }
 }
 
@@ -657,16 +668,16 @@ impl InstancePresenter {
 impl InstanceMovement {
     fn new(initial_center_translation: Vector3) -> Self {
         Self {
-            layout_transform: Transform::from_translation(initial_center_translation).into(),
+            placement_transform: Transform::from_translation(initial_center_translation).into(),
             visibility_alpha: 1.0.into(),
             view_alpha: 0.0.into(),
         }
     }
 
-    fn set_layout(
+    fn set_placement(
         &mut self,
         context: &mut dyn AnimationAllocator,
-        layout_transform: Transform,
+        placement_transform: Transform,
         visibility_alpha: f32,
     ) {
         self.visibility_alpha.animate_if_changed_with(
@@ -675,9 +686,9 @@ impl InstanceMovement {
             structural_animation::DURATION,
             structural_animation::INTERPOLATION,
         );
-        self.layout_transform.animate_if_changed_with(
+        self.placement_transform.animate_if_changed_with(
             context,
-            layout_transform,
+            placement_transform,
             structural_animation::DURATION,
             structural_animation::INTERPOLATION,
         );
@@ -690,7 +701,7 @@ impl InstanceMovement {
         location: &mut Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
-        transform.update_if_changed(*self.layout_transform.proceed_with(progress));
+        transform.update_if_changed(*self.placement_transform.proceed_with(progress));
         location.set_alpha(
             *self.view_alpha.proceed_with(progress) * *self.visibility_alpha.proceed_with(progress),
         );

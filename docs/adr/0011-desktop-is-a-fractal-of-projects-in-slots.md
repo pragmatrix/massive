@@ -86,7 +86,7 @@ in.
 The preview's *size* is not derived from the nested scene: a project-assigned
 slot measures like an instance panel (`default_panel_size`), and the scale is
 that slot rect over the nested project's own size. The scale lives in the slot's
-placement transform, where `set_layout` already carries it (`SizedTransform`),
+placement transform, where `set_placement` already carries it (`TransformedRect`),
 and `absolute_placement` propagates it to everything below — hover rects and
 hit-test transforms scale with the content, and the nested project's own
 presenter applies no second scale.
@@ -226,7 +226,7 @@ to it.
 ### Presentation
 
 - A nested project's presenter hangs under the matrix location of the project
-  hosting its slot, because its layout transform is relative to that matrix;
+  hosting its slot, because its placement is relative to that matrix;
   only the root project hangs under the desktop location. Attaching it to the
   desktop drops the hosting matrix's origin and offsets the drawn scene from
   the placement the camera, hover outline and hit test read.

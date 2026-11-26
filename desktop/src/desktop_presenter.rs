@@ -4,14 +4,14 @@ use anyhow::Result;
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Movement};
 use massive_applications::prelude::*;
-use massive_geometry::{Rect, SizePx, SizedTransform, Transform};
+use massive_geometry::{Rect, SizePx, Transform, TransformedRect};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement};
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
+    AppliedPlacement, DesktopCommand, KeyContext, KeyHandler, KeyInput, KeyOutcome, LayoutContext,
     SelectionOperation, Shortcut, TargetLayout, expand_cross_axis_child_sizes, measure_container,
     place_container_children,
 };
@@ -140,21 +140,21 @@ impl TargetLayout for DesktopPresenter {
 
     /// The desktop is the scene's root: its placement only anchors its children's absolute
     /// placements.
-    fn apply_layout(
+    fn set_placement(
         &mut self,
         (): (),
-        _layout: SizedTransform,
+        _placement: TransformedRect,
         _visible: bool,
         _animate: bool,
-    ) -> Result<AppliedLayout> {
-        Ok(AppliedLayout::Applied)
+    ) -> Result<AppliedPlacement> {
+        Ok(AppliedPlacement::Applied)
     }
 }
 
 #[derive(Debug, Default)]
 struct HoverMovement {
     alpha: Animated<f32>,
-    layout: Animated<SizedTransform>,
+    outline: Animated<TransformedRect>,
 }
 
 impl HoverMovement {
@@ -165,10 +165,10 @@ impl HoverMovement {
         hover_visual: &mut Handle<Visual>,
     ) {
         let alpha = *self.alpha.proceed_with(progress);
-        let layout = *self.layout.proceed_with(progress);
-        let local_rect = layout.rect();
+        let outline = *self.outline.proceed_with(progress);
+        let local_rect = outline.rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
-        hover_scene_transform.update_if_changed(layout.pivoted_at_origin());
+        hover_scene_transform.update_if_changed(outline.pivoted_at_origin());
 
         hover_visual.set_shapes(create_hover_shapes(rect_alpha));
     }
@@ -181,8 +181,8 @@ impl HoverMovement {
         match placement {
             Some(placement) => {
                 let size = placement.rect.size;
-                let layout =
-                    SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform);
+                let outline =
+                    TransformedRect::new(placement.transform, SizePx::new(size[0], size[1]));
                 self.alpha.animate_if_changed_with(
                     context,
                     1.0,
@@ -190,11 +190,11 @@ impl HoverMovement {
                     hover_outline::INTERPOLATION,
                 );
                 if *self.alpha.latest() == 0.0 {
-                    self.layout.snap(layout);
+                    self.outline.snap(outline);
                 } else {
-                    self.layout.animate_if_changed_with(
+                    self.outline.animate_if_changed_with(
                         context,
-                        layout,
+                        outline,
                         hover_outline::ANIMATION_DURATION,
                         hover_outline::INTERPOLATION,
                     );

@@ -69,7 +69,7 @@ The one slot in a project through which the most recently keyboard-focused targe
 _Avoid_: recent instance per project, focus history path
 
 **Intrinsic project scene**:
-A project's layout in its own pixel coordinates, including the presentation of its children but excluding presentation scaling assigned by its parent.
+The placements of a project's contents in its own pixel coordinates, including the presentation of its children but excluding presentation scaling assigned by its parent.
 _Avoid_: slot size, presented extent
 
 **Shared project scale**:
@@ -191,6 +191,14 @@ _Avoid_: window close, process exit
 **Shutdown deadline**:
 The single monotonic deadline that bounds graceful shutdown. Once it expires, the desktop ends immediately and the shell terminates the process without waiting for unfinished instances or submissions.
 _Avoid_: per-instance timeout, forced-shutdown state
+
+**Layout**:
+The process that measures the desktop's targets bottom-up and places their children top-down. It produces one placement per target.
+_Avoid_: relayout pass, arrangement
+
+**Placement**:
+A target's rectangle and transform relative to its parent, as layout computed them. Its visibility is separate (see placement visibility). The desktop applies a placement to the target's presenter, which sets it, and animates toward it where it animates at all.
+_Avoid_: layout, local layout, slot layout
 
 **Placement visibility**:
 A semantic flag on placement that states whether an instance should be interactable and visually present in the current layout state.

@@ -3,7 +3,7 @@
 //! input area back to pixels for the IME. Both go through here, so the two directions agree.
 
 use massive_geometry::{
-    PerspectiveDivide, Point, Rect, RectPx, SizedTransform, Transform, Vector3, Vector4,
+    PerspectiveDivide, Point, Rect, RectPx, Transform, TransformedRect, Vector3, Vector4,
 };
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
@@ -20,7 +20,7 @@ pub trait PlacementSource {
     ) -> Placement<Transform, 2>;
 }
 
-/// Built per use from the current layout and render geometry, by the hit tester and for the
+/// Built per use from the current placements and render geometry, by the hit tester and for the
 /// window's IME area.
 pub struct CoordinateMapper<'a> {
     /// Combines the relative placements into absolute ones and finds the layout root.
@@ -44,7 +44,7 @@ impl<'a> CoordinateMapper<'a> {
 
     /// The target's surface: its size and a transform whose model space is the target's local
     /// coordinate system. `None` if the target is not visible.
-    pub fn surface(&self, target: &DesktopTarget) -> Option<SizedTransform> {
+    pub fn surface(&self, target: &DesktopTarget) -> Option<TransformedRect> {
         let placement = self.placements.placement(target, self.hierarchy);
         if !placement.visible {
             return None;
@@ -53,11 +53,11 @@ impl<'a> CoordinateMapper<'a> {
         let size = Rect::from(rect_px).size();
 
         let transform = self.local_transform(target, placement);
-        Some(SizedTransform::new(size, transform))
+        Some(TransformedRect::new(transform, size))
     }
 
     /// The target-local point on the surface plane under a surface pixel.
-    pub fn to_local(&self, surface_pos: Point, surface: &SizedTransform) -> Option<Vector3> {
+    pub fn to_local(&self, surface_pos: Point, surface: &TransformedRect) -> Option<Vector3> {
         // Detail: All targets currently live in world space. Derive the space from the resolved
         // location when camera-space content becomes interactive.
         self.geometry.unproject_to_model_z0(
@@ -68,7 +68,7 @@ impl<'a> CoordinateMapper<'a> {
     }
 
     /// The surface pixel a target-local point is presented at.
-    pub fn to_surface(&self, local_pos: Point, surface: &SizedTransform) -> Point {
+    pub fn to_surface(&self, local_pos: Point, surface: &TransformedRect) -> Point {
         let projected = self.geometry.project_to_surface(
             Vector3::new(local_pos.x, local_pos.y, 0.0),
             &surface.transform.to_matrix4(),

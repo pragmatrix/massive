@@ -25,12 +25,12 @@ pub enum DesktopEffect {
     /// Shows the zoom level indicator for the focused target, except in setup transactions
     /// (ADR 0018).
     ShowZoomLevel,
-    /// Snaps the layout and, in a normal transaction, the camera instead of animating them,
+    /// Snaps the placements and, in a normal transaction, the camera instead of animating them,
     /// because the window was resized.
     SnapPresentation,
     Measure(DesktopTarget),
     Place(DesktopTarget),
-    ApplyLayout(DesktopTarget),
+    ApplyPlacement(DesktopTarget),
     /// Resolves the camera's desired view, once all placements are final.
     UpdateDesiredCamera,
     /// Moves the presented camera toward the desired view in the transaction's camera mode.
@@ -64,8 +64,8 @@ impl EffectKind for DesktopEffectKind {
             Measure => &[RefreshColumnCount, RefreshMcpIndicators, Measure],
             // A child is placed within the placement of its parent.
             Place => &[Measure, Place],
-            // The transaction context tells whether the layout animates.
-            ApplyLayout => &[Place, SnapPresentation],
+            // The transaction context tells whether placements animate.
+            ApplyPlacement => &[Place, SnapPresentation],
             // The camera frames the placed focus. Setting the selection marks it, because the camera
             // keeps the selection in view (ADR 0032).
             UpdateDesiredCamera => &[Measure, Place],
@@ -98,7 +98,7 @@ impl Effect for DesktopEffect {
             UpdateHover => Some(Self::UpdateHover),
             SetWindowFullScreen => Some(Self::SetWindowFullScreen),
             PersistConfiguration => Some(Self::PersistConfiguration),
-            RefreshColumnCount | RefreshMcpIndicators | Measure | Place | ApplyLayout
+            RefreshColumnCount | RefreshMcpIndicators | Measure | Place | ApplyPlacement
             | AnnounceMcpRoot => None,
         }
     }
@@ -114,7 +114,9 @@ impl DesktopEffect {
     /// transaction may have removed it.
     pub fn target(&self) -> Option<&DesktopTarget> {
         match self {
-            Self::Measure(target) | Self::Place(target) | Self::ApplyLayout(target) => Some(target),
+            Self::Measure(target) | Self::Place(target) | Self::ApplyPlacement(target) => {
+                Some(target)
+            }
             _ => None,
         }
     }

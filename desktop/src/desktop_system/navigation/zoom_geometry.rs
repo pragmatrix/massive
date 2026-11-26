@@ -1,5 +1,5 @@
 //! Zoom camera geometry: resolves the camera that frames the focused target at a zoom level
-//! from the placed layout, plus the project and slot lookups that decide what is framed.
+//! from the placements, plus the project and slot lookups that decide what is framed.
 
 use derive_more::Debug;
 use massive_applications::InstanceId;
@@ -16,7 +16,7 @@ use crate::projects::{
     LaunchProfileId, ProjectId, RuntimeConfiguration, SlotContent, SlotPosition,
 };
 
-/// Resolves where the camera points for a zoom level, from the placed layout.
+/// Resolves where the camera points for a zoom level, from the placements.
 #[derive(Debug)]
 pub struct ZoomGeometry<'a> {
     hierarchy: &'a DesktopTopology,

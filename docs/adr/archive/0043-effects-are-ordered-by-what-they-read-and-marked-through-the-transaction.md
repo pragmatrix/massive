@@ -112,8 +112,8 @@ Each effect kind declares the effect kinds whose results its handling reads. The
 only source of the order in which kinds are handled.
 
 Why: many effects read what others produced. `Place` reads the sizes that `Measure` produced, and
-`ApplyLayout` reads the placements that `Place` produced. `ApplyLayout` also reads whether
-`SnapPresentation` asked to snap, even though `SnapPresentation` marks no `ApplyLayout`. An order
+`ApplyPlacement` reads the placements that `Place` produced. `ApplyPlacement` also reads whether
+`SnapPresentation` asked to snap, even though `SnapPresentation` marks no `ApplyPlacement`. An order
 derived only from which kinds mark which would miss that case. A kind marks another kind only
 because the other kind reads its results, so a separate list of marks would add no information
 and could drift from the reads.
@@ -190,10 +190,10 @@ access to a task-local fail loudly, so a borrow held during handling would panic
 
 Handling receives a context that holds the transaction's effects mode and what the transaction's
 changes told its effects through marks. `transact` creates it from the effects mode. The handling
-of `SnapPresentation`, which a window resize marks, makes the layout and the camera snap. Whether
-layout animates and the camera presentation mode follow from the context.
+of `SnapPresentation`, which a window resize marks, makes the placements and the camera snap.
+Whether placements animate and the camera presentation mode follow from the context.
 
-Why: `ApplyLayout` animates only when the transaction permits it, `SynchronizeCamera` needs the
+Why: `ApplyPlacement` animates only when the transaction permits it, `SynchronizeCamera` needs the
 camera presentation mode, and persisting the configuration is skipped in setup transactions. A kind
 that reads the context declares the effects that adjust it as read, so the reads order every
 adjustment before the handling that depends on it (features 6 and 7). A change then needs no
