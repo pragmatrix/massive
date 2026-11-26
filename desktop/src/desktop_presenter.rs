@@ -143,7 +143,7 @@ impl TargetLayout for DesktopPresenter {
     fn set_placement(
         &mut self,
         (): (),
-        _layout: TransformedRect,
+        _placement: TransformedRect,
         _visible: bool,
         _animate: bool,
     ) -> Result<AppliedPlacement> {

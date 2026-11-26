@@ -226,7 +226,7 @@ to it.
 ### Presentation
 
 - A nested project's presenter hangs under the matrix location of the project
-  hosting its slot, because its layout transform is relative to that matrix;
+  hosting its slot, because its placement is relative to that matrix;
   only the root project hangs under the desktop location. Attaching it to the
   desktop drops the hosting matrix's origin and offsets the drawn scene from
   the placement the camera, hover outline and hit test read.

@@ -22,13 +22,13 @@ pub struct TitleBarStyle {
 }
 
 /// A colored bar with a single line of vertically centered text. If the text does not fit, its
-/// start is elided. Layout changes are always animated, unless the caller asks to snap.
+/// start is elided. Placement changes are always animated, unless the caller asks to snap.
 #[derive(Debug)]
 pub struct TitleBarPresenter {
     style: TitleBarStyle,
     content: String,
     available_width: Option<u32>,
-    layout_height: f64,
+    placement_height: f64,
     measured_size: SizePx,
     movement: Movement<TitleBarMovement>,
     text_transform: Handle<Transform>,
@@ -67,7 +67,7 @@ impl TitleBarPresenter {
             style,
             content: String::new(),
             available_width: None,
-            layout_height: 0.0,
+            placement_height: 0.0,
             measured_size: SizePx::default(),
             movement,
             text_transform,
@@ -135,10 +135,10 @@ impl TitleBarPresenter {
 
     pub fn set_placement(&mut self, placement: TransformedRect, animate: bool) {
         // The available width is known once a placement has been set.
-        let has_layout = self.available_width.is_some();
+        let has_placement = self.available_width.is_some();
         self.movement.modify(move |movement, context| {
             // The first placement is set without snapping the movement, which would end a fade-in.
-            if !has_layout {
+            if !has_placement {
                 movement.placement = placement.into();
                 return;
             }
@@ -156,10 +156,10 @@ impl TitleBarPresenter {
         // The text is fitted to the target placement once, not to every animation step.
         let available_width = (placement.size.width - 2.0 * self.style.indent).max(0.0) as u32;
         if self.available_width != Some(available_width)
-            || self.layout_height != placement.size.height
+            || self.placement_height != placement.size.height
         {
             self.available_width = Some(available_width);
-            self.layout_height = placement.size.height;
+            self.placement_height = placement.size.height;
             self.update_text();
         }
     }
@@ -179,7 +179,7 @@ impl TitleBarPresenter {
         self.text.set_shapes(shape.into_iter().collect());
 
         // Centered on the shaped line height, not on glyph bounds, and snapped to whole pixels.
-        let top = ((self.layout_height - text_height) * 0.5).round();
+        let top = ((self.placement_height - text_height) * 0.5).round();
         self.text_transform
             .update_if_changed(Transform::from_translation(Vector3::new(
                 self.style.indent,

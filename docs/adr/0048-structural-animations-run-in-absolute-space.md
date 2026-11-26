@@ -35,9 +35,9 @@ renderer resolved it, frame by frame.
   transforms the parents present at that moment, not their placements, because a parent may still be
   animating. Slot content, project, and matrix presenters read it from their movements for that
   purpose (`presented_placement`). Before a presenter's first placement is shown, the conversion
-  uses its placement, because the first placement jumps there (`reparenting::shown_placement`). A
-  new group starts its matrix at the inverse of its own start, so that its slots need no conversion
-  when they move in (`ProjectPresenter::animate_in_from`).
+  uses its placement from layout, because the first placement is shown without an animation
+  (`reparenting::shown_placement`). A new group starts its matrix at the inverse of its own start,
+  so that its slots need no conversion when they move in (`ProjectPresenter::animate_in_from`).
 
 All three fixes are in place, and each one patches a consequence of the same cause: the animations
 run in local coordinates, but what the user should see move smoothly is the absolute position.

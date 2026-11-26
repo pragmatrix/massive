@@ -103,8 +103,9 @@ pub fn apply(
 }
 
 /// The placement `target` shows now, relative to its parent. A target whose first placement is not
-/// shown yet reads as its placement, because its first placement jumps there. `None` for a target
-/// that is neither shown nor placed, such as a project that grouping created in this transaction.
+/// shown yet returns its placement from layout, because its first placement is shown without an
+/// animation. `None` for a target that is neither shown nor placed, such as a project that
+/// grouping created in this transaction.
 ///
 /// Slot content, a project, and a project's matrix show placements.
 pub fn shown_placement(
@@ -146,9 +147,10 @@ fn shown_matrix_transform(
         Some(DesktopTarget::Desktop) => Transform::IDENTITY,
         other => panic!("a project hangs under a matrix or the desktop: {other:?}"),
     };
-    let project_layout = shown_placement(&project.into(), aggregates, layout_state)?;
-    let matrix_layout = shown_placement(&DesktopTarget::matrix(project), aggregates, layout_state)?;
-    Some(parent * project_layout.pivoted_at_origin() * matrix_layout.pivoted_at_origin())
+    let project_placement = shown_placement(&project.into(), aggregates, layout_state)?;
+    let matrix_placement =
+        shown_placement(&DesktopTarget::matrix(project), aggregates, layout_state)?;
+    Some(parent * project_placement.pivoted_at_origin() * matrix_placement.pivoted_at_origin())
 }
 
 fn slot_content(target: &DesktopTarget) -> SlotContent {

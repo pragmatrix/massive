@@ -276,7 +276,7 @@ impl DesktopLayoutState {
         TransformedRect::new(placement.transform, SizePx::new(size[0], size[1]))
     }
 
-    /// The center of a rectangle of `size`, which is the pivot of every layout placement's
+    /// The center of a rectangle of `size`, which is the pivot of every placement's
     /// transform.
     pub fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)

@@ -190,8 +190,8 @@ access to a task-local fail loudly, so a borrow held during handling would panic
 
 Handling receives a context that holds the transaction's effects mode and what the transaction's
 changes told its effects through marks. `transact` creates it from the effects mode. The handling
-of `SnapPresentation`, which a window resize marks, makes the layout and the camera snap. Whether
-layout animates and the camera presentation mode follow from the context.
+of `SnapPresentation`, which a window resize marks, makes the placements and the camera snap.
+Whether placements animate and the camera presentation mode follow from the context.
 
 Why: `ApplyPlacement` animates only when the transaction permits it, `SynchronizeCamera` needs the
 camera presentation mode, and persisting the configuration is skipped in setup transactions. A kind

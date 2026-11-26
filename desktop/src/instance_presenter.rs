@@ -330,7 +330,7 @@ impl InstancePresenter {
         // Blend in.
         self.movement.modify(move |movement, context| {
             // Architecture: Snapping and animating the placement location's alpha here looks weird,
-            // may be nest another location below it?
+            // maybe nest another location below it?
             movement.view_alpha.snap(0.0);
             movement.view_alpha.animate_with(
                 context,

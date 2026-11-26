@@ -65,9 +65,10 @@ resolve the camera after the effects, and in one function during applying.
 
 That function is `reparenting::shown_placement` in `reparenting.rs`. It returns the placement that
 slot content, a project, or a matrix shows now. Before a target's first placement is shown, it
-returns the target's placement, because the first placement jumps there. Re-parenting converts with
-it, and `grouping::slot_bounds` in `grouping.rs` bounds the grouped slots' contents with it. The
-shown placements come first, because a parent that still animates is not at its placement yet.
+returns the target's placement from layout, because the first placement is shown without an
+animation. Re-parenting converts with it, and `grouping::slot_bounds` in `grouping.rs` bounds the
+grouped slots' contents with it. The shown placements come first, because a parent that still
+animates is not at its placement yet.
 
 The convention is unprotected, though. `ZoomGeometry` offers topology queries and placement queries
 side by side, so a plan can start reading stale placements without anyone noticing.

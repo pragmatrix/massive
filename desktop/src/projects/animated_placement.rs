@@ -13,14 +13,14 @@ use crate::policy::constants::structural_animation;
 /// start from, and the content would grow out of the matrix's origin.
 #[derive(Debug, Default)]
 pub struct AnimatedPlacement {
-    /// `None` until the first placement arrives, unless it was started at another one.
+    /// `None` until the first placement arrives, unless `shown_at` gave it a start.
     placement: Option<Animated<TransformedRect>>,
 }
 
 impl AnimatedPlacement {
     /// Shows `from` before the first placement arrives, so that the first placement animates from
     /// there.
-    pub fn animating_in_from(from: TransformedRect) -> Self {
+    pub fn shown_at(from: TransformedRect) -> Self {
         Self {
             placement: Some(from.into()),
         }
@@ -32,7 +32,7 @@ impl AnimatedPlacement {
     /// so the placement it already has is animated to from the start as well.
     pub fn restart_from(&mut self, context: &mut dyn AnimationAllocator, from: TransformedRect) {
         let placed = self.target();
-        *self = Self::animating_in_from(from);
+        *self = Self::shown_at(from);
         if let Some(placed) = placed {
             self.set(context, placed);
         }
@@ -79,7 +79,7 @@ impl AnimatedPlacement {
     }
 
     /// The placement it animates to, or shows when it does not animate. It is `None` before the
-    /// first placement arrived, unless the placement was started at another one.
+    /// first placement arrived, unless `shown_at` gave it a start.
     pub fn target(&self) -> Option<TransformedRect> {
         self.placement.as_ref().map(|placement| *placement.target())
     }
@@ -116,14 +116,19 @@ mod tests {
             Transform::from_translation((10.0, 20.0, 0.0)),
             Size::new(200.0, 100.0),
         );
-        let mut placement = AnimatedPlacement {
+        let mut animated_placement = AnimatedPlacement {
             placement: Some(drawn.into()),
         };
 
-        placement.rebase(parent.inverse() * previous_parent);
+        animated_placement.rebase(parent.inverse() * previous_parent);
 
         assert_eq!(
-            parent * placement.placement.unwrap().latest().pivoted_at_origin(),
+            parent
+                * animated_placement
+                    .placement
+                    .unwrap()
+                    .latest()
+                    .pivoted_at_origin(),
             previous_parent * drawn.pivoted_at_origin()
         );
     }
@@ -140,14 +145,14 @@ mod tests {
                 Size::new(100.0, 100.0),
             )
         };
-        let mut placement = AnimatedPlacement::animating_in_from(placement_at(0.0));
-        placement.set(&mut Allocator(at(Duration::ZERO)), placement_at(100.0));
+        let mut animated_placement = AnimatedPlacement::shown_at(placement_at(0.0));
+        animated_placement.set(&mut Allocator(at(Duration::ZERO)), placement_at(100.0));
         let halfway = structural_animation::DURATION / 2;
-        let shown = placement.proceed_with(AnimationProgress::Proceed(start + halfway));
+        let shown = animated_placement.proceed_with(AnimationProgress::Proceed(start + halfway));
 
-        placement.set(&mut Allocator(at(halfway)), placement_at(-100.0));
+        animated_placement.set(&mut Allocator(at(halfway)), placement_at(-100.0));
 
-        let animated = placement.placement.as_ref().unwrap();
+        let animated = animated_placement.placement.as_ref().unwrap();
         assert_eq!(animated.animation_count(), 1);
         assert_eq!(Some(*animated.latest()), shown);
     }
@@ -163,12 +168,12 @@ mod tests {
                 Size::new(100.0, 100.0),
             )
         };
-        let mut placement = AnimatedPlacement::default();
-        placement.set(&mut Allocator(|_| start), placement_at(100.0));
+        let mut animated_placement = AnimatedPlacement::default();
+        animated_placement.set(&mut Allocator(|_| start), placement_at(100.0));
 
-        placement.restart_from(&mut Allocator(|_| start), placement_at(0.0));
+        animated_placement.restart_from(&mut Allocator(|_| start), placement_at(0.0));
 
-        let animated = placement.placement.as_ref().unwrap();
+        let animated = animated_placement.placement.as_ref().unwrap();
         assert_eq!(*animated.latest(), placement_at(0.0));
         assert_eq!(*animated.target(), placement_at(100.0));
         assert_eq!(animated.animation_count(), 1);

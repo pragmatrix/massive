@@ -25,7 +25,7 @@ impl DesktopSystem {
 }
 
 /// What the camera's desired view is computed from: the keyboard focus, the zoom level, the
-/// selection, and the placed layout. Computing it reaches nothing else of the desktop system.
+/// selection, and the placements. Computing it reaches nothing else of the desktop system.
 #[derive(Debug)]
 pub struct CameraFraming<'a> {
     /// `None` while nothing has the keyboard focus, so there is nothing to frame.
@@ -66,7 +66,7 @@ impl CameraFraming<'_> {
         Some(zoom_geometry.selection_camera(&outline, slot_extent(&self.layout_context)))
     }
 
-    /// Where the camera points for a zoom level, from the placed layout.
+    /// Where the camera points for a zoom level, from the placements.
     fn zoom_geometry(&self) -> ZoomGeometry<'_> {
         ZoomGeometry::new(
             self.layout_context.hierarchy,

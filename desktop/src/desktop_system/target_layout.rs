@@ -34,7 +34,8 @@ pub trait TargetLayout {
         false
     }
 
-    /// Sets the placement of `part`, which the presenter animates to unless `animate` is false.
+    /// Sets the placement of `part`. A presenter that animates its placement animates to it, unless
+    /// `animate` is false.
     fn set_placement(
         &mut self,
         part: Self::Part,

@@ -4,8 +4,8 @@
 //! experience, so each could reasonably be different. Every submodule groups the values of one part
 //! of the desktop. Colors live in `policy::colors`.
 
-/// The animation of structural changes: instance placements and visibility, slot placements, title
-/// bars, and camera moves.
+/// The animation of structural changes: the placements of instances, slot content, and title bars,
+/// visibility, and camera moves.
 pub mod structural_animation {
     use std::time::Duration;
 
