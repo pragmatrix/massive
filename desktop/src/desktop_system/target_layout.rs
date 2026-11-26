@@ -34,13 +34,14 @@ pub trait TargetLayout {
         false
     }
 
-    fn apply_layout(
+    /// Sets the placement of `part`, which the presenter animates to unless `animate` is false.
+    fn set_placement(
         &mut self,
         part: Self::Part,
-        layout: SizedTransform,
+        placement: SizedTransform,
         visible: bool,
         animate: bool,
-    ) -> Result<AppliedLayout>;
+    ) -> Result<AppliedPlacement>;
 }
 
 /// The values layout reads beside the aggregates: the panel size, the window size, and the
@@ -69,9 +70,9 @@ pub struct LayoutContext<'a> {
     pub title_bar_metrics: InstanceTitleBarMetrics,
 }
 
-/// What applying a layout asks of the system beyond the scene update.
+/// What applying a placement asks of the system beyond the scene update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AppliedLayout {
+pub enum AppliedPlacement {
     Applied,
     /// The view presents at a new size, which its application must learn.
     ViewResized {

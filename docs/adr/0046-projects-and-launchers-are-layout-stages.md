@@ -181,7 +181,7 @@ the arc, and only the desktop knows the arc.
 ### Every node animates its own placement
 
 - Every node of the stage tree owns its scene location. When its parent sets its placement, the node
-  animates towards it, as `apply_layout(layout, animate)` does today
+  animates towards it, as `set_placement(placement, animate)` does today
   ([launcher_presenter.rs](../../desktop/src/projects/launcher_presenter.rs)).
 - One generic **placed node** serves stages, panels, title bars, project headers and views. It holds
   a scene location, a movement and a fade.

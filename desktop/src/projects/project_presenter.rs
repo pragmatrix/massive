@@ -12,7 +12,7 @@ use massive_scene::prelude::*;
 
 use crate::desktop_system::change::Zoom;
 use crate::desktop_system::{
-    AppliedLayout, DesktopCommand, KeyContext, KeyFocus, KeyHandler, KeyInput, KeyOutcome,
+    AppliedPlacement, DesktopCommand, KeyContext, KeyFocus, KeyHandler, KeyInput, KeyOutcome,
     LayoutContext, McpActivation, ProjectPart, SelectionOperation, Shortcut, TargetLayout,
     expand_cross_axis_child_sizes, expand_main_axis_child_size, measure_container,
     place_container_children,
@@ -20,14 +20,14 @@ use crate::desktop_system::{
 use crate::policy::constants::project;
 use crate::projects::{ProjectId, SlotPosition};
 
+use super::animated_placement::AnimatedPlacement;
 use super::matrix_layout::{measure_matrix, place_matrix_children};
-use super::slot_layout::SlotLayout;
 use super::title_bar_presenter::{TitleBarPresenter, TitleBarStyle};
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
     id: ProjectId,
-    movement: Movement<SlotLayout>,
+    movement: Movement<AnimatedPlacement>,
     /// The project's own scene location. It is kept so that the project can be attached to
     /// another matrix when its slot moves there.
     location: Handle<Location>,
@@ -76,27 +76,25 @@ impl ProjectPresenter {
             .set_background_color(mcp_activation.project_header_background());
     }
 
-    /// Attaches the project to the matrix at `location` and converts its shown layout with
-    /// `previous_to_current`, so that it stays where it is on screen. See [`SlotLayout::rebase`].
+    /// Attaches the project to the matrix at `location` and converts its shown placement with
+    /// `previous_to_current`, so that it stays where it is on screen. See
+    /// [`AnimatedPlacement::rebase`].
     pub fn reparent(&mut self, location: Id<Location>, previous_to_current: Transform) {
         self.location.set_parent(location);
-        self.movement.modify(move |slot_layout, _context| {
-            slot_layout.rebase(previous_to_current);
+        self.movement.modify(move |animated_placement, _context| {
+            animated_placement.rebase(previous_to_current);
         });
     }
 
-    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
-        set_layout(&self.movement, layout, animate);
+    /// The placement the project shows now, relative to its parent matrix. `None` before its first
+    /// placement is shown.
+    pub fn presented_placement(&self) -> Option<SizedTransform> {
+        presented_placement(&self.movement)
     }
 
-    /// The layout the project shows now, relative to its parent matrix. `None` before its first
-    /// layout is shown.
-    pub fn presented_layout(&self) -> Option<SizedTransform> {
-        presented_layout(&self.movement)
-    }
-
-    /// Fades the project out where it is shown, and drops it once the fade has ended. Only its header
-    /// fades, and it moves along while the project still animates. The rest disappears at once.
+    /// Fades the project out where it is shown, and drops it once the fade has ended. Only its
+    /// header fades, and it moves along while the project still animates. The rest disappears at
+    /// once.
     pub fn fade_out(self) {
         self.header.fade_out();
         self.movement.release_when_settled(());
@@ -223,38 +221,38 @@ impl TargetLayout for ProjectPresenter {
         }
     }
 
-    fn apply_layout(
+    fn set_placement(
         &mut self,
         part: ProjectPart,
-        layout: SizedTransform,
+        placement: SizedTransform,
         _visible: bool,
         animate: bool,
-    ) -> Result<AppliedLayout> {
+    ) -> Result<AppliedPlacement> {
         match part {
             ProjectPart::Project => {
                 if let Some(origin) = self.entering_from.take() {
-                    let start = group_start(origin, layout);
+                    let start = group_start(origin, placement);
                     animate_in_from(&self.movement, start);
                     animate_in_from(&self.matrix.movement, matrix_start(start));
-                    // The project snaps below when the layout does not animate, and its matrix,
+                    // The project snaps below when the placement does not animate, and its matrix,
                     // which may be placed already, has to snap with it.
                     if !animate {
                         self.matrix.movement.snap();
                     }
                 }
-                self.set_layout(layout, animate)
+                set_placement(&self.movement, placement, animate)
             }
-            ProjectPart::Header => self.header.set_layout(layout, animate),
-            ProjectPart::Matrix => set_layout(&self.matrix.movement, layout, animate),
+            ProjectPart::Header => self.header.set_placement(placement, animate),
+            ProjectPart::Matrix => set_placement(&self.matrix.movement, placement, animate),
         }
-        Ok(AppliedLayout::Applied)
+        Ok(AppliedPlacement::Applied)
     }
 }
 
 /// The matrix below the project's header. Its slots' presenters hang under its location.
 #[derive(Debug)]
 pub struct ProjectMatrixPresenter {
-    movement: Movement<SlotLayout>,
+    movement: Movement<AnimatedPlacement>,
     location: Handle<Location>,
 }
 
@@ -272,34 +270,34 @@ impl ProjectMatrixPresenter {
         self.location.id()
     }
 
-    /// The layout the matrix shows now, relative to its project. `None` before its first layout is
-    /// shown.
-    pub fn presented_layout(&self) -> Option<SizedTransform> {
-        presented_layout(&self.movement)
+    /// The placement the matrix shows now, relative to its project. `None` before its first
+    /// placement is shown.
+    pub fn presented_placement(&self) -> Option<SizedTransform> {
+        presented_placement(&self.movement)
     }
 }
 
 /// The mounted movement that animates `scene_transform` to each placement set on it.
-fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<SlotLayout> {
-    movement(SlotLayout::default(), move |layout, progress| {
-        if let Some(layout) = layout.proceed_with(progress) {
-            scene_transform.update_if_changed(layout.pivoted_at_origin());
+fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<AnimatedPlacement> {
+    movement(AnimatedPlacement::default(), move |placement, progress| {
+        if let Some(placement) = placement.proceed_with(progress) {
+            scene_transform.update_if_changed(placement.pivoted_at_origin());
         }
     })
     .mount()
 }
 
-/// The layout `movement` shows now. `None` before its first layout is shown.
-fn presented_layout(movement: &Movement<SlotLayout>) -> Option<SizedTransform> {
+/// The placement `movement` shows now. `None` before its first placement is shown.
+fn presented_placement(movement: &Movement<AnimatedPlacement>) -> Option<SizedTransform> {
     task_context::with_animation_and_movement(|_, runtime| {
-        runtime.inspect(movement, SlotLayout::presented)
+        runtime.inspect(movement, AnimatedPlacement::presented)
     })
 }
 
 /// Sets the placement that `movement` animates to, and snaps it when the change does not animate.
-fn set_layout(movement: &Movement<SlotLayout>, layout: SizedTransform, animate: bool) {
-    movement.modify(move |slot_layout, context| {
-        slot_layout.set(context, layout);
+fn set_placement(movement: &Movement<AnimatedPlacement>, placement: SizedTransform, animate: bool) {
+    movement.modify(move |animated_placement, context| {
+        animated_placement.set(context, placement);
     });
     if !animate {
         movement.snap();
@@ -307,9 +305,10 @@ fn set_layout(movement: &Movement<SlotLayout>, layout: SizedTransform, animate: 
 }
 
 /// Shows `movement` at `from`, so that it animates from there to its placement. See
-/// [`SlotLayout::restart_from`].
-fn animate_in_from(movement: &Movement<SlotLayout>, from: SizedTransform) {
-    movement.modify(move |slot_layout, context| slot_layout.restart_from(context, from));
+/// [`AnimatedPlacement::restart_from`].
+fn animate_in_from(movement: &Movement<AnimatedPlacement>, from: SizedTransform) {
+    movement
+        .modify(move |animated_placement, context| animated_placement.restart_from(context, from));
 }
 
 /// The start of a new group at `origin` for its first placement `first`. It keeps the placement's

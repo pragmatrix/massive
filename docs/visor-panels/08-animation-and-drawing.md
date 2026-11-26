@@ -40,7 +40,7 @@ connectors from the current values.
   movement and a fade serves stages, panels, title bars and views
   ([05](05-layout-stage.md)). When its parent sets its placement, the node moves from its current
   value to the new one with the structural animation, whose duration and easing are desktop policy
-  constants. This is how `apply_layout(layout, animate)` works today.
+  constants. This is how `set_placement(placement, animate)` works today.
 - **Panels, views and title bars move together.** The visor stage sets all their placements in the
   same layout pass, and they share the structural animation's clock. A title bar never jumps ahead
   of its panel's views.

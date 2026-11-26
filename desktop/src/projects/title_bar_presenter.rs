@@ -50,16 +50,16 @@ impl TitleBarPresenter {
             .submit();
 
         let initial = TitleBarMovement {
-            layout: Animated::default(),
+            placement: Animated::default(),
             background_color: style.background_color.into(),
             alpha: 1.0.into(),
         };
         let movement = movement(initial, move |movement, progress| {
-            let layout = *movement.layout.proceed_with(progress);
+            let placement = *movement.placement.proceed_with(progress);
             let background_color = *movement.background_color.proceed_with(progress);
             location.set_alpha(*movement.alpha.proceed_with(progress));
-            scene_transform.update_if_changed(layout.pivoted_at_origin());
-            background.set_shapes([background_shape(layout.rect(), background_color)].into());
+            scene_transform.update_if_changed(placement.pivoted_at_origin());
+            background.set_shapes([background_shape(placement.rect(), background_color)].into());
         })
         .mount();
 
@@ -104,8 +104,8 @@ impl TitleBarPresenter {
         });
     }
 
-    /// Fades in a bar that was never shown, as long as a layout change animates. Its alpha starts
-    /// at 0 because nothing of it is on screen yet.
+    /// Fades in a bar that was never shown, as long as a placement change animates. Its alpha
+    /// starts at 0 because nothing of it is on screen yet.
     pub fn fade_in(&self) {
         self.movement.modify(|movement, context| {
             movement.alpha = 0.0.into();
@@ -133,18 +133,18 @@ impl TitleBarPresenter {
             .release_when_settled((self.text_transform, self.text));
     }
 
-    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
-        // The available width is known once a layout has been set.
+    pub fn set_placement(&mut self, placement: SizedTransform, animate: bool) {
+        // The available width is known once a placement has been set.
         let has_layout = self.available_width.is_some();
         self.movement.modify(move |movement, context| {
-            // The first layout is set without snapping the movement, which would end a fade-in.
+            // The first placement is set without snapping the movement, which would end a fade-in.
             if !has_layout {
-                movement.layout = layout.into();
+                movement.placement = placement.into();
                 return;
             }
-            movement.layout.animate_if_changed_with(
+            movement.placement.animate_if_changed_with(
                 context,
-                layout,
+                placement,
                 structural_animation::DURATION,
                 structural_animation::INTERPOLATION,
             );
@@ -153,12 +153,13 @@ impl TitleBarPresenter {
             self.movement.snap();
         }
 
-        // The text is fitted to the target layout once, not to every animation step.
-        let available_width = (layout.size.width - 2.0 * self.style.indent).max(0.0) as u32;
-        if self.available_width != Some(available_width) || self.layout_height != layout.size.height
+        // The text is fitted to the target placement once, not to every animation step.
+        let available_width = (placement.size.width - 2.0 * self.style.indent).max(0.0) as u32;
+        if self.available_width != Some(available_width)
+            || self.layout_height != placement.size.height
         {
             self.available_width = Some(available_width);
-            self.layout_height = layout.size.height;
+            self.layout_height = placement.size.height;
             self.update_text();
         }
     }
@@ -190,7 +191,7 @@ impl TitleBarPresenter {
 
 #[derive(Debug)]
 struct TitleBarMovement {
-    layout: Animated<SizedTransform>,
+    placement: Animated<SizedTransform>,
     /// Lives in the movement, because the movement redraws the background on every step.
     background_color: Animated<Color>,
     alpha: Animated<f32>,

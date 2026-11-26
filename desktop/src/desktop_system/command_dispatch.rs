@@ -738,7 +738,7 @@ impl DesktopSystem {
     /// loudly here.
     fn insert_project_presenter(&mut self, parent: Option<ProjectId>, id: ProjectId) -> Result<()> {
         // A nested project's scene node hangs under the matrix that hosts its slot:
-        // its layout transform is relative to that matrix. The root project — with
+        // its placement is relative to that matrix. The root project — with
         // no parent — is placed in the desktop's own space.
         let location = match parent.map(|parent| self.aggregates.project_matrix_location(parent)) {
             Some(location) => location,

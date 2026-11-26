@@ -270,8 +270,8 @@ impl DesktopLayoutState {
             .pivoted_at_origin(Self::layout_local_center(placement.rect.size))
     }
 
-    /// The layout a presenter shows for `placement`.
-    pub fn placed_layout(placement: &Placement<Transform, 2>) -> SizedTransform {
+    /// The size and transform a presenter receives for `placement`.
+    pub fn sized_transform(placement: &Placement<Transform, 2>) -> SizedTransform {
         let size = placement.rect.size;
         SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform)
     }

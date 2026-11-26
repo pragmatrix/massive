@@ -5,8 +5,8 @@
 ## Context
 
 Every presenter of slot content animates its own placement. A launcher, a project and a project's
-matrix each own a movement whose value is a `SlotLayout`
-([slot_layout.rs](../../desktop/src/projects/slot_layout.rs),
+matrix each own a movement whose value is an `AnimatedPlacement`
+([animated_placement.rs](../../desktop/src/projects/animated_placement.rs),
 [project_presenter.rs](../../desktop/src/projects/project_presenter.rs)). The value is the transform
 relative to the parent's scene location, and the renderer composes these local transforms along the
 location tree into what is presented
@@ -26,18 +26,18 @@ renderer resolved it, frame by frame.
 - **Interruptions diverge.** When a change interrupts a running animation, an existing level blended
   its old animation with the new one, while a re-parented or new level started fresh. The curves
   diverged, and the launchers swung between scale 0.36 and 0.68. Replacing a running animation
-  instead of blending it (`SlotLayout::set`) keeps the levels on the same curve, at the price of an
-  abrupt change of speed on every interruption.
+  instead of blending it (`AnimatedPlacement::set`) keeps the levels on the same curve, at the price
+  of an abrupt change of speed on every interruption.
 - **Re-parenting needs a conversion.** A launcher that moves into another project's matrix keeps its
   local transform, which the new parent then reads in its own coordinates. Re-parenting therefore
   converts the presented placement from the previous parent's coordinates into the new one's
   ([reparenting.rs](../../desktop/src/desktop_system/reparenting.rs)). The conversion has to use the
   transforms the parents present at that moment, not their placements, because a parent may still be
   animating. Slot content, project, and matrix presenters read it from their movements for that
-  purpose (`presented_layout`). Before a presenter's first layout is shown, the conversion uses its
-  placement, because that first layout jumps there (`reparenting::shown_layout`). A new group starts
-  its matrix at the inverse of its own start, so that its slots need no conversion when they move in
-  (`ProjectPresenter::animate_in_from`).
+  purpose (`presented_placement`). Before a presenter's first placement is shown, the conversion
+  uses its placement, because the first placement jumps there (`reparenting::shown_placement`). A
+  new group starts its matrix at the inverse of its own start, so that its slots need no conversion
+  when they move in (`ProjectPresenter::animate_in_from`).
 
 All three fixes are in place, and each one patches a consequence of the same cause: the animations
 run in local coordinates, but what the user should see move smoothly is the absolute position.
@@ -72,21 +72,21 @@ movements.
 Implementing this decision removes the following, which exists only because animations run in
 local coordinates:
 
-- The conversion on re-parenting: `SlotLayout::rebase`, `reparent` on `LauncherPresenter` and
-  `ProjectPresenter`, and `shown_layout` and `shown_matrix_transform` in
+- The conversion on re-parenting: `AnimatedPlacement::rebase`, `reparent` on `LauncherPresenter` and
+  `ProjectPresenter`, and `shown_placement` and `shown_matrix_transform` in
   [reparenting.rs](../../desktop/src/desktop_system/reparenting.rs). `reparenting::apply` would only
   move the hierarchy node and attach the scene location to the new matrix.
-- `presented_layout` on the slot content, project, and matrix presenters, and
+- `presented_placement` on the slot content, project, and matrix presenters, and
   `MovementRuntime::inspect`, through which they read their presented placement for the conversion.
   `grouping::slot_bounds` would read placements.
 - The matrix's start at the inverse of its project's start (`matrix_start`). A new group would start
   at the bounds of its slots, and its matrix at its placement, like any other location.
-- The rule that `SlotLayout` replaces a running animation instead of blending it. Each location
-  could blend again, and an interruption would no longer change the speed abruptly.
+- The rule that `AnimatedPlacement` replaces a running animation instead of blending it. Each
+  location could blend again, and an interruption would no longer change the speed abruptly.
 - The fixed-point zoom and the ratio interpolation as a correctness measure. They could stay because
   ratio steps look even when zooming, but no product of animations depends on them anymore.
-- The per-presenter placement movements and `SlotLayout` itself, with their mounting, their
-  `set_layout` helpers, and the first-placement rule that each presenter repeats.
+- The per-presenter placement movements and `AnimatedPlacement` itself, with their mounting, their
+  `set_placement` helpers, and the first-placement rule that each presenter repeats.
 
 ## Feasibility
 

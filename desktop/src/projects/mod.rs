@@ -1,10 +1,10 @@
+mod animated_placement;
 mod launcher_presenter;
 mod matrix_layout;
 pub mod persistence;
 mod project_presenter;
 mod runtime_configuration;
 mod shared_column_counts;
-mod slot_layout;
 mod title_bar_presenter;
 mod visor_layout;
 

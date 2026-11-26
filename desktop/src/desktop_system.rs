@@ -84,7 +84,7 @@ pub use layout_algorithm::{
 pub use massive_applications::{Direction, SlotShift};
 pub use mcp_indicator::McpActivation;
 pub use target::{DesktopTarget, FocusableTarget, InstancePart, ProjectPart};
-pub use target_layout::{AppliedLayout, LayoutContext, LayoutInputs, TargetLayout};
+pub use target_layout::{AppliedPlacement, LayoutContext, LayoutInputs, TargetLayout};
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::focus_path::{FocusPath, PathResolver};
@@ -157,7 +157,7 @@ impl ZoomLevel {
 struct TransactionContext {
     effects_mode: TransactionEffectsMode,
     /// Set by `SnapPresentation`, which a window resize marks. Read through `camera_mode` and
-    /// `animate_layout`.
+    /// `animates_placements`.
     snap_presentation: bool,
 }
 
@@ -180,9 +180,9 @@ impl TransactionContext {
         }
     }
 
-    /// Whether layout changes animate. A resize snaps the layout, because each resize step would
+    /// Whether placements animate. A resize snaps them, because each resize step would
     /// otherwise restart an animation toward a size the next step already replaces.
-    fn animate_layout(&self) -> bool {
+    fn animates_placements(&self) -> bool {
         self.effects_mode.permit_animations() && !self.snap_presentation
     }
 }

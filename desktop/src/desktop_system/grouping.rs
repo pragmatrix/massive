@@ -72,9 +72,10 @@ pub fn slot_bounds(
                 .configuration
                 .content_at(parent, slot)
                 .expect("a grouped slot has content");
-            let layout = reparenting::shown_layout(&content.target(), aggregates, layout_state)
-                .expect("a grouped content is shown or placed");
-            layout_rect(layout)
+            let placement =
+                reparenting::shown_placement(&content.target(), aggregates, layout_state)
+                    .expect("a grouped content is shown or placed");
+            placement_rect(placement)
         })
         .reduce(|bounds, rect| bounds.joined(rect))
         .expect("grouping takes at least one slot")
@@ -191,11 +192,15 @@ fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selec
     })
 }
 
-/// The rectangle that `layout` covers in its parent's coordinates.
-fn layout_rect(layout: SizedTransform) -> Rect {
-    let origin = layout.pivoted_at_origin();
+/// The rectangle that `placement` covers in its parent's coordinates.
+fn placement_rect(placement: SizedTransform) -> Rect {
+    let origin = placement.pivoted_at_origin();
     let start = origin.transform_point(Vector3::new(0.0, 0.0, 0.0));
-    let end = origin.transform_point(Vector3::new(layout.size.width, layout.size.height, 0.0));
+    let end = origin.transform_point(Vector3::new(
+        placement.size.width,
+        placement.size.height,
+        0.0,
+    ));
     Rect {
         left: start.x,
         top: start.y,
