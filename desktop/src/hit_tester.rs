@@ -1,4 +1,4 @@
-use massive_geometry::{Contains, Point, SizedTransform, Vector3};
+use massive_geometry::{Contains, Point, TransformedRect, Vector3};
 use massive_renderer::RenderGeometry;
 
 use crate::coordinate_mapper::{CoordinateMapper, PlacementSource};
@@ -156,7 +156,7 @@ impl<'a> HitTester<'a> {
         None
     }
 
-    fn hit_test_surface(&self, screen_pos: Point, surface: &SizedTransform) -> Option<Vector3> {
+    fn hit_test_surface(&self, screen_pos: Point, surface: &TransformedRect) -> Option<Vector3> {
         self.mapper.to_local(screen_pos, surface)
     }
 }

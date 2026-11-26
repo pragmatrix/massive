@@ -5,7 +5,7 @@ use anyhow::Result;
 use massive_animation::Movement;
 use massive_applications::prelude::*;
 use massive_applications::task_context;
-use massive_geometry::{Point, SizePx, SizedTransform, Transform};
+use massive_geometry::{Point, SizePx, Transform, TransformedRect};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset};
 use massive_scene::Id;
 use massive_scene::prelude::*;
@@ -88,7 +88,7 @@ impl ProjectPresenter {
 
     /// The placement the project shows now, relative to its parent matrix. `None` before its first
     /// placement is shown.
-    pub fn presented_placement(&self) -> Option<SizedTransform> {
+    pub fn presented_placement(&self) -> Option<TransformedRect> {
         presented_placement(&self.movement)
     }
 
@@ -224,7 +224,7 @@ impl TargetLayout for ProjectPresenter {
     fn set_placement(
         &mut self,
         part: ProjectPart,
-        placement: SizedTransform,
+        placement: TransformedRect,
         _visible: bool,
         animate: bool,
     ) -> Result<AppliedPlacement> {
@@ -272,7 +272,7 @@ impl ProjectMatrixPresenter {
 
     /// The placement the matrix shows now, relative to its project. `None` before its first
     /// placement is shown.
-    pub fn presented_placement(&self) -> Option<SizedTransform> {
+    pub fn presented_placement(&self) -> Option<TransformedRect> {
         presented_placement(&self.movement)
     }
 }
@@ -288,14 +288,18 @@ fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<Animat
 }
 
 /// The placement `movement` shows now. `None` before its first placement is shown.
-fn presented_placement(movement: &Movement<AnimatedPlacement>) -> Option<SizedTransform> {
+fn presented_placement(movement: &Movement<AnimatedPlacement>) -> Option<TransformedRect> {
     task_context::with_animation_and_movement(|_, runtime| {
         runtime.inspect(movement, AnimatedPlacement::presented)
     })
 }
 
 /// Sets the placement that `movement` animates to, and snaps it when the change does not animate.
-fn set_placement(movement: &Movement<AnimatedPlacement>, placement: SizedTransform, animate: bool) {
+fn set_placement(
+    movement: &Movement<AnimatedPlacement>,
+    placement: TransformedRect,
+    animate: bool,
+) {
     movement.modify(move |animated_placement, context| {
         animated_placement.set(context, placement);
     });
@@ -306,24 +310,24 @@ fn set_placement(movement: &Movement<AnimatedPlacement>, placement: SizedTransfo
 
 /// Shows `movement` at `from`, so that it animates from there to its placement. See
 /// [`AnimatedPlacement::restart_from`].
-fn animate_in_from(movement: &Movement<AnimatedPlacement>, from: SizedTransform) {
+fn animate_in_from(movement: &Movement<AnimatedPlacement>, from: TransformedRect) {
     movement
         .modify(move |animated_placement, context| animated_placement.restart_from(context, from));
 }
 
 /// The start of a new group at `origin` for its first placement `first`. It keeps the placement's
 /// scale and size, so the group only moves into its slot.
-fn group_start(origin: Point, first: SizedTransform) -> SizedTransform {
+fn group_start(origin: Point, first: TransformedRect) -> TransformedRect {
     let transform = first.transform;
     let at_origin = Transform::new(origin.with_z(0.0), transform.rotate, transform.scale);
-    SizedTransform::new(first.size, at_origin.pivoted_at(first.rect().center()))
+    TransformedRect::new(at_origin.pivoted_at(first.rect().center()), first.size)
 }
 
 /// The matrix's start for a project that starts at `project`. It is the inverse of the project's
 /// transform, so that the matrix starts where the parent's matrix is.
-fn matrix_start(project: SizedTransform) -> SizedTransform {
+fn matrix_start(project: TransformedRect) -> TransformedRect {
     let origin = project.pivoted_at_origin().inverse();
-    SizedTransform::new(project.size, origin.pivoted_at(project.rect().center()))
+    TransformedRect::new(origin.pivoted_at(project.rect().center()), project.size)
 }
 
 #[cfg(test)]
@@ -336,9 +340,9 @@ mod tests {
     /// its header shrink while the group moves in.
     #[test]
     fn a_new_group_starts_at_the_scale_of_its_first_placement() {
-        let first = SizedTransform::new(
-            Size::new(400.0, 300.0),
+        let first = TransformedRect::new(
             Transform::new((900.0, 600.0, 0.0), Quaternion::IDENTITY, 0.8),
+            Size::new(400.0, 300.0),
         );
 
         let start = group_start(Point::new(100.0, 50.0), first);
@@ -353,9 +357,9 @@ mod tests {
     /// conversion, because the new matrix starts where the parent's matrix is.
     #[test]
     fn a_started_matrix_starts_at_the_parents_matrix() {
-        let project = SizedTransform::new(
-            Size::new(400.0, 300.0),
+        let project = TransformedRect::new(
             Transform::from_translation((250.0, 180.0, 0.0)),
+            Size::new(400.0, 300.0),
         );
 
         let matrix = matrix_start(project);

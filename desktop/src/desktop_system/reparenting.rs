@@ -6,7 +6,7 @@
 //! content and converts its on-screen position into the new matrix's coordinates.
 
 use anyhow::Result;
-use massive_geometry::{SizedTransform, Transform};
+use massive_geometry::{Transform, TransformedRect};
 
 use super::change::{Changes, DesktopChange, TopologyChange};
 use super::effects::DesktopEffect;
@@ -111,7 +111,7 @@ pub fn shown_placement(
     target: &DesktopTarget,
     aggregates: &Aggregates,
     layout_state: &DesktopLayoutState,
-) -> Option<SizedTransform> {
+) -> Option<TransformedRect> {
     let presented = match *target {
         DesktopTarget::Launcher(launcher) => aggregates.launchers[&launcher].presented_placement(),
         DesktopTarget::Project(project, ProjectPart::Project) => {
@@ -125,7 +125,7 @@ pub fn shown_placement(
     presented.or_else(|| {
         layout_state
             .is_placed(target)
-            .then(|| DesktopLayoutState::sized_transform(&layout_state.local_placement(target)))
+            .then(|| DesktopLayoutState::transformed_rect(&layout_state.local_placement(target)))
     })
 }
 

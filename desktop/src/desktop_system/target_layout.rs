@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use massive_applications::{InstanceId, ViewId};
-use massive_geometry::{SizePx, SizedTransform, Transform};
+use massive_geometry::{SizePx, Transform, TransformedRect};
 use massive_layout::{ChildPlacement, MeasuredLayout};
 
 use super::DesktopTarget;
@@ -38,7 +38,7 @@ pub trait TargetLayout {
     fn set_placement(
         &mut self,
         part: Self::Part,
-        placement: SizedTransform,
+        placement: TransformedRect,
         visible: bool,
         animate: bool,
     ) -> Result<AppliedPlacement>;

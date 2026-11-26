@@ -5,7 +5,7 @@
 //! starting at the project's own slot, removes the project, and selects the ungrouped slots.
 
 use euclid::{point2, vec2};
-use massive_geometry::{Rect, SizedTransform, Vector3};
+use massive_geometry::{Rect, TransformedRect, Vector3};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::configuration_planning::plan_add_project_topology;
@@ -193,7 +193,7 @@ fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selec
 }
 
 /// The rectangle that `placement` covers in its parent's coordinates.
-fn placement_rect(placement: SizedTransform) -> Rect {
+fn placement_rect(placement: TransformedRect) -> Rect {
     let origin = placement.pivoted_at_origin();
     let start = origin.transform_point(Vector3::new(0.0, 0.0, 0.0));
     let end = origin.transform_point(Vector3::new(

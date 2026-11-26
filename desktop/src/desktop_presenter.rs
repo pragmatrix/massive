@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Movement};
 use massive_applications::prelude::*;
-use massive_geometry::{Rect, SizePx, SizedTransform, Transform};
+use massive_geometry::{Rect, SizePx, Transform, TransformedRect};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement};
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
@@ -143,7 +143,7 @@ impl TargetLayout for DesktopPresenter {
     fn set_placement(
         &mut self,
         (): (),
-        _layout: SizedTransform,
+        _layout: TransformedRect,
         _visible: bool,
         _animate: bool,
     ) -> Result<AppliedPlacement> {
@@ -154,7 +154,7 @@ impl TargetLayout for DesktopPresenter {
 #[derive(Debug, Default)]
 struct HoverMovement {
     alpha: Animated<f32>,
-    outline: Animated<SizedTransform>,
+    outline: Animated<TransformedRect>,
 }
 
 impl HoverMovement {
@@ -182,7 +182,7 @@ impl HoverMovement {
             Some(placement) => {
                 let size = placement.rect.size;
                 let outline =
-                    SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform);
+                    TransformedRect::new(placement.transform, SizePx::new(size[0], size[1]));
                 self.alpha.animate_if_changed_with(
                     context,
                     1.0,

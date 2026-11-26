@@ -9,7 +9,7 @@ use winit::window::CursorIcon;
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Quaternion, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_geometry::{Quaternion, Rect, SizePx, Transform, TransformedRect, Vector3};
 use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Size as LayoutSize,
 };
@@ -416,7 +416,7 @@ impl InstancePresenter {
     pub fn set_view_placement(
         &mut self,
         view_id: ViewId,
-        placement: SizedTransform,
+        placement: TransformedRect,
     ) -> Result<Option<SizePx>> {
         let view = self.presented_view_mut(view_id).context(NOT_PRESENTING)?;
         let new_size = SizePx::new(placement.size.width as u32, placement.size.height as u32);
@@ -432,13 +432,13 @@ impl InstancePresenter {
         Ok(resize)
     }
 
-    pub fn set_title_bar_placement(&mut self, placement: SizedTransform, animate: bool) {
+    pub fn set_title_bar_placement(&mut self, placement: TransformedRect, animate: bool) {
         self.title_bar.set_placement(placement, animate);
     }
 
     pub fn set_instance_placement(
         &mut self,
-        placement: SizedTransform,
+        placement: TransformedRect,
         visible: bool,
         animate: bool,
     ) {
@@ -451,7 +451,7 @@ impl InstancePresenter {
         self.has_applied_placement = true;
     }
 
-    fn retarget_placement(&mut self, placement: SizedTransform, visible: bool) {
+    fn retarget_placement(&mut self, placement: TransformedRect, visible: bool) {
         // The content origin is the top-left corner of the extent, while the placement transform is
         // centered on it.
         self.locations
@@ -557,7 +557,7 @@ impl TargetLayout for InstancePresenter {
     fn set_placement(
         &mut self,
         part: InstancePart,
-        placement: SizedTransform,
+        placement: TransformedRect,
         visible: bool,
         animate: bool,
     ) -> Result<AppliedPlacement> {

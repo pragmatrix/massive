@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use massive_geometry::{
-    Color, PixelCamera, Point, Quaternion, Rect, Size, SizedTransform, Transform, Vector3,
+    Color, PixelCamera, Point, Quaternion, Rect, Size, Transform, TransformedRect, Vector3,
 };
 
 /// For now we have to support `Clone`.
@@ -63,11 +63,11 @@ impl Interpolatable for Transform {
 
 /// Interpolates the transforms pivoted at their origins, because the pivot at the center moves when
 /// the size changes. The zoom about a fixed point needs both ends in the same coordinates.
-impl Interpolatable for SizedTransform {
+impl Interpolatable for TransformedRect {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
         let size = interpolate(&from.size, &to.size, t);
         let origin = interpolate(&from.pivoted_at_origin(), &to.pivoted_at_origin(), t);
-        SizedTransform::new(size, origin.pivoted_at(size.center()))
+        TransformedRect::new(origin.pivoted_at(size.center()), size)
     }
 }
 

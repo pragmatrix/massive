@@ -2,7 +2,7 @@ use std::iter;
 
 use massive_animation::{Animated, Movement};
 use massive_applications::prelude::*;
-use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform, Vector3};
+use massive_geometry::{Color, Rect, SizePx, Transform, TransformedRect, Vector3};
 use massive_scene::Id;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
@@ -133,7 +133,7 @@ impl TitleBarPresenter {
             .release_when_settled((self.text_transform, self.text));
     }
 
-    pub fn set_placement(&mut self, placement: SizedTransform, animate: bool) {
+    pub fn set_placement(&mut self, placement: TransformedRect, animate: bool) {
         // The available width is known once a placement has been set.
         let has_layout = self.available_width.is_some();
         self.movement.modify(move |movement, context| {
@@ -191,7 +191,7 @@ impl TitleBarPresenter {
 
 #[derive(Debug)]
 struct TitleBarMovement {
-    placement: Animated<SizedTransform>,
+    placement: Animated<TransformedRect>,
     /// Lives in the movement, because the movement redraws the background on every step.
     background_color: Animated<Color>,
     alpha: Animated<f32>,

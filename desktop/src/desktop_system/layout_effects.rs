@@ -6,7 +6,7 @@ use derive_more::Debug;
 use log::warn;
 
 use massive_applications::ViewEvent;
-use massive_geometry::SizedTransform;
+use massive_geometry::TransformedRect;
 use massive_layout::LayoutTopology;
 
 use super::effects::DesktopEffect;
@@ -140,15 +140,21 @@ impl LayoutPass<'_> {
         animate: bool,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        let local = self.layout_state.local_placement(&target);
-        let placement = DesktopLayoutState::sized_transform(&local);
-        self.apply_placement(target, placement, local.visible, animate, instance_manager)
+        let layout_placement = self.layout_state.local_placement(&target);
+        let placement = DesktopLayoutState::transformed_rect(&layout_placement);
+        self.apply_placement(
+            target,
+            placement,
+            layout_placement.visible,
+            animate,
+            instance_manager,
+        )
     }
 
     fn apply_placement(
         &mut self,
         target: DesktopTarget,
-        placement: SizedTransform,
+        placement: TransformedRect,
         visible: bool,
         animate: bool,
         instance_manager: &InstanceManager,

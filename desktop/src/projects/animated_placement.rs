@@ -2,7 +2,7 @@
 //! it, so that all of them appear, animate, and follow a re-parent in the same way.
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress};
-use massive_geometry::{SizedTransform, Transform};
+use massive_geometry::{Transform, TransformedRect};
 
 use crate::policy::constants::structural_animation;
 
@@ -14,13 +14,13 @@ use crate::policy::constants::structural_animation;
 #[derive(Debug, Default)]
 pub struct AnimatedPlacement {
     /// `None` until the first placement arrives, unless it was started at another one.
-    placement: Option<Animated<SizedTransform>>,
+    placement: Option<Animated<TransformedRect>>,
 }
 
 impl AnimatedPlacement {
     /// Shows `from` before the first placement arrives, so that the first placement animates from
     /// there.
-    pub fn animating_in_from(from: SizedTransform) -> Self {
+    pub fn animating_in_from(from: TransformedRect) -> Self {
         Self {
             placement: Some(from.into()),
         }
@@ -30,7 +30,7 @@ impl AnimatedPlacement {
     ///
     /// A new group's matrix can get its first placement before its project sets the matrix's start,
     /// so the placement it already has is animated to from the start as well.
-    pub fn restart_from(&mut self, context: &mut dyn AnimationAllocator, from: SizedTransform) {
+    pub fn restart_from(&mut self, context: &mut dyn AnimationAllocator, from: TransformedRect) {
         let placed = self.target();
         *self = Self::animating_in_from(from);
         if let Some(placed) = placed {
@@ -42,7 +42,7 @@ impl AnimatedPlacement {
     ///
     /// Nested placements then stay on the same curve when a change interrupts another (ADR 0048,
     /// `an_interrupting_change_replaces_the_running_animation`).
-    pub fn set(&mut self, context: &mut dyn AnimationAllocator, placement: SizedTransform) {
+    pub fn set(&mut self, context: &mut dyn AnimationAllocator, placement: TransformedRect) {
         match &mut self.placement {
             Some(animated) => {
                 if *animated.target() == placement {
@@ -75,23 +75,23 @@ impl AnimatedPlacement {
         let drawn = *placement.latest();
         let origin = previous_to_current * drawn.pivoted_at_origin();
         let transform = origin.pivoted_at(drawn.rect().center());
-        placement.snap(SizedTransform::new(drawn.size, transform));
+        placement.snap(TransformedRect::new(transform, drawn.size));
     }
 
     /// The placement it animates to, or shows when it does not animate. It is `None` before the
     /// first placement arrived, unless the placement was started at another one.
-    pub fn target(&self) -> Option<SizedTransform> {
+    pub fn target(&self) -> Option<TransformedRect> {
         self.placement.as_ref().map(|placement| *placement.target())
     }
 
     /// The placement shown now. It is `None` before the first placement arrived.
-    pub fn presented(&self) -> Option<SizedTransform> {
+    pub fn presented(&self) -> Option<TransformedRect> {
         self.placement.as_ref().map(|placement| *placement.latest())
     }
 
     /// Returns the placement to show at `progress`. It is `None` before the first placement
     /// arrived.
-    pub fn proceed_with(&mut self, progress: AnimationProgress) -> Option<SizedTransform> {
+    pub fn proceed_with(&mut self, progress: AnimationProgress) -> Option<TransformedRect> {
         self.placement
             .as_mut()
             .map(|placement| *placement.proceed_with(progress))
@@ -112,9 +112,9 @@ mod tests {
     fn rebase_keeps_the_drawn_world_transform() {
         let previous_parent = Transform::from_translation((100.0, 0.0, 0.0));
         let parent = Transform::new((300.0, 50.0, 0.0), Quaternion::IDENTITY, 0.5);
-        let drawn = SizedTransform::new(
-            Size::new(200.0, 100.0),
+        let drawn = TransformedRect::new(
             Transform::from_translation((10.0, 20.0, 0.0)),
+            Size::new(200.0, 100.0),
         );
         let mut placement = AnimatedPlacement {
             placement: Some(drawn.into()),
@@ -135,9 +135,9 @@ mod tests {
         let start = Instant::now();
         let at = |offset: Duration| move |_: Duration| start + offset;
         let placement_at = |x: f64| {
-            SizedTransform::new(
-                Size::new(100.0, 100.0),
+            TransformedRect::new(
                 Transform::from_translation((x, 0.0, 0.0)),
+                Size::new(100.0, 100.0),
             )
         };
         let mut placement = AnimatedPlacement::animating_in_from(placement_at(0.0));
@@ -158,9 +158,9 @@ mod tests {
     fn a_restart_animates_to_the_existing_placement() {
         let start = Instant::now();
         let placement_at = |x: f64| {
-            SizedTransform::new(
-                Size::new(100.0, 100.0),
+            TransformedRect::new(
                 Transform::from_translation((x, 0.0, 0.0)),
+                Size::new(100.0, 100.0),
             )
         };
         let mut placement = AnimatedPlacement::default();

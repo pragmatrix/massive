@@ -7,7 +7,7 @@ use winit::event::MouseButton;
 use massive_animation::{Animated, AnimationProgress, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent, task_context};
-use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, TransformedRect, Vector3};
 use massive_input::EventManager;
 use massive_layout::{
     ChildPlacement, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
@@ -216,7 +216,7 @@ impl LauncherPresenter {
 
     /// The placement the launcher shows now, relative to its matrix. `None` before its first
     /// placement is shown.
-    pub fn presented_placement(&self) -> Option<SizedTransform> {
+    pub fn presented_placement(&self) -> Option<TransformedRect> {
         task_context::with_animation_and_movement(|_, runtime| {
             runtime.inspect(&self.movement, |movement| movement.placement.presented())
         })
@@ -352,7 +352,7 @@ impl TargetLayout for LauncherPresenter {
     fn set_placement(
         &mut self,
         (): (),
-        placement: SizedTransform,
+        placement: TransformedRect,
         _visible: bool,
         animate: bool,
     ) -> Result<AppliedPlacement> {
