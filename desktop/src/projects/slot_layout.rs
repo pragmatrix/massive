@@ -26,9 +26,10 @@ impl SlotLayout {
         }
     }
 
-    /// Animates to `layout` from the layout shown now. A running animation is replaced, not blended
-    /// with the new one. Nested layouts, such as a slot in its project, then run on the same curve,
-    /// so the product of their scales on screen does not swing when a change interrupts another.
+    /// Animates to `layout` from the layout shown now, replacing a running animation.
+    ///
+    /// Nested layouts then stay on the same curve when a change interrupts another (ADR 0048,
+    /// `an_interrupting_change_replaces_the_running_animation`).
     pub fn set(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
         match &mut self.layout {
             Some(animated) => {
