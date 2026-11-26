@@ -66,6 +66,12 @@ impl SlotLayout {
         layout.snap(SizedTransform::new(drawn.size, transform));
     }
 
+    /// The layout it animates to, or shows when it does not animate. It is `None` before the first
+    /// layout arrived.
+    pub fn target(&self) -> Option<SizedTransform> {
+        self.layout.as_ref().map(|layout| *layout.target())
+    }
+
     /// The layout shown now. It is `None` before the first layout arrived.
     pub fn presented(&self) -> Option<SizedTransform> {
         self.layout.as_ref().map(|layout| *layout.latest())

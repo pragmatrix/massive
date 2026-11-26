@@ -677,7 +677,11 @@ impl DesktopSystem {
                     .configuration
                     .group_slots(parent, &slots, project, &name);
                 self.insert_slot_presenter(Some(parent), project.into())?;
-                self.aggregates.projects[&project].animate_in_from(bounds);
+                self.aggregates
+                    .projects
+                    .get_mut(&project)
+                    .expect("the grouped project has a presenter")
+                    .animate_in_from(bounds.origin());
             }
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);

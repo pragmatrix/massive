@@ -5,7 +5,7 @@ use anyhow::Result;
 use massive_animation::Movement;
 use massive_applications::prelude::*;
 use massive_applications::task_context;
-use massive_geometry::{SizePx, SizedTransform, Transform};
+use massive_geometry::{Point, SizePx, SizedTransform, Transform};
 use massive_layout::{ChildPlacement, LayoutAxis, MeasuredLayout, Offset};
 use massive_scene::Id;
 use massive_scene::prelude::*;
@@ -34,6 +34,9 @@ pub struct ProjectPresenter {
     pub header: TitleBarPresenter,
     pub matrix: ProjectMatrixPresenter,
     pub last_focused_slot: Option<SlotPosition>,
+    /// The corner a new group animates in from, in its parent matrix's coordinates. The group's
+    /// first placement takes it. It is `None` from then on, and for every other project.
+    entering_from: Option<Point>,
 }
 
 impl ProjectPresenter {
@@ -62,6 +65,7 @@ impl ProjectPresenter {
             header,
             matrix,
             last_focused_slot: None,
+            entering_from: None,
         }
     }
 
@@ -97,13 +101,13 @@ impl ProjectPresenter {
         self.header.fade_out();
     }
 
-    /// Shows a new group at `bounds`, the bounds of its slots, so that it animates from there once
-    /// it is placed in its own slot (ADR 0026).
+    /// Lets a new group animate into its own slot from `origin`, the corner of its slots' bounds
+    /// in the parent matrix's coordinates (ADR 0026).
     ///
-    /// Until then, the matrix is shown where the parent's matrix is, so the slots stay in place.
-    pub fn animate_in_from(&self, bounds: SizedTransform) {
-        animate_in_from(&self.movement, bounds);
-        animate_in_from(&self.matrix.movement, matrix_start(bounds));
+    /// The group starts there at the scale of its first placement, so its header only moves. Its
+    /// matrix starts where the parent's matrix is, so the slots stay in place.
+    pub fn animate_in_from(&mut self, origin: Point) {
+        self.entering_from = Some(origin);
         self.header.fade_in();
     }
 }
@@ -226,7 +230,14 @@ impl TargetLayout for ProjectPresenter {
         animate: bool,
     ) -> Result<AppliedLayout> {
         match part {
-            ProjectPart::Project => self.set_layout(layout, animate),
+            ProjectPart::Project => {
+                if let Some(origin) = self.entering_from.take() {
+                    let start = group_start(origin, layout);
+                    animate_in_from(&self.movement, start);
+                    animate_in_from(&self.matrix.movement, matrix_start(start));
+                }
+                self.set_layout(layout, animate)
+            }
             ProjectPart::Header => self.header.set_layout(layout, animate),
             ProjectPart::Matrix => set_layout(&self.matrix.movement, layout, animate),
         }
@@ -289,11 +300,25 @@ fn set_layout(movement: &Movement<SlotLayout>, layout: SizedTransform, animate: 
     }
 }
 
-/// Shows `movement` at `from`, so that it animates from there once its target is placed.
+/// Shows `movement` at `from`, so that it animates from there to its placement.
 fn animate_in_from(movement: &Movement<SlotLayout>, from: SizedTransform) {
-    movement.modify(move |slot_layout, _context| {
+    movement.modify(move |slot_layout, context| {
+        // A matrix can get its first layout before its project, so its placement may be there
+        // already. It then animates to that placement from `from` too.
+        let placed = slot_layout.target();
         *slot_layout = SlotLayout::starting_at(from);
+        if let Some(placed) = placed {
+            slot_layout.set(context, placed);
+        }
     });
+}
+
+/// The start of a new group at `origin` for its first placement `first`. It keeps the placement's
+/// scale and size, so the group only moves into its slot.
+fn group_start(origin: Point, first: SizedTransform) -> SizedTransform {
+    let transform = first.transform;
+    let at_origin = Transform::new(origin.with_z(0.0), transform.rotate, transform.scale);
+    SizedTransform::new(first.size, at_origin.pivoted_at(first.rect().center()))
 }
 
 /// The matrix's start for a project that starts at `project`. It is the inverse of the project's
@@ -305,9 +330,26 @@ fn matrix_start(project: SizedTransform) -> SizedTransform {
 
 #[cfg(test)]
 mod tests {
-    use massive_geometry::Size;
+    use massive_geometry::{Quaternion, Size, Vector3};
 
     use super::*;
+
+    /// A new group starts at its corner but already at its final scale. Starting at scale 1 makes
+    /// its header shrink while the group moves in.
+    #[test]
+    fn a_new_group_starts_at_the_scale_of_its_first_placement() {
+        let first = SizedTransform::new(
+            Size::new(400.0, 300.0),
+            Transform::new((900.0, 600.0, 0.0), Quaternion::IDENTITY, 0.8),
+        );
+
+        let start = group_start(Point::new(100.0, 50.0), first);
+
+        let corner = start.pivoted_at_origin();
+        assert_eq!(corner.translate, Vector3::new(100.0, 50.0, 0.0));
+        assert_eq!(corner.scale, 0.8);
+        assert_eq!(start.size, first.size);
+    }
 
     /// Content that grouping moves into a new project keeps its on-screen position without a
     /// conversion, because the new matrix starts where the parent's matrix is.

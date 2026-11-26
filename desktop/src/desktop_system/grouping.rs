@@ -5,7 +5,7 @@
 //! starting at the project's own slot, removes the project, and selects the ungrouped slots.
 
 use euclid::{point2, vec2};
-use massive_geometry::{Rect, SizedTransform, Transform, Vector3};
+use massive_geometry::{Rect, SizedTransform, Vector3};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::configuration_planning::plan_add_project_topology;
@@ -64,8 +64,8 @@ pub fn slot_bounds(
     slots: &[SlotPosition],
     aggregates: &Aggregates,
     layout_state: &DesktopLayoutState,
-) -> SizedTransform {
-    let bounds = slots
+) -> Rect {
+    slots
         .iter()
         .map(|&slot| {
             let content = aggregates
@@ -77,10 +77,7 @@ pub fn slot_bounds(
             layout_rect(layout)
         })
         .reduce(|bounds, rect| bounds.joined(rect))
-        .expect("grouping takes at least one slot");
-    let size = bounds.size();
-    let origin = Transform::from_translation(bounds.origin().with_z(0.0));
-    SizedTransform::new(size, origin.pivoted_at(size.center()))
+        .expect("grouping takes at least one slot")
 }
 
 /// Plans ungrouping the non-empty `project`, and selecting its ungrouped slots when the focus moves
