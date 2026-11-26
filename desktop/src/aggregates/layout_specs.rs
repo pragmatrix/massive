@@ -35,14 +35,15 @@ impl<Key: fmt::Debug + Eq + hash::Hash, Value: Sized> Map<Key, Value> {
         Ok(())
     }
 
-    pub fn remove(&mut self, key: &Key) -> Result<()> {
-        if self.map.remove(key).is_none() {
+    /// Removes the value of `key` and returns it, so that a caller can let it fade out first.
+    pub fn remove(&mut self, key: &Key) -> Result<Value> {
+        let Some(value) = self.map.remove(key) else {
             bail!(
                 "Can't find key to remove from map of type `{}`",
                 type_name::<Value>()
             );
-        }
-        Ok(())
+        };
+        Ok(value)
     }
 
     pub fn get_mut(&mut self, key: &Key) -> Option<&mut Value> {

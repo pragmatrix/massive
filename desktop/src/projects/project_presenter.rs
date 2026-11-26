@@ -91,6 +91,12 @@ impl ProjectPresenter {
         presented_layout(&self.movement)
     }
 
+    /// Removes the project from the screen. Its header fades out where it is shown, and everything
+    /// else of the project disappears at once.
+    pub fn fade_out_header(self) {
+        self.header.fade_out();
+    }
+
     /// Shows a new group at `bounds`, the bounds of its slots, so that it animates from there once
     /// it is placed in its own slot (ADR 0026).
     ///
