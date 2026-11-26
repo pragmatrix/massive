@@ -44,10 +44,10 @@ impl Interpolatable for Vector3 {
     }
 }
 
-/// A transform that only scales and moves zooms about the one point that both ends map alike. On
-/// screen, transforms nest: a slot's in its matrix's, and a matrix's in its project's. A child that
-/// grows while its parent shrinks would otherwise drift sideways and back, even when both ends show
-/// it at the same place.
+/// Zooms about the point both ends map alike, when both ends have the same rotation.
+///
+/// Nested transforms that scale in opposite directions then keep a child from drifting sideways and
+/// back (ADR 0048, `a_scaling_transform_zooms_about_its_fixed_point`).
 impl Interpolatable for Transform {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
         if from.rotate == to.rotate {
@@ -129,21 +129,27 @@ where
     T::interpolate(from, to, t)
 }
 
-/// Interpolates a scale factor, such as a transform's scale or a camera's distance, in equal ratios
-/// instead of equal differences. On screen, scales multiply: a child's scale with its parent's, and
-/// a layout's scale with the camera's zoom. Two linear interpolations that move in opposite
-/// directions multiply to a size that swells and shrinks back on the way. Two ratio interpolations
-/// with the same progress multiply to another ratio interpolation, so their product never
-/// overshoots its ends.
+/// Interpolates a positive scale factor in equal ratios instead of equal differences.
+///
+/// Scales multiply on screen. Two ratio interpolations with the same progress multiply to another
+/// one, so their product never overshoots its ends (`opposite_scales_multiply_without_overshoot`).
 fn interpolate_ratio(from: f64, to: f64, t: f64) -> f64 {
+    debug_assert!(from > 0.0 && to > 0.0, "scales are positive: {from}, {to}");
     from.powf(1.0 - t) * to.powf(t)
 }
 
 /// The part `t` of the way from the identity to `step`, a transform that scales and moves but does
-/// not rotate. It scales by ratio about the point `step` keeps in place. The translation's share
-/// is computed with `exp_m1`, so a scale near 1, whose fixed point lies far away, stays precise,
-/// and a scale of exactly 1 moves linearly.
+/// not rotate.
+///
+/// It scales by ratio about the point `step` keeps in place. The translation's share is computed
+/// with `exp_m1`, so a scale near 1, whose fixed point lies far away, stays precise, and a scale of
+/// exactly 1 moves linearly.
 fn zoom_toward(step: Transform, t: f64) -> Transform {
+    debug_assert!(
+        step.scale > 0.0,
+        "a zoom scales by a positive factor: {}",
+        step.scale
+    );
     let log_scale = step.scale.ln();
     let share = if log_scale == 0.0 {
         t
