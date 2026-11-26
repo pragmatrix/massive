@@ -41,7 +41,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
-use std::ptr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -51,6 +50,8 @@ use crate::{AnimationAllocator, AnimationCoordinator, AnimationProgress};
 
 pub struct MovementRuntime {
     movements: HashMap<MovementReference, MountedMovement>,
+    /// The number of movements mounted so far. It identifies the next one.
+    mounted_count: u64,
     action_inbox: Arc<Mutex<Vec<MovementAction>>>,
     // Reused while draining the inbox so recurring actions retain their allocation capacity.
     actions: Vec<MovementAction>,
@@ -75,6 +76,7 @@ impl MovementRuntime {
     pub fn new() -> Self {
         Self {
             movements: Default::default(),
+            mounted_count: 0,
             action_inbox: Arc::new(Mutex::new(Vec::new())),
             actions: Vec::new(),
         }
@@ -87,7 +89,11 @@ impl MovementRuntime {
         F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
     {
         let instance = Box::new(instance);
-        let reference = Movement::new(&instance.value, self.action_inbox.clone());
+        let reference = Movement::new(
+            MovementReference(self.mounted_count),
+            self.action_inbox.clone(),
+        );
+        self.mounted_count += 1;
         self.movements.insert(
             reference.instance,
             MountedMovement {
@@ -148,8 +154,8 @@ impl MovementRuntime {
 
         for action in self.actions.drain(..) {
             match action {
-                MovementAction::Modify(pointer, apply) => {
-                    if let Some(instance) = self.movements.get_mut(&pointer) {
+                MovementAction::Modify(reference, apply) => {
+                    if let Some(instance) = self.movements.get_mut(&reference) {
                         let mut intermediate = MovementAnimationAllocator {
                             inner: coordinator,
                             activity: &mut instance.activity,
@@ -163,20 +169,20 @@ impl MovementRuntime {
                         }
                     }
                 }
-                MovementAction::Snap(pointer) => {
-                    if let Some(instance) = self.movements.get_mut(&pointer) {
+                MovementAction::Snap(reference) => {
+                    if let Some(instance) = self.movements.get_mut(&reference) {
                         // Snapping is deliberately local and does not emit completion events yet.
                         instance.movement.apply_animations(AnimationProgress::Snap);
                         instance.activity = Activity::Idle;
                     }
                 }
-                MovementAction::Release(pointer, kept) => {
-                    let Some(instance) = self.movements.get_mut(&pointer) else {
+                MovementAction::Release(reference, kept) => {
+                    let Some(instance) = self.movements.get_mut(&reference) else {
                         continue;
                     };
                     match instance.activity {
                         Activity::Idle => {
-                            self.movements.remove(&pointer);
+                            self.movements.remove(&reference);
                         }
                         Activity::Animating(until) => {
                             instance.activity = Activity::Settling { until, _kept: kept };
@@ -184,12 +190,13 @@ impl MovementRuntime {
                         Activity::Settling { .. } => panic!("a movement is released once"),
                     }
                 }
-                MovementAction::Drop(pointer) => {
-                    // A settling movement stays until its animations end.
-                    if self.movements.get(&pointer).is_some_and(|instance| {
+                MovementAction::Drop(reference) => {
+                    // The handle that `release_when_settled` consumed queues this after its
+                    // `Release`. A settling movement stays until its animations end.
+                    if self.movements.get(&reference).is_some_and(|instance| {
                         !matches!(instance.activity, Activity::Settling { .. })
                     }) {
-                        self.movements.remove(&pointer);
+                        self.movements.remove(&reference);
                     }
                 }
             }
@@ -243,9 +250,9 @@ pub struct Movement<T> {
 }
 
 impl<T> Movement<T> {
-    fn new(instance: &T, actions_inbox: Arc<Mutex<Vec<MovementAction>>>) -> Self {
+    fn new(instance: MovementReference, actions_inbox: Arc<Mutex<Vec<MovementAction>>>) -> Self {
         Self {
-            instance: MovementReference::new(instance),
+            instance,
             actions_inbox,
             marker: PhantomData,
         }
@@ -280,7 +287,7 @@ impl<T> Movement<T> {
     }
 
     /// Drops the handle, but keeps the movement and `keep` until its running animations have
-    /// ended.
+    /// ended. Its completion event, if it has one, still arrives then.
     ///
     /// A presenter that is removed while it fades out passes the scene objects its movement does
     /// not own as `keep`, so they stay visible until the fade has ended.
@@ -299,18 +306,10 @@ impl<T> Drop for Movement<T> {
     }
 }
 
+/// Identifies a mounted movement. The runtime never gives the same reference to two movements, so
+/// an action that arrives after its movement is gone finds nothing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-struct MovementReference(*const ());
-
-// This is an opaque identity only; movement values are never accessed through the pointer.
-unsafe impl Send for MovementReference {}
-unsafe impl Sync for MovementReference {}
-
-impl MovementReference {
-    fn new<T>(value: &T) -> Self {
-        Self(ptr::from_ref(value).cast())
-    }
-}
+struct MovementReference(u64);
 
 trait AnimatableMovement: Any + Send + Sync {
     fn as_any(&self) -> &(dyn Any + Send);
@@ -419,6 +418,8 @@ type ModifyMovement =
 enum MovementAction {
     Modify(MovementReference, ModifyMovement),
     Snap(MovementReference),
+    /// Keeps the movement and the boxed value until its animations have ended, even though the
+    /// handle drops.
     Release(MovementReference, Box<dyn Any + Send + Sync>),
     Drop(MovementReference),
 }
