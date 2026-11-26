@@ -6,7 +6,7 @@ use winit::event::MouseButton;
 
 use massive_animation::{Animated, AnimationProgress, Movement};
 use massive_applications::prelude::*;
-use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent, task_context};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
 use massive_layout::{
@@ -221,6 +221,14 @@ impl LauncherPresenter {
 
     pub fn location(&self) -> Id<Location> {
         self.location.id()
+    }
+
+    /// The layout the launcher shows now, relative to its matrix. `None` before its first layout is
+    /// shown.
+    pub fn presented_layout(&self) -> Option<SizedTransform> {
+        task_context::with_animation_and_movement(|_, runtime| {
+            runtime.inspect(&self.movement, |movement| movement.layout.presented())
+        })
     }
 
     /// Attaches the launcher to the matrix at `location` and converts its shown layout with

@@ -591,7 +591,7 @@ impl DesktopSystem {
                 DesktopEffect::Measure(under).mark();
             }
             TopologyChange::Reparent { what, under } => {
-                reparenting::apply(what, under, &mut self.aggregates)?;
+                reparenting::apply(what, under, &mut self.aggregates, &self.layout_state)?;
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -671,12 +671,8 @@ impl DesktopSystem {
             } => {
                 // The grouped slots leave the parent's configuration below, so their bounds are
                 // read first.
-                let bounds = grouping::slot_bounds(
-                    parent,
-                    &slots,
-                    &self.aggregates.configuration,
-                    &self.layout_state,
-                );
+                let bounds =
+                    grouping::slot_bounds(parent, &slots, &self.aggregates, &self.layout_state);
                 self.aggregates
                     .configuration
                     .group_slots(parent, &slots, project, &name);

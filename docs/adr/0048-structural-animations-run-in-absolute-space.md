@@ -33,9 +33,11 @@ renderer resolved it, frame by frame.
   converts the presented placement from the previous parent's coordinates into the new one's
   ([reparenting.rs](../../desktop/src/desktop_system/reparenting.rs)). The conversion has to use the
   transforms the parents present at that moment, not their placements, because a parent may still be
-  animating. Project and matrix presenters read it from their movements for that purpose
-  (`presented_transform`). A new group starts its matrix at the inverse of its own start, so that
-  its slots need no conversion when they move in (`ProjectPresenter::animate_in_from`).
+  animating. Slot content, project, and matrix presenters read it from their movements for that
+  purpose (`presented_layout`). Before a presenter's first layout is shown, the conversion uses its
+  placement, because that first layout jumps there (`reparenting::shown_layout`). A new group starts
+  its matrix at the inverse of its own start, so that its slots need no conversion when they move in
+  (`ProjectPresenter::animate_in_from`).
 
 All three fixes are in place, and each one patches a consequence of the same cause: the animations
 run in local coordinates, but what the user should see move smoothly is the absolute position.
@@ -71,11 +73,12 @@ Implementing this decision removes the following, which exists only because anim
 local coordinates:
 
 - The conversion on re-parenting: `SlotLayout::rebase`, `reparent` on `LauncherPresenter` and
-  `ProjectPresenter`, and `presented_matrix_transform` and `previous_to_current` in
+  `ProjectPresenter`, and `shown_layout` and `shown_matrix_transform` in
   [reparenting.rs](../../desktop/src/desktop_system/reparenting.rs). `reparenting::apply` would only
   move the hierarchy node and attach the scene location to the new matrix.
-- `presented_transform` on project and matrix presenters, and `MovementRuntime::inspect`, through
-  which they read their presented placement for the conversion.
+- `presented_layout` on the slot content, project, and matrix presenters, and
+  `MovementRuntime::inspect`, through which they read their presented placement for the conversion.
+  `grouping::slot_bounds` would read placements.
 - The matrix's start at the inverse of its project's start (`matrix_start`). A new group would start
   at the bounds of its slots, and its matrix at its placement, like any other location.
 - The rule that `SlotLayout` replaces a running animation instead of blending it. Each location

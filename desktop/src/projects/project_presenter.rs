@@ -85,10 +85,10 @@ impl ProjectPresenter {
         set_layout(&self.movement, layout, animate);
     }
 
-    /// The transform from the project's coordinates into its parent matrix's, as it is presented
-    /// now.
-    pub fn presented_transform(&self) -> Transform {
-        presented_transform(&self.movement)
+    /// The layout the project shows now, relative to its parent matrix. `None` before its first
+    /// layout is shown.
+    pub fn presented_layout(&self) -> Option<SizedTransform> {
+        presented_layout(&self.movement)
     }
 
     /// Shows a new group at `bounds`, the bounds of its slots, so that it animates from there once
@@ -249,9 +249,10 @@ impl ProjectMatrixPresenter {
         self.location.id()
     }
 
-    /// The transform from the matrix's coordinates into its project's, as it is presented now.
-    pub fn presented_transform(&self) -> Transform {
-        presented_transform(&self.movement)
+    /// The layout the matrix shows now, relative to its project. `None` before its first layout is
+    /// shown.
+    pub fn presented_layout(&self) -> Option<SizedTransform> {
+        presented_layout(&self.movement)
     }
 }
 
@@ -265,16 +266,10 @@ fn transform_movement(mut scene_transform: Handle<Transform>) -> Movement<SlotLa
     .mount()
 }
 
-/// The transform the scene location of `movement` presents now, which re-parenting converts with,
-/// because a parent that still animates is not at its placement yet. It is the identity before the
-/// first layout is presented, like the location itself.
-fn presented_transform(movement: &Movement<SlotLayout>) -> Transform {
+/// The layout `movement` shows now. `None` before its first layout is shown.
+fn presented_layout(movement: &Movement<SlotLayout>) -> Option<SizedTransform> {
     task_context::with_animation_and_movement(|_, runtime| {
-        runtime.inspect(movement, |layout| {
-            layout
-                .presented()
-                .map_or(Transform::IDENTITY, SizedTransform::pivoted_at_origin)
-        })
+        runtime.inspect(movement, SlotLayout::presented)
     })
 }
 

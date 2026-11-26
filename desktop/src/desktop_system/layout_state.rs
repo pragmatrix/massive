@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Point, Transform};
+use massive_geometry::{Point, SizePx, SizedTransform, Transform};
 use massive_layout::{
     ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
     Rect as LayoutRect, Size as LayoutSize,
@@ -270,6 +270,12 @@ impl DesktopLayoutState {
             .pivoted_at_origin(Self::layout_local_center(placement.rect.size))
     }
 
+    /// The layout a presenter shows for `placement`.
+    pub fn placed_layout(placement: &Placement<Transform, 2>) -> SizedTransform {
+        let size = placement.rect.size;
+        SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform)
+    }
+
     /// The center of a rectangle of `size`, which is the pivot of every layout placement's
     /// transform.
     pub fn layout_local_center(size: LayoutSize<2>) -> Point {
@@ -283,6 +289,14 @@ impl DesktopLayoutState {
             .get(target)
             .unwrap_or_else(|| panic!("Internal error: missing layout entry for target {target:?}"))
             .measured
+    }
+
+    /// Whether `target` was placed. A target that a change of the running transaction added is
+    /// not placed until the transaction's effects run.
+    pub fn is_placed(&self, target: &DesktopTarget) -> bool {
+        self.entries
+            .get(target)
+            .is_some_and(|entry| entry.placement.is_some())
     }
 
     pub fn local_placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
