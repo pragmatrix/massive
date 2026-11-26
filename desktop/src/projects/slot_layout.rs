@@ -26,6 +26,18 @@ impl SlotLayout {
         }
     }
 
+    /// Shows `from` and animates from there to the layout's placement, if it has one already.
+    ///
+    /// A new group's matrix can get its first layout before its project sets the matrix's start,
+    /// so the placement it already has is animated to from the start as well.
+    pub fn restart_from(&mut self, context: &mut dyn AnimationAllocator, from: SizedTransform) {
+        let placed = self.target();
+        *self = Self::starting_at(from);
+        if let Some(placed) = placed {
+            self.set(context, placed);
+        }
+    }
+
     /// Animates to `layout` from the layout shown now, replacing a running animation.
     ///
     /// Nested layouts then stay on the same curve when a change interrupts another (ADR 0048,
@@ -67,7 +79,7 @@ impl SlotLayout {
     }
 
     /// The layout it animates to, or shows when it does not animate. It is `None` before the first
-    /// layout arrived.
+    /// layout arrived, unless the layout was started at another one.
     pub fn target(&self) -> Option<SizedTransform> {
         self.layout.as_ref().map(|layout| *layout.target())
     }
@@ -137,6 +149,28 @@ mod tests {
         let animated = layout.layout.as_ref().unwrap();
         assert_eq!(animated.animation_count(), 1);
         assert_eq!(Some(*animated.latest()), shown);
+    }
+
+    /// A layout that already has its placement when it is restarted animates from the start to
+    /// that placement, so a new group's matrix does not jump when it is placed before its project.
+    #[test]
+    fn a_restart_animates_to_the_existing_placement() {
+        let start = Instant::now();
+        let layout_at = |x: f64| {
+            SizedTransform::new(
+                Size::new(100.0, 100.0),
+                Transform::from_translation((x, 0.0, 0.0)),
+            )
+        };
+        let mut layout = SlotLayout::default();
+        layout.set(&mut Allocator(|_| start), layout_at(100.0));
+
+        layout.restart_from(&mut Allocator(|_| start), layout_at(0.0));
+
+        let animated = layout.layout.as_ref().unwrap();
+        assert_eq!(*animated.latest(), layout_at(0.0));
+        assert_eq!(*animated.target(), layout_at(100.0));
+        assert_eq!(animated.animation_count(), 1);
     }
 
     struct Allocator<F>(F);

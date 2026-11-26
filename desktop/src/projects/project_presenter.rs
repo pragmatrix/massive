@@ -97,7 +97,7 @@ impl ProjectPresenter {
 
     /// Removes the project from the screen. Its header fades out where it is shown, and everything
     /// else of the project disappears at once.
-    pub fn fade_out_header(self) {
+    pub fn remove_fading_header(self) {
         self.header.fade_out();
     }
 
@@ -235,6 +235,11 @@ impl TargetLayout for ProjectPresenter {
                     let start = group_start(origin, layout);
                     animate_in_from(&self.movement, start);
                     animate_in_from(&self.matrix.movement, matrix_start(start));
+                    // The project snaps below when the layout does not animate, and its matrix,
+                    // which may be placed already, has to snap with it.
+                    if !animate {
+                        self.matrix.movement.snap();
+                    }
                 }
                 self.set_layout(layout, animate)
             }
@@ -300,17 +305,10 @@ fn set_layout(movement: &Movement<SlotLayout>, layout: SizedTransform, animate: 
     }
 }
 
-/// Shows `movement` at `from`, so that it animates from there to its placement.
+/// Shows `movement` at `from`, so that it animates from there to its placement. See
+/// [`SlotLayout::restart_from`].
 fn animate_in_from(movement: &Movement<SlotLayout>, from: SizedTransform) {
-    movement.modify(move |slot_layout, context| {
-        // A matrix can get its first layout before its project, so its placement may be there
-        // already. It then animates to that placement from `from` too.
-        let placed = slot_layout.target();
-        *slot_layout = SlotLayout::starting_at(from);
-        if let Some(placed) = placed {
-            slot_layout.set(context, placed);
-        }
-    });
+    movement.modify(move |slot_layout, context| slot_layout.restart_from(context, from));
 }
 
 /// The start of a new group at `origin` for its first placement `first`. It keeps the placement's

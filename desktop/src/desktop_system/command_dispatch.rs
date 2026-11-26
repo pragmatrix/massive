@@ -685,7 +685,10 @@ impl DesktopSystem {
             }
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
-                self.aggregates.projects.remove(&project)?.fade_out_header();
+                self.aggregates
+                    .projects
+                    .remove(&project)?
+                    .remove_fading_header();
                 DesktopEffect::Measure(DesktopTarget::matrix(parent)).mark();
                 DesktopEffect::RefreshColumnCount(project).mark();
             }
