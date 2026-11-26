@@ -10,14 +10,15 @@
 //!   [`MovementRuntime::mount`] registers it and returns a [`Movement`] handle.
 //! - **Modify**: [`Movement::modify`] queues a closure that mutates the value and may start
 //!   animations. The closure receives an [`AnimationAllocator`] that records the movement's
-//!   `ending_time` (the latest end across all its animations). Right after the closure ran, the
+//!   ending time (the latest end across all its animations). Right after the closure ran, the
 //!   runtime applies the movement once more, at the time of its last apply. This puts the new
 //!   value on screen in the same frame without moving a running animation forward (see
 //!   [`MovementRuntime::run_actions`]).
 //! - **Animate**: [`MovementRuntime::apply_animations`] advances every movement with a pending
-//!   `ending_time` each cycle, until the first cycle at or past that time. It then clears the
-//!   `ending_time` and emits the movement's completion event, if any.
+//!   ending time each cycle, until the first cycle at or past that time. It then clears the
+//!   ending time and emits the movement's completion event, if any.
 //! - **Drop**: Dropping the [`Movement`] handle queues a `Drop` action that unregisters it.
+//!   [`Movement::release_when_settled`] defers that until the movement's animations have ended.
 //!
 //! # Concurrency model
 //!
@@ -40,7 +41,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
-use std::ptr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -50,6 +50,8 @@ use crate::{AnimationAllocator, AnimationCoordinator, AnimationProgress};
 
 pub struct MovementRuntime {
     movements: HashMap<MovementReference, MountedMovement>,
+    /// The number of movements mounted so far. It identifies the next one.
+    mounted_count: u64,
     action_inbox: Arc<Mutex<Vec<MovementAction>>>,
     // Reused while draining the inbox so recurring actions retain their allocation capacity.
     actions: Vec<MovementAction>,
@@ -74,6 +76,7 @@ impl MovementRuntime {
     pub fn new() -> Self {
         Self {
             movements: Default::default(),
+            mounted_count: 0,
             action_inbox: Arc::new(Mutex::new(Vec::new())),
             actions: Vec::new(),
         }
@@ -86,17 +89,32 @@ impl MovementRuntime {
         F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
     {
         let instance = Box::new(instance);
-        let reference = Movement::new(&instance.value, self.action_inbox.clone());
+        let reference = Movement::new(
+            MovementReference(self.mounted_count),
+            self.action_inbox.clone(),
+        );
+        self.mounted_count += 1;
         self.movements.insert(
             reference.instance,
             MountedMovement {
                 movement: instance,
-                ending_time: None,
+                activity: Activity::Idle,
                 drawn_at: None,
             },
         );
 
         reference
+    }
+
+    /// Reads the value of `movement` as it was last applied, which is the value the scene shows.
+    /// Queued modifies are applied later, so they do not show in it yet.
+    pub fn inspect<T: Any, R>(&self, movement: &Movement<T>, inspect: impl FnOnce(&T) -> R) -> R {
+        let value = self.movements[&movement.instance]
+            .movement
+            .as_any()
+            .downcast_ref::<T>()
+            .expect("movement reference has the wrong value type");
+        inspect(value)
     }
 
     /// Drain the action inbox and apply each queued action to its movement.
@@ -121,7 +139,7 @@ impl MovementRuntime {
     /// times makes motion stutter. At the time of the last apply, an animation that the modify
     /// started has not begun yet. The movement is therefore shown at the animation's start value,
     /// and the animation keeps running. A snap, in contrast, finishes all animations. The
-    /// movement's `ending_time` and its completion event stay with the apply-animations cycles.
+    /// movement's ending time and its completion event stay with the apply-animations cycles.
     ///
     /// As a consequence, a movement's apply closure runs after every modify, also when no
     /// animation is running, and it has to handle that case. The extra apply repeats the time of
@@ -136,11 +154,11 @@ impl MovementRuntime {
 
         for action in self.actions.drain(..) {
             match action {
-                MovementAction::Modify(pointer, apply) => {
-                    if let Some(instance) = self.movements.get_mut(&pointer) {
+                MovementAction::Modify(reference, apply) => {
+                    if let Some(instance) = self.movements.get_mut(&reference) {
                         let mut intermediate = MovementAnimationAllocator {
                             inner: coordinator,
-                            ending_time: &mut instance.ending_time,
+                            activity: &mut instance.activity,
                         };
                         apply(instance.movement.as_any_mut(), &mut intermediate);
                         if let Some(time) = instance.drawn_at.or(cycle_time) {
@@ -151,15 +169,35 @@ impl MovementRuntime {
                         }
                     }
                 }
-                MovementAction::Snap(pointer) => {
-                    if let Some(instance) = self.movements.get_mut(&pointer) {
+                MovementAction::Snap(reference) => {
+                    if let Some(instance) = self.movements.get_mut(&reference) {
                         // Snapping is deliberately local and does not emit completion events yet.
                         instance.movement.apply_animations(AnimationProgress::Snap);
-                        instance.ending_time = None;
+                        instance.activity = Activity::Idle;
                     }
                 }
-                MovementAction::Drop(pointer) => {
-                    self.movements.remove(&pointer);
+                MovementAction::Release(reference, kept) => {
+                    let Some(instance) = self.movements.get_mut(&reference) else {
+                        continue;
+                    };
+                    match instance.activity {
+                        Activity::Idle => {
+                            self.movements.remove(&reference);
+                        }
+                        Activity::Animating(until) => {
+                            instance.activity = Activity::Settling { until, _kept: kept };
+                        }
+                        Activity::Settling { .. } => panic!("a movement is released once"),
+                    }
+                }
+                MovementAction::Drop(reference) => {
+                    // The handle that `release_when_settled` consumed queues this after its
+                    // `Release`. A settling movement stays until its animations end.
+                    if self.movements.get(&reference).is_some_and(|instance| {
+                        !matches!(instance.activity, Activity::Settling { .. })
+                    }) {
+                        self.movements.remove(&reference);
+                    }
                 }
             }
         }
@@ -168,13 +206,15 @@ impl MovementRuntime {
     /// Advance all animating movements to the given instant.
     ///
     /// Returns the completion events of movements that reached their ending time this cycle. A
-    /// movement stops being advanced once its `ending_time` is reached, so callers can rely on the
+    /// movement stops being advanced once its ending time is reached, so callers can rely on the
     /// completion event (rather than external activity tracking) to know when it has stopped.
     pub fn apply_animations(&mut self, instant: Instant) -> Vec<Box<dyn Any + Send>> {
         let mut events = Vec::new();
-        for movement in self.movements.values_mut() {
-            let Some(ending_time) = movement.ending_time else {
-                continue;
+        let mut settled = Vec::new();
+        for (reference, movement) in &mut self.movements {
+            let ending_time = match movement.activity {
+                Activity::Idle => continue,
+                Activity::Animating(until) | Activity::Settling { until, .. } => until,
             };
 
             movement
@@ -184,11 +224,17 @@ impl MovementRuntime {
 
             // Keep applying through the first cycle at or past the movement end, then stop.
             if instant >= ending_time {
-                movement.ending_time = None;
+                if let Activity::Settling { .. } = movement.activity {
+                    settled.push(*reference);
+                }
+                movement.activity = Activity::Idle;
                 if let Some(event) = movement.movement.completion_event() {
                     events.push(event);
                 }
             }
+        }
+        for reference in settled {
+            self.movements.remove(&reference);
         }
 
         events
@@ -204,9 +250,9 @@ pub struct Movement<T> {
 }
 
 impl<T> Movement<T> {
-    fn new(instance: &T, actions_inbox: Arc<Mutex<Vec<MovementAction>>>) -> Self {
+    fn new(instance: MovementReference, actions_inbox: Arc<Mutex<Vec<MovementAction>>>) -> Self {
         Self {
-            instance: MovementReference::new(instance),
+            instance,
             actions_inbox,
             marker: PhantomData,
         }
@@ -215,7 +261,7 @@ impl<T> Movement<T> {
     /// Queue a closure that mutates the movement's value and may start animations.
     ///
     /// The closure runs on the runtime's thread during the next [`MovementRuntime::run_actions`].
-    /// Animations started here are tracked against the movement's `ending_time`.
+    /// Animations started here are tracked against the movement's ending time.
     pub fn modify(
         &self,
         modifier: impl FnOnce(&mut T, &mut dyn AnimationAllocator) + Send + Sync + 'static,
@@ -239,6 +285,17 @@ impl<T> Movement<T> {
             .lock()
             .push(MovementAction::Snap(self.instance));
     }
+
+    /// Drops the handle, but keeps the movement and `keep` until its running animations have
+    /// ended. Its completion event, if it has one, still arrives then.
+    ///
+    /// A presenter that is removed while it fades out passes the scene objects its movement does
+    /// not own as `keep`, so they stay visible until the fade has ended.
+    pub fn release_when_settled(self, keep: impl Any + Send + Sync) {
+        self.actions_inbox
+            .lock()
+            .push(MovementAction::Release(self.instance, Box::new(keep)));
+    }
 }
 
 impl<T> Drop for Movement<T> {
@@ -249,20 +306,14 @@ impl<T> Drop for Movement<T> {
     }
 }
 
+/// Identifies a mounted movement. The runtime never gives the same reference to two movements, so
+/// an action that arrives after its movement is gone finds nothing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-struct MovementReference(*const ());
-
-// This is an opaque identity only; movement values are never accessed through the pointer.
-unsafe impl Send for MovementReference {}
-unsafe impl Sync for MovementReference {}
-
-impl MovementReference {
-    fn new<T>(value: &T) -> Self {
-        Self(ptr::from_ref(value).cast())
-    }
-}
+struct MovementReference(u64);
 
 trait AnimatableMovement: Any + Send + Sync {
+    fn as_any(&self) -> &(dyn Any + Send);
+
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
     fn apply_animations(&mut self, progress: AnimationProgress);
@@ -272,10 +323,35 @@ trait AnimatableMovement: Any + Send + Sync {
 
 struct MountedMovement {
     movement: Box<dyn AnimatableMovement>,
-    ending_time: Option<Instant>,
+    activity: Activity,
     /// The time of the movement's last apply. A modify is applied again at this time, which shows
     /// the new value without moving running animations forward.
     drawn_at: Option<Instant>,
+}
+
+/// Whether a mounted movement animates, and whether its handle still owns it. A released movement
+/// that does not animate is dropped at once, so it has no state of its own.
+enum Activity {
+    Idle,
+    /// Animates until the instant, the latest end of its animations.
+    Animating(Instant),
+    /// Animates until `until`, after [`Movement::release_when_settled`] gave up its handle. It is
+    /// dropped then, together with what it keeps.
+    Settling {
+        until: Instant,
+        /// Held only so that it is dropped with the movement.
+        _kept: Box<dyn Any + Send + Sync>,
+    },
+}
+
+impl Activity {
+    /// Extends the animating time to at least `end`. A settling movement stays settling.
+    fn animate_until(&mut self, end: Instant) {
+        match self {
+            Self::Idle => *self = Self::Animating(end),
+            Self::Animating(until) | Self::Settling { until, .. } => *until = max(*until, end),
+        }
+    }
 }
 
 pub struct MovementInstance<T, F> {
@@ -303,6 +379,10 @@ where
     T: Any + Send + Sync,
     F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
 {
+    fn as_any(&self) -> &(dyn Any + Send) {
+        &self.value
+    }
+
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
     }
@@ -321,17 +401,13 @@ where
 /// Forwards animation allocations to the real context while tracking this movement's ending time.
 struct MovementAnimationAllocator<'a> {
     inner: &'a mut dyn AnimationAllocator,
-    ending_time: &'a mut Option<Instant>,
+    activity: &'a mut Activity,
 }
 
 impl AnimationAllocator for MovementAnimationAllocator<'_> {
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
         let start = self.inner.allocate_animation_time(duration);
-        let end = start + duration;
-        *self.ending_time = Some(match *self.ending_time {
-            Some(existing) => max(existing, end),
-            None => end,
-        });
+        self.activity.animate_until(start + duration);
         start
     }
 }
@@ -342,6 +418,9 @@ type ModifyMovement =
 enum MovementAction {
     Modify(MovementReference, ModifyMovement),
     Snap(MovementReference),
+    /// Keeps the movement and the boxed value until its animations have ended, even though the
+    /// handle drops.
+    Release(MovementReference, Box<dyn Any + Send + Sync>),
     Drop(MovementReference),
 }
 
@@ -350,6 +429,7 @@ impl fmt::Debug for MovementAction {
         match self {
             Self::Modify(_, _) => formatter.write_str("Modify"),
             Self::Snap(_) => formatter.write_str("Snap"),
+            Self::Release(_, _) => formatter.write_str("Release"),
             Self::Drop(_) => formatter.write_str("Drop"),
         }
     }
@@ -393,7 +473,7 @@ mod tests {
             runtime
                 .movements
                 .values()
-                .all(|movement| movement.ending_time.is_some()),
+                .all(|movement| matches!(movement.activity, Activity::Animating(_))),
             "the started animation keeps running"
         );
 
@@ -410,5 +490,44 @@ mod tests {
         });
         runtime.run_actions(&mut coordinator);
         assert_eq!(*drawn.lock(), Some(1.5));
+    }
+
+    /// A released movement keeps animating, and what it keeps alive is dropped only once its
+    /// animation has ended.
+    #[test]
+    fn a_released_movement_is_dropped_once_it_settled() {
+        let mut coordinator = AnimationCoordinator::new();
+        let mut runtime = MovementRuntime::new();
+        let held = Arc::new(());
+        let movement = runtime.mount(MovementInstance::new(
+            Animated::new(1.0),
+            |value: &mut Animated<f64>, progress| {
+                value.proceed_with(progress);
+            },
+            None,
+        ));
+        coordinator.begin_cycle();
+
+        movement.modify(|value, context| {
+            value.animate_with(context, 0.0, Duration::from_secs(1), Interpolation::Linear)
+        });
+        movement.release_when_settled(held.clone());
+        runtime.run_actions(&mut coordinator);
+        assert_eq!(Arc::strong_count(&held), 2, "the fade is still running");
+
+        let start = coordinator.animation_time();
+        coordinator.end_cycle();
+        coordinator.upgrade_to_apply_animations_cycle(start + Duration::from_millis(500));
+        runtime.apply_animations(coordinator.animation_time());
+        assert_eq!(Arc::strong_count(&held), 2, "the fade is still running");
+        coordinator.end_cycle();
+
+        coordinator.upgrade_to_apply_animations_cycle(start + Duration::from_secs(1));
+        runtime.apply_animations(coordinator.animation_time());
+        assert_eq!(
+            Arc::strong_count(&held),
+            1,
+            "the settled movement is dropped"
+        );
     }
 }

@@ -5,15 +5,16 @@
 //! starting at the project's own slot, removes the project, and selects the ungrouped slots.
 
 use euclid::{point2, vec2};
-use massive_geometry::{Rect, SizedTransform, Transform, Vector3};
-use massive_layout::Placement;
+use massive_geometry::{Rect, SizedTransform, Vector3};
 
 use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange, set_focus};
 use super::configuration_planning::plan_add_project_topology;
 use super::layout_state::DesktopLayoutState;
 use super::reparenting;
 use super::selection::Selection;
-use super::{DesktopTarget, FocusIntent, FocusableTarget, KeyboardFocusReason, ProjectPart};
+use super::{
+    Aggregates, DesktopTarget, FocusIntent, FocusableTarget, KeyboardFocusReason, ProjectPart,
+};
 use crate::policy::when::UngroupingFocus;
 use crate::projects::{
     ProjectId, RuntimeConfiguration, SlotContent, SlotPosition, group_landings, matrix_bounding_box,
@@ -57,29 +58,26 @@ pub fn plan(
 }
 
 /// The bounds of the contents of `slots` of `parent`, in the coordinates of the parent's matrix, as
-/// they are placed before the transaction's effects run.
-///
-/// A content that still animates is not shown at its placement yet, so these bounds are where the
-/// contents are heading, not where they are on screen.
+/// they are shown now.
 pub fn slot_bounds(
     parent: ProjectId,
     slots: &[SlotPosition],
-    configuration: &RuntimeConfiguration,
+    aggregates: &Aggregates,
     layout_state: &DesktopLayoutState,
-) -> SizedTransform {
-    let bounds = slots
+) -> Rect {
+    slots
         .iter()
         .map(|&slot| {
-            let content = configuration
+            let content = aggregates
+                .configuration
                 .content_at(parent, slot)
                 .expect("a grouped slot has content");
-            placed_rect(&layout_state.local_placement(&content.target()))
+            let layout = reparenting::shown_layout(&content.target(), aggregates, layout_state)
+                .expect("a grouped content is shown or placed");
+            layout_rect(layout)
         })
         .reduce(|bounds, rect| bounds.joined(rect))
-        .expect("grouping takes at least one slot");
-    let size = bounds.size();
-    let origin = Transform::from_translation(bounds.origin().with_z(0.0));
-    SizedTransform::new(size, origin.pivoted_at(size.center()))
+        .expect("grouping takes at least one slot")
 }
 
 /// Plans ungrouping the non-empty `project`, and selecting its ungrouped slots when the focus moves
@@ -193,12 +191,11 @@ fn ungrouped_selection(landings: &[SlotPosition]) -> Option<(SlotPosition, Selec
     })
 }
 
-/// The rectangle that `placement` covers in its parent's coordinates.
-fn placed_rect(placement: &Placement<Transform, 2>) -> Rect {
-    let origin = DesktopLayoutState::origin_transform(placement);
-    let size = placement.rect.size;
+/// The rectangle that `layout` covers in its parent's coordinates.
+fn layout_rect(layout: SizedTransform) -> Rect {
+    let origin = layout.pivoted_at_origin();
     let start = origin.transform_point(Vector3::new(0.0, 0.0, 0.0));
-    let end = origin.transform_point(Vector3::new(size[0] as f64, size[1] as f64, 0.0));
+    let end = origin.transform_point(Vector3::new(layout.size.width, layout.size.height, 0.0));
     Rect {
         left: start.x,
         top: start.y,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Point, Transform};
+use massive_geometry::{Point, SizePx, SizedTransform, Transform};
 use massive_layout::{
     ChildPlacement, LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement,
     Rect as LayoutRect, Size as LayoutSize,
@@ -262,23 +262,18 @@ impl DesktopLayoutState {
         Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(visible)
     }
 
-    /// The transform from `target`'s local coordinates into the coordinates of the layout root.
-    /// The local coordinates are relative to the origin of the target's rectangle, not to its
-    /// center. A presenter positions its scene children in these coordinates.
-    pub fn absolute_origin_transform(
-        &self,
-        target: &DesktopTarget,
-        topology: &impl LayoutTopology<DesktopTarget>,
-    ) -> Transform {
-        Self::origin_transform(&self.absolute_placement(target, topology))
-    }
-
     /// The transform of `placement` for coordinates relative to the origin of its rectangle,
     /// instead of its center.
     pub fn origin_transform(placement: &Placement<Transform, 2>) -> Transform {
         placement
             .transform
             .pivoted_at_origin(Self::layout_local_center(placement.rect.size))
+    }
+
+    /// The layout a presenter shows for `placement`.
+    pub fn placed_layout(placement: &Placement<Transform, 2>) -> SizedTransform {
+        let size = placement.rect.size;
+        SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform)
     }
 
     /// The center of a rectangle of `size`, which is the pivot of every layout placement's

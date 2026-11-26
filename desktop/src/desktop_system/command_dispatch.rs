@@ -671,21 +671,21 @@ impl DesktopSystem {
             } => {
                 // The grouped slots leave the parent's configuration below, so their bounds are
                 // read first.
-                let bounds = grouping::slot_bounds(
-                    parent,
-                    &slots,
-                    &self.aggregates.configuration,
-                    &self.layout_state,
-                );
+                let bounds =
+                    grouping::slot_bounds(parent, &slots, &self.aggregates, &self.layout_state);
                 self.aggregates
                     .configuration
                     .group_slots(parent, &slots, project, &name);
                 self.insert_slot_presenter(Some(parent), project.into())?;
-                self.aggregates.projects[&project].animate_in_from(bounds);
+                self.aggregates
+                    .projects
+                    .get_mut(&project)
+                    .expect("the grouped project has a presenter")
+                    .animate_in_from(bounds.origin());
             }
             ConfigurationChange::Ungroup { parent, slot } => {
                 let project = self.aggregates.configuration.ungroup_slot(parent, slot);
-                self.aggregates.projects.remove(&project)?;
+                self.aggregates.projects.remove(&project)?.fade_out();
                 DesktopEffect::Measure(DesktopTarget::matrix(parent)).mark();
                 DesktopEffect::RefreshColumnCount(project).mark();
             }

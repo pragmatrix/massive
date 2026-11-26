@@ -61,13 +61,13 @@ that the window, the layout, and the camera stay out of its reach. Most other pl
 
 A search of the planners finds no read of effect-derived state. `plan_zoom` and `plan_escape` use
 only the topology queries of `ZoomGeometry` in `navigation/zoom_geometry.rs`. Placements are read to
-resolve the camera after the effects, and twice during applying.
+resolve the camera after the effects, and in one function during applying.
 
-The reads during applying belong to re-parenting and grouping. `reparenting::apply` in
-`reparenting.rs` reads the placements of the previous and the new parent.
-`grouping::slot_bounds` in `grouping.rs` reads the placements of the grouped slots' contents.
-Both want the placements from before the transaction, because the content is shown there or
-animates toward them.
+That function is `reparenting::shown_layout` in `reparenting.rs`. It returns the layout that slot
+content, a project, or a matrix shows now. Before a target's first layout is shown, it returns the
+target's placement, because that first layout jumps there. Re-parenting converts with it, and
+`grouping::slot_bounds` in `grouping.rs` bounds the grouped slots' contents with it. The shown
+layouts come first, because a parent that still animates is not at its placement yet.
 
 The convention is unprotected, though. `ZoomGeometry` offers topology queries and placement queries
 side by side, so a plan can start reading stale placements without anyone noticing.

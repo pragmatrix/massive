@@ -118,6 +118,21 @@ impl TitleBarPresenter {
         });
     }
 
+    /// Fades the bar out where it is shown, and drops it once the fade has ended.
+    pub fn fade_out(self) {
+        self.movement.modify(|movement, context| {
+            movement.alpha.animate_with(
+                context,
+                0.0,
+                structural_animation::DURATION,
+                structural_animation::INTERPOLATION,
+            );
+        });
+        // The movement owns the bar's other scene objects, so only the text is kept alive here.
+        self.movement
+            .release_when_settled((self.text_transform, self.text));
+    }
+
     pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
         // The available width is known once a layout has been set.
         let has_layout = self.available_width.is_some();

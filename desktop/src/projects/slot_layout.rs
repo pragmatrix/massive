@@ -26,14 +26,37 @@ impl SlotLayout {
         }
     }
 
+    /// Shows `from` and animates from there to the layout's placement, if it has one already.
+    ///
+    /// A new group's matrix can get its first layout before its project sets the matrix's start,
+    /// so the placement it already has is animated to from the start as well.
+    pub fn restart_from(&mut self, context: &mut dyn AnimationAllocator, from: SizedTransform) {
+        let placed = self.target();
+        *self = Self::starting_at(from);
+        if let Some(placed) = placed {
+            self.set(context, placed);
+        }
+    }
+
+    /// Animates to `layout` from the layout shown now, replacing a running animation.
+    ///
+    /// Nested layouts then stay on the same curve when a change interrupts another (ADR 0048,
+    /// `an_interrupting_change_replaces_the_running_animation`).
     pub fn set(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
         match &mut self.layout {
-            Some(animated) => animated.animate_if_changed_with(
-                context,
-                layout,
-                structural_animation::DURATION,
-                structural_animation::INTERPOLATION,
-            ),
+            Some(animated) => {
+                if *animated.target() == layout {
+                    return;
+                }
+                let shown = *animated.latest();
+                animated.snap(shown);
+                animated.animate_with(
+                    context,
+                    layout,
+                    structural_animation::DURATION,
+                    structural_animation::INTERPOLATION,
+                );
+            }
             None => self.layout = Some(layout.into()),
         }
     }
@@ -55,6 +78,17 @@ impl SlotLayout {
         layout.snap(SizedTransform::new(drawn.size, transform));
     }
 
+    /// The layout it animates to, or shows when it does not animate. It is `None` before the first
+    /// layout arrived, unless the layout was started at another one.
+    pub fn target(&self) -> Option<SizedTransform> {
+        self.layout.as_ref().map(|layout| *layout.target())
+    }
+
+    /// The layout shown now. It is `None` before the first layout arrived.
+    pub fn presented(&self) -> Option<SizedTransform> {
+        self.layout.as_ref().map(|layout| *layout.latest())
+    }
+
     /// Returns the layout to show at `progress`. It is `None` before the first layout arrived.
     pub fn proceed_with(&mut self, progress: AnimationProgress) -> Option<SizedTransform> {
         self.layout
@@ -65,6 +99,8 @@ impl SlotLayout {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use massive_geometry::{Quaternion, Size};
 
     use super::*;
@@ -89,5 +125,59 @@ mod tests {
             parent * layout.layout.unwrap().latest().pivoted_at_origin(),
             previous_parent * drawn.pivoted_at_origin()
         );
+    }
+
+    /// A change that interrupts a running animation starts a new one from the layout shown at that
+    /// moment, instead of blending the two, so that nested layouts stay on the same curve.
+    #[test]
+    fn an_interrupting_change_replaces_the_running_animation() {
+        let start = Instant::now();
+        let at = |offset: Duration| move |_: Duration| start + offset;
+        let layout_at = |x: f64| {
+            SizedTransform::new(
+                Size::new(100.0, 100.0),
+                Transform::from_translation((x, 0.0, 0.0)),
+            )
+        };
+        let mut layout = SlotLayout::starting_at(layout_at(0.0));
+        layout.set(&mut Allocator(at(Duration::ZERO)), layout_at(100.0));
+        let halfway = structural_animation::DURATION / 2;
+        let shown = layout.proceed_with(AnimationProgress::Proceed(start + halfway));
+
+        layout.set(&mut Allocator(at(halfway)), layout_at(-100.0));
+
+        let animated = layout.layout.as_ref().unwrap();
+        assert_eq!(animated.animation_count(), 1);
+        assert_eq!(Some(*animated.latest()), shown);
+    }
+
+    /// A layout that already has its placement when it is restarted animates from the start to
+    /// that placement, so a new group's matrix does not jump when it is placed before its project.
+    #[test]
+    fn a_restart_animates_to_the_existing_placement() {
+        let start = Instant::now();
+        let layout_at = |x: f64| {
+            SizedTransform::new(
+                Size::new(100.0, 100.0),
+                Transform::from_translation((x, 0.0, 0.0)),
+            )
+        };
+        let mut layout = SlotLayout::default();
+        layout.set(&mut Allocator(|_| start), layout_at(100.0));
+
+        layout.restart_from(&mut Allocator(|_| start), layout_at(0.0));
+
+        let animated = layout.layout.as_ref().unwrap();
+        assert_eq!(*animated.latest(), layout_at(0.0));
+        assert_eq!(*animated.target(), layout_at(100.0));
+        assert_eq!(animated.animation_count(), 1);
+    }
+
+    struct Allocator<F>(F);
+
+    impl<F: FnMut(Duration) -> Instant> AnimationAllocator for Allocator<F> {
+        fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+            (self.0)(duration)
+        }
     }
 }
