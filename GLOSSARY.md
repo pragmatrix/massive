@@ -192,6 +192,14 @@ _Avoid_: window close, process exit
 The single monotonic deadline that bounds graceful shutdown. Once it expires, the desktop ends immediately and the shell terminates the process without waiting for unfinished instances or submissions.
 _Avoid_: per-instance timeout, forced-shutdown state
 
+**Layout**:
+The process that measures the desktop's targets bottom-up and places their children top-down. It produces one placement per target.
+_Avoid_: layout (for what one target receives — that is its placement)
+
+**Placement**:
+A target's rectangle and transform relative to its parent, and its visibility, as layout computed them. The desktop applies a placement to the target's presenter, which sets it and animates toward it.
+_Avoid_: layout, local layout, slot layout
+
 **Placement visibility**:
 A semantic flag on placement that states whether an instance should be interactable and visually present in the current layout state.
 _Avoid_: hidden by alpha, render-only visibility
